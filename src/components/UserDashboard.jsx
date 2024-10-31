@@ -47,12 +47,39 @@ const UserDashboard = () => {
     totalEntities: 0,
     completedAnnotations: 0
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const [selectedFileId, setSelectedFileId] = useState(null);
   const navigate = useNavigate();
+
+  const refreshData = async () => {
+    try {
+      const storedFiles = await getStoredFiles();
+      setAssignedFiles(storedFiles || []);
+      const newStats = await calculateStats();
+      setUserStats(newStats);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      setError('Error loading files');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshData();
+    
+    const handleStorageChange = (e) => {
+      if (e.key && (e.key.startsWith('file-data-') || e.key.startsWith('annotation-'))) {
+        refreshData();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
@@ -89,9 +116,7 @@ const UserDashboard = () => {
       localStorage.setItem(`file-data-${fileData.id}`, JSON.stringify(fileData));
       
       // Update UI
-      setAssignedFiles(prev => [...prev, fileData]);
-      const newStats = calculateStats();
-      setUserStats(newStats);
+      await refreshData();
       
       // Clear the file input
       event.target.value = null;
@@ -132,7 +157,7 @@ const UserDashboard = () => {
       setAssignedFiles(prev => prev.filter(file => file.id !== fileId));
       
       // Update stats immediately
-      const newStats = calculateStats();
+      const newStats = await calculateStats();
       setUserStats(newStats);
       
       setSnackbar({
@@ -153,7 +178,7 @@ const UserDashboard = () => {
   const handleReannotate = async (fileId) => {
     try {
       await clearAnnotations(fileId);
-      refreshData();
+      await refreshData();
       
       setSnackbar({
         open: true,
@@ -207,25 +232,26 @@ const UserDashboard = () => {
     navigate(`/annotate/${fileId}`);
   };
 
-  const refreshData = () => {
-    const storedFiles = getStoredFiles();
-    setAssignedFiles(storedFiles);
-    const newStats = calculateStats();
-    setUserStats(newStats);
-  };
+  if (loading) {
+    return (
+      <Container maxWidth="xl" sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Container>
+    );
+  }
 
-  useEffect(() => {
-    refreshData();
-    
-    const handleStorageChange = (e) => {
-      if (e.key && (e.key.startsWith('file-data-') || e.key.startsWith('annotation-'))) {
-        refreshData();
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  if (error) {
+    return (
+      <Container maxWidth="xl">
+        <Typography variant="h6" color="error" gutterBottom>
+          {error}
+        </Typography>
+        <Button variant="contained" onClick={() => navigate('/')}>
+          Return to Dashboard
+        </Button>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="lg">
@@ -295,12 +321,6 @@ const UserDashboard = () => {
         </Typography>
         
         {loading && <CircularProgress sx={{ display: 'block', margin: '20px auto' }} />}
-        
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
         
         {assignedFiles.length > 0 ? (
           <List>
@@ -414,7 +434,6 @@ const UserDashboard = () => {
         )}
       </Paper>
       
-      {/* File actions menu */}
       <Menu
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}

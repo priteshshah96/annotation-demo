@@ -1,3 +1,4 @@
+// App.jsx
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import UserDashboard from './components/UserDashboard';
 import UserAnnotationDashboard from './components/UserAnnotationDashboard';

@@ -1,5 +1,3 @@
-// dashboardHelpers.js
-
 const locks = new Set();
 
 const acquireLock = (fileId) => {
@@ -141,13 +139,11 @@ export const saveAnnotation = async (fileId, abstractIndex, sentenceIndex, entit
 
     const annotationKey = `annotation-${fileId}-${abstractIndex}-${sentenceIndex}-${entityIndex}`;
     
-    // Save the annotation
     localStorage.setItem(annotationKey, JSON.stringify({
       answer,
       timestamp: new Date().toISOString()
     }));
 
-    // Update progress
     const progress = await calculateFileProgress(fileId);
     fileData.progress = progress;
     localStorage.setItem(`file-data-${fileId}`, JSON.stringify(fileData));
@@ -176,6 +172,8 @@ export const calculateStats = async () => {
 
     for (const fileKey of fileKeys) {
       const fileData = JSON.parse(localStorage.getItem(fileKey));
+      if (!fileData?.abstracts) continue;
+
       const fileId = fileKey.replace('file-data-', '');
 
       fileData.abstracts.forEach((abstract, abstractIndex) => {
