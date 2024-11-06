@@ -14,7 +14,7 @@ export async function fetchWithAuth(url, options = {}) {
   try {
     // Use the correct base URL - if we're in development, use the local server
     // If VITE_API_URL is not set, default to the proxy setup in vite.config.js
-    const baseUrl = import.meta.env.VITE_API_URL || '';
+    const baseUrl = process.env.VITE_API_URL || window.location.origin;
     const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
 
     // Get token using Clerk
