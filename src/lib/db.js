@@ -1,16 +1,17 @@
-// src/lib/db.js
+// 3. Update lib/db.js for serverless
 import mongoose from 'mongoose';
 
-const MONGODB_URI = import.meta.env.VITE_MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  throw new Error('Please define the VITE_MONGODB_URI environment variable');
+  throw new Error('Please define the MONGODB_URI environment variable');
 }
 
-let cached = {
-  conn: null,
-  promise: null
-};
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 export async function connectDB() {
   if (cached.conn) {
@@ -20,20 +21,11 @@ export async function connectDB() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      serverApi: {
-        version: '1',
-        strict: true,
-        deprecationErrors: true,
-      },
+      serverApi: { version: '1', strict: true, deprecationErrors: true },
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then(mongoose => {
-      console.log('MongoDB connected successfully');
+    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
       return mongoose;
-    }).catch(error => {
-      console.error('MongoDB connection error:', error);
-      cached.promise = null;
-      throw error;
     });
   }
 
@@ -45,5 +37,3 @@ export async function connectDB() {
     throw e;
   }
 }
-
-export default connectDB;

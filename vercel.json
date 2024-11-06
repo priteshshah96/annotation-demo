@@ -2,33 +2,29 @@
   "version": 2,
   "builds": [
     {
-      "src": "src/api/**/*.js",
+      "src": "api/**/*.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
     }
   ],
   "routes": [
     {
-      "src": "/api/files/upload",
-      "methods": ["POST", "OPTIONS"],
-      "dest": "src/api/files/[fileId].js"
-    },
-    {
-      "src": "/api/files/(.*)",
-      "methods": ["GET", "DELETE", "OPTIONS"],
-      "dest": "src/api/files/[fileId].js"
-    },
-    {
-      "src": "/api/files",
-      "methods": ["GET", "OPTIONS"],
-      "dest": "src/api/files/[fileId].js"
-    },
-    {
       "src": "/api/(.*)",
-      "dest": "src/api/$1.js"
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ],
   "env": {
     "MONGODB_URI": "@mongodb-uri",
-    "CLERK_SECRET_KEY": "@clerk-secret-key"
+    "CLERK_SECRET_KEY": "@clerk-secret-key",
+    "CLERK_PUBLISHABLE_KEY": "@clerk-publishable-key",
+    "NODE_ENV": "production"
   }
 }
