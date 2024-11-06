@@ -20,11 +20,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "MONGODB_URI": "@mongodb-uri",
-    "CLERK_SECRET_KEY": "@clerk-secret-key",
-    "CLERK_PUBLISHABLE_KEY": "@clerk-publishable-key",
-    "NODE_ENV": "production"
-  }
+  ]
 }
