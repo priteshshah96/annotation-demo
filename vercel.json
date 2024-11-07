@@ -21,7 +21,7 @@
   ],
   "rewrites": [
 
-    { "source": "/api/files/:path*", "destination": "/src/api/files.js" }
+    { "source": "/api/files/:path*", "destination": "/src/api/files.js" },
 
     { "source": "/api/annotations/:fileId/reset", "destination": "/src/api/annotations/[fileId]/reset.js" },
     { "source": "/api/annotations/:fileId/sync", "destination": "/src/api/annotations/[fileId]/sync.js" },
