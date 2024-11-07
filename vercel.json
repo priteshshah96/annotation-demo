@@ -3,34 +3,18 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
-  "builds": [
-    {
-      "src": "src/api/**/*.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": { "zeroConfig": true }
+  "functions": {
+    "/api/**/*": {
+      "memory": 1024,
+      "maxDuration": 10
     }
-  ],
+  },
   "rewrites": [
-    { 
-      "source": "/api/files/upload",
-      "destination": "/src/api/files/upload.js"
-    },
-    {
-      "source": "/api/files/:fileId",
-      "destination": "/src/api/files/[fileId].js"
-    },
-    {
-      "source": "/api/annotations/:fileId",
-      "destination": "/src/api/annotations/[fileId].js"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/dist/index.html"
-    }
+    { "source": "/api/files/upload", "destination": "/api/files/upload" },
+    { "source": "/api/files/:fileId", "destination": "/api/files/[fileId]" },
+    { "source": "/api/annotations/:fileId", "destination": "/api/annotations/[fileId]" },
+    { "source": "/api/:path*", "destination": "/api/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {
@@ -40,6 +24,23 @@
         { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
         { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" },
         { "key": "Access-Control-Allow-Credentials", "value": "true" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:;"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
       ]
     }
   ]
