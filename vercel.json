@@ -20,11 +20,19 @@
     }
   ],
   "rewrites": [
+
+    { "source": "/api/files", "destination": "/src/api/files/index.js" },
     { "source": "/api/files/upload", "destination": "/src/api/files/upload.js" },
     { "source": "/api/files/:fileId", "destination": "/src/api/files/[fileId].js" },
+
+    { "source": "/api/annotations/:fileId/reset", "destination": "/src/api/annotations/[fileId]/reset.js" },
+    { "source": "/api/annotations/:fileId/sync", "destination": "/src/api/annotations/[fileId]/sync.js" },
     { "source": "/api/annotations/:fileId", "destination": "/src/api/annotations/[fileId].js" },
-    { "source": "/api/sync", "destination": "/src/api/sync.js" },
-    { "source": "/api/(.*)", "destination": "/src/api/$1.js" },
+    { "source": "/api/annotations", "destination": "/src/api/annotations/index.js" },
+
+
+    { "source": "/api/user/sync", "destination": "/src/api/user/sync.js" },
+
     { "source": "^/assets/(.*)", "destination": "/assets/$1" },
     { "source": "/(.*)\\.(.+)", "destination": "/$1.$2" },
     { "source": "/(.*)", "destination": "/index.html" }
