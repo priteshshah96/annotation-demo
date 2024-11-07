@@ -1,4 +1,3 @@
-// api/files/upload.js
 import { connectDB } from '../../lib/db.js';
 import { File } from '../../models/File.js';
 import { validateAuth } from '../middleware/auth.js';
@@ -15,25 +14,29 @@ export default async function handler(req, res) {
   try {
     // Set CORS headers
     res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', process.env.VERCEL_URL || '*');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
       'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
     );
 
+    // Handle preflight
     if (req.method === 'OPTIONS') {
       return res.status(200).end();
     }
 
-    // Only allow POST method
+    // Only allow POST
     if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
+      return res.status(405).json({ 
+        error: 'Method not allowed',
+        details: 'Only POST requests are allowed for file uploads'
+      });
     }
 
     await connectDB();
-    const auth = await validateAuth(req);
     
+    const auth = await validateAuth(req);
     if (!auth?.user) {
       return res.status(401).json({
         error: 'Unauthorized',
@@ -92,7 +95,13 @@ export default async function handler(req, res) {
     return res.status(500).json({
       success: false,
       error: 'Failed to upload file',
-      details: error.message
+      details: error.message,
+      validationErrors: error.errors ? 
+        Object.keys(error.errors).reduce((acc, key) => {
+          acc[key] = error.errors[key].message;
+          return acc;
+        }, {}) : 
+        undefined
     });
   }
 }
