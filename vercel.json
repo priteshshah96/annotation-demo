@@ -4,16 +4,21 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api/:path*"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/files/upload", "destination": "/api/files/upload" },
+    { "source": "/api/files/:fileId", "destination": "/api/files/[fileId]" },
+    { "source": "/api/annotations/:fileId", "destination": "/api/annotations/[fileId]" },
+    { "source": "/api/:path*", "destination": "/api/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [
