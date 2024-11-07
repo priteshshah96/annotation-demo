@@ -9,6 +9,7 @@
       "use": "@vercel/node",
       "config": {
         "maxDuration": 60,
+        "maxLambdaSize": "50mb",
         "memory": 1024
       }
     },
@@ -39,11 +40,5 @@
         { "key": "Access-Control-Max-Age", "value": "86400" }
       ]
     }
-  ],
-  "functions": {
-    "src/api/files/upload.js": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  }
+  ]
 }
