@@ -4,16 +4,16 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "functions": {
-    "/api/**/*": {
+    "src/api/**/*": {
       "memory": 1024,
       "maxDuration": 10
     }
   },
   "rewrites": [
-    { "source": "/api/files/upload", "destination": "/api/files/upload" },
-    { "source": "/api/files/:fileId", "destination": "/api/files/[fileId]" },
-    { "source": "/api/annotations/:fileId", "destination": "/api/annotations/[fileId]" },
-    { "source": "/api/:path*", "destination": "/api/:path*" },
+    { "source": "/api/files/upload", "destination": "/src/api/files/upload" },
+    { "source": "/api/files/:fileId", "destination": "/src/api/files/[fileId]" },
+    { "source": "/api/annotations/:fileId", "destination": "/src/api/annotations/[fileId]" },
+    { "source": "/api/:path*", "destination": "/src/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
