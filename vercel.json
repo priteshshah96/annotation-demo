@@ -6,7 +6,11 @@
   "builds": [
     {
       "src": "src/api/**/*.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 60,
+        "memory": 1024
+      }
     },
     {
       "src": "package.json",
@@ -31,8 +35,15 @@
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
         { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" },
-        { "key": "Access-Control-Allow-Credentials", "value": "true" }
+        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+        { "key": "Access-Control-Max-Age", "value": "86400" }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "src/api/files/upload.js": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
 }
