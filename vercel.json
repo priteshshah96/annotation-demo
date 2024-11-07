@@ -14,25 +14,22 @@
       "config": { "zeroConfig": true }
     }
   ],
-  "routes": [
-    {
-      "src": "/api/files/upload",
-      "dest": "src/api/files/upload.js"
+  "rewrites": [
+    { 
+      "source": "/api/files/upload",
+      "destination": "/src/api/files/upload.js"
     },
     {
-      "src": "/api/files/([^/]+)",
-      "dest": "src/api/files/[fileId].js?fileId=$1"
+      "source": "/api/files/:fileId",
+      "destination": "/src/api/files/[fileId].js"
     },
     {
-      "src": "/api/annotations/([^/]+)",
-      "dest": "src/api/annotations/[fileId].js?fileId=$1"
+      "source": "/api/annotations/:fileId",
+      "destination": "/src/api/annotations/[fileId].js"
     },
     {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "dist/index.html"
+      "source": "/(.*)",
+      "destination": "/dist/index.html"
     }
   ],
   "headers": [
