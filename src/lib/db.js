@@ -1,4 +1,4 @@
-// 3. Update lib/db.js for serverless
+// src/lib/db.js
 import mongoose from 'mongoose';
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -15,25 +15,64 @@ if (!cached) {
 
 export async function connectDB() {
   if (cached.conn) {
+    console.log('Using cached database connection');
     return cached.conn;
   }
 
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      serverApi: { version: '1', strict: true, deprecationErrors: true },
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      family: 4,
+      maxPoolSize: 10,
+      serverApi: {
+        version: '1',
+        strict: true,
+        deprecationErrors: true
+      }
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
-      return mongoose;
-    });
+    console.log('Creating new database connection...');
+    cached.promise = mongoose.connect(MONGODB_URI, opts)
+      .then((mongoose) => {
+        console.log('Database connected successfully');
+        return mongoose;
+      })
+      .catch((error) => {
+        console.error('Database connection error:', {
+          name: error.name,
+          message: error.message,
+          code: error.code
+        });
+        cached.promise = null;
+        throw error;
+      });
   }
 
   try {
     cached.conn = await cached.promise;
     return cached.conn;
-  } catch (e) {
+  } catch (error) {
     cached.promise = null;
-    throw e;
+    throw error;
   }
 }
+
+// Add connection event handlers
+mongoose.connection.on('connected', () => {
+  console.log('MongoDB connected successfully');
+});
+
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected');
+});
+
+process.on('SIGINT', async () => {
+  await mongoose.connection.close();
+  process.exit(0);
+});

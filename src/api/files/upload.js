@@ -11,47 +11,96 @@ export const config = {
   }
 };
 
-// Helper to set CORS headers
-const setCorsHeaders = (res) => {
+const handleError = (error, req, res) => {
+  console.error('File upload error details:', {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    code: error.code,
+    requestBody: {
+      name: req.body?.name,
+      contentLength: req.body?.content?.length
+    }
+  });
+
+  // Handle known error types
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: Object.values(error.errors).map(err => err.message)
+    });
+  }
+
+  if (error.name === 'MongoError' || error.name === 'MongoServerError') {
+    return res.status(503).json({
+      success: false,
+      error: 'Database error',
+      details: error.message
+    });
+  }
+
+  if (error.name === 'AuthError') {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication failed',
+      details: error.message
+    });
+  }
+
+  // Default error response
+  return res.status(500).json({
+    success: false,
+    error: 'Internal server error',
+    details: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred'
+  });
+};
+
+export default async function handler(req, res) {
+  console.log('Starting file upload handler:', {
+    method: req.method,
+    headers: req.headers,
+    bodySize: JSON.stringify(req.body).length
+  });
+
+  // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', process.env.VERCEL_URL || '*');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
   );
-};
 
-export default async function handler(req, res) {
   try {
-    setCorsHeaders(res);
-
-    // Handle preflight requests
+    // Handle preflight
     if (req.method === 'OPTIONS') {
       return res.status(200).end();
     }
 
-    // Only allow POST method
+    // Validate method
     if (req.method !== 'POST') {
       return res.status(405).json({
         success: false,
         error: 'Method not allowed',
-        details: 'Only POST requests are allowed for file uploads'
+        details: 'Only POST requests are allowed'
       });
     }
 
-    // Connect to database
+    console.log('Connecting to database...');
     await connectDB();
+    console.log('Database connected successfully');
 
-    // Validate authentication
+    console.log('Validating authentication...');
     const auth = await validateAuth(req);
     if (!auth?.user) {
       return res.status(401).json({
         success: false,
         error: 'Unauthorized',
-        details: 'Invalid authentication or user not found'
+        details: 'User authentication failed'
       });
     }
+    console.log('Authentication validated for user:', auth.user._id);
 
     const { name, content } = req.body;
 
@@ -59,7 +108,7 @@ export default async function handler(req, res) {
     if (!name || !content) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid request data',
+        error: 'Invalid request',
         details: 'Name and content are required'
       });
     }
@@ -67,11 +116,12 @@ export default async function handler(req, res) {
     if (!Array.isArray(content)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid file format',
-        details: 'Content must be an array of abstracts'
+        error: 'Invalid format',
+        details: 'Content must be an array'
       });
     }
 
+    console.log('Calculating total steps...');
     // Calculate total steps
     const totalSteps = content.reduce((total, abstract) => {
       if (!abstract.sentences || !Array.isArray(abstract.sentences)) {
@@ -82,9 +132,11 @@ export default async function handler(req, res) {
         return sentTotal + entityCount + 1;
       }, 0);
     }, 0);
+    console.log('Total steps calculated:', totalSteps);
 
-    // Create new file document
-    const newFile = new File({
+    console.log('Creating file document...');
+    // Create and save file
+    const file = new File({
       userId: auth.user._id,
       name,
       abstracts: content,
@@ -93,10 +145,10 @@ export default async function handler(req, res) {
       uploadDate: new Date()
     });
 
-    // Save file to database
-    const savedFile = await newFile.save();
+    console.log('Saving file to database...');
+    const savedFile = await file.save();
+    console.log('File saved successfully:', savedFile._id);
 
-    // Return success response
     return res.status(201).json({
       success: true,
       file: {
@@ -104,28 +156,11 @@ export default async function handler(req, res) {
         name: savedFile.name,
         totalSteps: savedFile.totalSteps,
         progress: savedFile.progress,
-        uploadDate: savedFile.uploadDate,
-        metadata: savedFile.metadata
-      },
-      message: 'File uploaded successfully'
+        uploadDate: savedFile.uploadDate
+      }
     });
-  } catch (error) {
-    console.error('File upload error:', error);
-    
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        success: false,
-        error: 'Validation failed',
-        details: Object.values(error.errors).map(err => err.message)
-      });
-    }
 
-    // Handle other errors
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to upload file',
-      details: error.message
-    });
+  } catch (error) {
+    return handleError(error, req, res);
   }
 }
