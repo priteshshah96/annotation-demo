@@ -20,27 +20,42 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/files/upload", "destination": "/src/api/files/upload.js" },
-    { "source": "/api/files/:path*", "destination": "/src/api/files.js" },
-    { "source": "/api/annotations/:fileId/reset", "destination": "/src/api/annotations/[fileId]/reset.js" },
-    { "source": "/api/annotations/:fileId/sync", "destination": "/src/api/annotations/[fileId]/sync.js" },
-    { "source": "/api/annotations/:fileId", "destination": "/src/api/annotations/[fileId].js" },
-    { "source": "/api/annotations", "destination": "/src/api/annotations/index.js" },
-    { "source": "/api/user/sync", "destination": "/src/api/user/sync.js" },
-    { "source": "^/assets/(.*)", "destination": "/assets/$1" },
-    { "source": "/(.*)\\.(.+)", "destination": "/$1.$2" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "headers": [
+    { 
+      "source": "/api/files/upload", 
+      "destination": "/src/api/files/upload.js"
+    },
+    { 
+      "source": "/api/user/sync", 
+      "destination": "/src/api/userSync.js" 
+    },
     {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" },
-        { "key": "Access-Control-Allow-Credentials", "value": "true" },
-        { "key": "Access-Control-Max-Age", "value": "86400" }
-      ]
+      "source": "/api/annotations/:fileId/reset",
+      "destination": "/src/api/annotations/[fileId]/reset.js"
+    },
+    {
+      "source": "/api/annotations/:fileId/sync",
+      "destination": "/src/api/annotations/[fileId]/sync.js"
+    },
+    {
+      "source": "/api/annotations/:fileId",
+      "destination": "/src/api/annotations/[fileId].js"
+    },
+    {
+      "source": "/api/annotations",
+      "destination": "/src/api/annotations/index.js"
+    },
+    { 
+      "source": "/api/files/:path*", 
+      "destination": "/src/api/files.js" 
+    },
+    {
+      "source": "/(.*)", 
+      "destination": "/index.html"
     }
-  ]
+  ],
+  "env": {
+    "MONGODB_URI": "@mongodb_uri",
+    "CLERK_SECRET_KEY": "@clerk_secret_key",
+    "CLERK_PUBLISHABLE_KEY": "@clerk_publishable_key"
+  }
 }
