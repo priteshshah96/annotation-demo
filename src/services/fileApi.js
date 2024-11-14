@@ -44,10 +44,25 @@ export const fileApi = {
   // Upload a new file
   async uploadFile(fileData) {
     try {
+      console.log('Starting file upload:', {
+        fileName: fileData.name,
+        contentLength: JSON.stringify(fileData.content).length
+      });
+      
       const response = await api.files.upload(fileData);
+      
+      console.log('Upload successful:', {
+        fileId: response.file?._id,
+        fileName: response.file?.name
+      });
+      
       return response;
     } catch (error) {
-      console.error('Error uploading file:', error);
+      console.error('Upload error:', {
+        message: error.message,
+        status: error.status,
+        details: error.details
+      });
       throw error;
     }
   },
