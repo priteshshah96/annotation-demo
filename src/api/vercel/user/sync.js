@@ -15,25 +15,55 @@ export default async function handler(req) {
   }
 
   try {
-    await connectDB();
+    // Connect to DB with timeout
+    const connectPromise = connectDB();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Database connection timeout')), 5000)
+    );
+    await Promise.race([connectPromise, timeoutPromise]);
     
     const authHeader = req.headers['authorization'];
     if (!authHeader?.startsWith('Bearer ')) {
-      throw new Error('Missing or invalid authorization header');
+      return new Response(
+        JSON.stringify({
+          error: 'Auth failed',
+          message: 'Missing or invalid authorization header'
+        }),
+        { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
     const token = authHeader.split(' ')[1];
     const decoded = await clerkClient.verifyToken(token);
     const userId = decoded.sub;
 
-    const clerkUser = await clerkClient.users.getUser(userId);
+    // Get user with timeout
+    const userPromise = clerkClient.users.getUser(userId);
+    const userTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Clerk API timeout')), 5000)
+    );
+    const clerkUser = await Promise.race([userPromise, userTimeout]);
+
     if (!clerkUser) {
-      throw new Error('User not found in Clerk');
+      return new Response(
+        JSON.stringify({
+          error: 'User not found',
+          message: 'User not found in Clerk'
+        }),
+        { 
+          status: 404, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
     }
 
     const primaryEmail = clerkUser.emailAddresses.find(email => email.id === clerkUser.primaryEmailAddressId);
 
-    let user = await User.findOneAndUpdate(
+    // DB update with timeout
+    const updatePromise = User.findOneAndUpdate(
       { clerkId: userId },
       {
         $set: {
@@ -41,12 +71,16 @@ export default async function handler(req) {
           username: clerkUser.username,
           lastLoginAt: new Date()
         },
-        $setOnInsert: { 
-          createdAt: new Date()
-        }
+        $setOnInsert: { createdAt: new Date() }
       },
       { upsert: true, new: true }
     );
+
+    const updateTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Database update timeout')), 5000)
+    );
+
+    const user = await Promise.race([updatePromise, updateTimeout]);
 
     return new Response(
       JSON.stringify({
@@ -58,16 +92,24 @@ export default async function handler(req) {
           lastLoginAt: user.lastLoginAt
         }
       }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }}
+      { 
+        status: 200, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
     );
   } catch (error) {
     console.error('Sync error:', error);
+    
+    // Ensure we always return valid JSON
     return new Response(
       JSON.stringify({
         error: 'Sync failed',
-        message: error.message
+        message: error.message || 'An unknown error occurred'
       }),
-      { status: error.status || 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }}
+      { 
+        status: error.status || 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      }
     );
   }
 }
