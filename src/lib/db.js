@@ -7,18 +7,16 @@ if (!MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
 }
 
-// Improve cache key to handle multiple connections
 const getCacheKey = (uri) => {
   return createHash('md5').update(uri).digest('hex');
 }
 
 const cacheKey = getCacheKey(MONGODB_URI);
-const globalCache = global as any;
-globalCache.mongoose = globalCache.mongoose || {};
-let cached = globalCache.mongoose[cacheKey];
+global.mongoose = global.mongoose || {};
+let cached = global.mongoose[cacheKey];
 
 if (!cached) {
-  cached = globalCache.mongoose[cacheKey] = { conn: null, promise: null };
+  cached = global.mongoose[cacheKey] = { conn: null, promise: null };
 }
 
 export async function connectDB() {
@@ -56,10 +54,8 @@ export async function connectDB() {
       cached.conn = await cached.promise;
       console.log('Database connected successfully');
       
-      // Set up connection event handlers
       mongoose.connection.on('error', (err) => {
         console.error('MongoDB error event:', err);
-        // Reset cache on fatal errors
         if (err.name === 'MongoNetworkError') {
           cached.conn = null;
           cached.promise = null;
@@ -94,7 +90,6 @@ export async function connectDB() {
   }
 }
 
-// Handle process termination
 ['SIGTERM', 'SIGINT', 'beforeExit'].forEach(signal => {
   process.on(signal, async () => {
     if (mongoose.connection.readyState === 1) {

@@ -10,7 +10,8 @@
       "config": {
         "maxDuration": 60,
         "maxLambdaSize": "50mb",
-        "memory": 1024
+        "memory": 1024,
+        "nodeVersion": "20.x"
       }
     },
     {
