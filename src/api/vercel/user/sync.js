@@ -1,7 +1,7 @@
 // src/api/vercel/user/sync.js
 import { clerkClient } from '@clerk/clerk-sdk-node';
-import { connectDB } from '../../../lib/db';
-import { User } from '../../../models/User';
+import { connectDB } from '../../../lib/db.js';
+import { User } from '../../../models/User.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Credentials': 'true',
