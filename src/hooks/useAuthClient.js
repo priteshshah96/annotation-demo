@@ -16,7 +16,12 @@ export function useAuthClient() {
         throw new Error('No authentication token available');
       }
 
-      const response = await fetch(url, {
+      const baseUrl = process.env.VITE_API_URL || window.location.origin;
+      const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+
+      console.log('Making request to:', fullUrl); // Debug log
+
+      const response = await fetch(fullUrl, {
         ...options,
         headers: {
           ...options.headers,
@@ -28,11 +33,12 @@ export function useAuthClient() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'API request failed');
+        throw new Error(data.error || data.message || 'API request failed');
       }
 
       return data;
     } catch (error) {
+      console.error('API request error:', error);
       setError(error.message);
       throw error;
     } finally {

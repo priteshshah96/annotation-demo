@@ -4,9 +4,21 @@ import { User } from '../../../models/User.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Credentials': 'true',
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': process.env.VERCEL_URL || '*',
   'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type'
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  'Content-Type': 'application/json'
+};
+
+const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+    }
+  }
 };
 
 export default async function handler(req) {
@@ -15,101 +27,93 @@ export default async function handler(req) {
   }
 
   try {
-    // Connect to DB with timeout
-    const connectPromise = connectDB();
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Database connection timeout')), 5000)
-    );
-    await Promise.race([connectPromise, timeoutPromise]);
+    // Connect to DB with retry
+    await retryOperation(async () => {
+      await connectDB();
+    });
     
     const authHeader = req.headers['authorization'];
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(
         JSON.stringify({
-          error: 'Auth failed',
+          success: false,
+          error: 'Unauthorized',
           message: 'Missing or invalid authorization header'
         }),
-        { 
-          status: 401, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        }
+        { status: 401, headers: corsHeaders }
       );
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = await clerkClient.verifyToken(token);
+    
+    // Verify token with retry
+    const decoded = await retryOperation(async () => {
+      return await clerkClient.verifyToken(token);
+    });
+    
     const userId = decoded.sub;
 
-    // Get user with timeout
-    const userPromise = clerkClient.users.getUser(userId);
-    const userTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Clerk API timeout')), 5000)
-    );
-    const clerkUser = await Promise.race([userPromise, userTimeout]);
+    // Get Clerk user with retry
+    const clerkUser = await retryOperation(async () => {
+      const user = await clerkClient.users.getUser(userId);
+      if (!user) throw new Error('User not found');
+      return user;
+    });
 
-    if (!clerkUser) {
-      return new Response(
-        JSON.stringify({
-          error: 'User not found',
-          message: 'User not found in Clerk'
-        }),
+    const primaryEmail = clerkUser.emailAddresses.find(email => 
+      email.id === clerkUser.primaryEmailAddressId
+    );
+
+    // Update MongoDB user with retry
+    const user = await retryOperation(async () => {
+      return await User.findOneAndUpdate(
+        { clerkId: userId },
+        {
+          $set: {
+            email: primaryEmail?.emailAddress,
+            username: clerkUser.username,
+            lastLoginAt: new Date()
+          },
+          $setOnInsert: { createdAt: new Date() }
+        },
         { 
-          status: 404, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          upsert: true, 
+          new: true,
+          maxTimeMS: 5000 // 5 second timeout
         }
       );
+    });
+
+    if (!user) {
+      throw new Error('Failed to create/update user');
     }
-
-    const primaryEmail = clerkUser.emailAddresses.find(email => email.id === clerkUser.primaryEmailAddressId);
-
-    // DB update with timeout
-    const updatePromise = User.findOneAndUpdate(
-      { clerkId: userId },
-      {
-        $set: {
-          email: primaryEmail?.emailAddress,
-          username: clerkUser.username,
-          lastLoginAt: new Date()
-        },
-        $setOnInsert: { createdAt: new Date() }
-      },
-      { upsert: true, new: true }
-    );
-
-    const updateTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Database update timeout')), 5000)
-    );
-
-    const user = await Promise.race([updatePromise, updateTimeout]);
 
     return new Response(
       JSON.stringify({
         success: true,
         user: {
-          id: user._id,
+          id: user._id.toString(),
           email: user.email,
           username: user.username,
           lastLoginAt: user.lastLoginAt
         }
       }),
-      { 
-        status: 200, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
+      { status: 200, headers: corsHeaders }
     );
+
   } catch (error) {
-    console.error('Sync error:', error);
-    
-    // Ensure we always return valid JSON
+    console.error('Sync error:', {
+      message: error.message,
+      stack: error.stack
+    });
+
     return new Response(
       JSON.stringify({
+        success: false,
         error: 'Sync failed',
-        message: error.message || 'An unknown error occurred'
+        message: error.message || 'Internal server error'
       }),
-      { 
-        status: error.status || 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
+      { status: error.status || 500, headers: corsHeaders }
     );
   }
 }

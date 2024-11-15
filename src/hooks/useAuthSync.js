@@ -13,35 +13,40 @@ export function useAuthSync() {
   // Sync user data with our backend
   const syncUser = useCallback(async () => {
     if (!user?.id || isSyncing) return;
-
+  
     try {
       setIsSyncing(true);
       setError(null);
-
+  
       const token = await getToken();
       if (!token) {
         throw new Error('No authentication token available');
       }
-
-      const response = await fetch('/api/user/sync', {
+  
+      // Use the correct base URL
+      const baseUrl = process.env.VITE_API_URL || window.location.origin;
+      const response = await fetch(`${baseUrl}/api/user/sync`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        // Add timeout
+        signal: AbortSignal.timeout(5000)
       });
-
+  
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to sync user data');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to sync user data');
       }
-
+  
       const syncData = await response.json();
       setLastSyncTime(new Date().toISOString());
       setIsInitialSync(false);
       
       return syncData;
     } catch (err) {
+      console.error('Sync error details:', err);
       setError(err.message);
       throw err;
     } finally {
