@@ -1,4 +1,3 @@
-// src/api/vercel/user/sync.js
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import { connectDB } from '../../../lib/db.js';
 import { User } from '../../../models/User.js';
@@ -18,7 +17,7 @@ export default async function handler(req) {
   try {
     await connectDB();
     
-    const authHeader = req.headers.get('authorization');
+    const authHeader = req.headers['authorization'];
     if (!authHeader?.startsWith('Bearer ')) {
       throw new Error('Missing or invalid authorization header');
     }
@@ -32,16 +31,19 @@ export default async function handler(req) {
       throw new Error('User not found in Clerk');
     }
 
+    const primaryEmail = clerkUser.emailAddresses.find(email => email.id === clerkUser.primaryEmailAddressId);
+
     let user = await User.findOneAndUpdate(
       { clerkId: userId },
       {
         $set: {
-          email: clerkUser.emailAddresses[0]?.emailAddress,
-          firstName: clerkUser.firstName,
-          lastName: clerkUser.lastName,
+          email: primaryEmail?.emailAddress,
+          username: clerkUser.username,
           lastLoginAt: new Date()
         },
-        $setOnInsert: { createdAt: new Date() }
+        $setOnInsert: { 
+          createdAt: new Date()
+        }
       },
       { upsert: true, new: true }
     );
@@ -52,14 +54,12 @@ export default async function handler(req) {
         user: {
           id: user._id,
           email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
+          username: user.username,
           lastLoginAt: user.lastLoginAt
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }}
     );
-
   } catch (error) {
     console.error('Sync error:', error);
     return new Response(
