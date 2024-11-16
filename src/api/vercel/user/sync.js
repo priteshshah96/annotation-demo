@@ -2,45 +2,53 @@ import { clerkClient } from '@clerk/clerk-sdk-node';
 import { connectDB } from '../../../lib/db.js';
 import { User } from '../../../models/User.js';
 
-// Remove edge runtime as it's not optimal for MongoDB operations
-// export const config = {
-//   runtime: 'edge'
-// };
+const corsHeaders = {
+  'Access-Control-Allow-Credentials': 'true',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  'Content-Type': 'application/json'
+};
 
-// Consistent response helper
+// Unified header access
+const getAuthHeader = (req) => {
+  // Handle Vercel Edge headers
+  if (req.headers instanceof Headers) {
+    return req.headers.get('authorization');
+  }
+  
+  // Handle Vercel Node.js headers
+  if (req.headers && typeof req.headers === 'object') {
+    return req.headers.authorization || req.headers.Authorization;
+  }
+  
+  return null;
+};
+
 const createResponse = (data, status = 200) => {
-  const headers = {
-    'Access-Control-Allow-Credentials': 'true',
-    'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_CLERK_FRONTEND_API || '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-    'Content-Type': 'application/json',
-    // Add security headers
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
-  };
-
-  return new Response(JSON.stringify(data), { 
-    status, 
-    headers 
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'application/json',
+    }
   });
 };
 
 export default async function handler(req) {
-  // Handle preflight requests
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return createResponse(null, 204);
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders
+    });
   }
 
-  let mongoConnection = null;
-
   try {
-    // Connect to MongoDB with connection pooling
-    mongoConnection = await connectDB();
-
-    // Validate authorization
-    const authHeader = req.headers.get('authorization');
+    await connectDB();
+    
+    // Get and validate auth token
+    const authHeader = getAuthHeader(req);
     if (!authHeader?.startsWith('Bearer ')) {
       return createResponse({
         success: false,
@@ -50,7 +58,7 @@ export default async function handler(req) {
 
     const token = authHeader.split(' ')[1];
     
-    // Verify Clerk token
+    // Verify token
     let decoded;
     try {
       decoded = await clerkClient.verifyToken(token);
@@ -58,103 +66,97 @@ export default async function handler(req) {
       console.error('Token verification failed:', error);
       return createResponse({
         success: false,
-        error: 'Invalid authentication token',
+        error: 'Invalid token',
         code: error.code || 'INVALID_TOKEN'
       }, 401);
     }
 
+    // Get Clerk user
     const userId = decoded.sub;
-
-    // Get user details from Clerk
-    const clerkUser = await clerkClient.users.getUser(userId).catch(error => {
+    let clerkUser;
+    try {
+      clerkUser = await clerkClient.users.getUser(userId);
+    } catch (error) {
       console.error('Failed to fetch Clerk user:', error);
-      throw new Error('User not found in Clerk');
-    });
-
-    // Get primary email
-    const primaryEmail = clerkUser.emailAddresses.find(email => 
-      email.id === clerkUser.primaryEmailAddressId
-    );
-
-    if (!primaryEmail?.emailAddress) {
       return createResponse({
         success: false,
-        error: 'No primary email found for user'
+        error: 'User not found',
+        code: 'USER_NOT_FOUND'
+      }, 404);
+    }
+
+    // Find primary email
+    const primaryEmail = clerkUser.emailAddresses.find(email => 
+      email.id === clerkUser.primaryEmailAddressId
+    )?.emailAddress;
+
+    if (!primaryEmail) {
+      return createResponse({
+        success: false,
+        error: 'No primary email found'
       }, 400);
     }
 
-    // Update or create user in MongoDB with retry logic
+    // Update or create user in MongoDB
     let user;
-    let retries = 3;
-    
-    while (retries > 0) {
-      try {
-        user = await User.findOneAndUpdate(
-          { clerkId: userId },
-          {
-            $set: {
-              email: primaryEmail.emailAddress,
-              firstName: clerkUser.firstName,
-              lastName: clerkUser.lastName,
-              lastLoginAt: new Date()
-            },
-            $setOnInsert: { 
-              createdAt: new Date()
-            }
+    try {
+      user = await User.findOneAndUpdate(
+        { clerkId: userId },
+        {
+          $set: {
+            email: primaryEmail,
+            firstName: clerkUser.firstName,
+            lastName: clerkUser.lastName,
+            lastLoginAt: new Date()
           },
-          { 
-            upsert: true, 
-            new: true,
-            runValidators: true,
-            maxTimeMS: 5000 // 5 second timeout
-          }
-        );
-        break;
-      } catch (error) {
-        retries--;
-        if (retries === 0) throw error;
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
+          $setOnInsert: { createdAt: new Date() }
+        },
+        { 
+          upsert: true, 
+          new: true,
+          runValidators: true
+        }
+      );
+
+      // Success response
+      return createResponse({
+        success: true,
+        user: {
+          id: user._id.toString(),
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          lastLoginAt: user.lastLoginAt
+        }
+      });
+
+    } catch (error) {
+      console.error('MongoDB operation failed:', error);
+      return createResponse({
+        success: false,
+        error: 'Database operation failed',
+        code: 'DB_ERROR'
+      }, 500);
     }
 
-    // Success response
-    return createResponse({
-      success: true,
-      user: {
-        id: user._id.toString(),
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        lastLoginAt: user.lastLoginAt,
-        createdAt: user.createdAt
-      }
-    });
-
   } catch (error) {
-    // Log error details
-    console.error('Sync endpoint error:', {
+    console.error('Sync error:', {
       message: error.message,
       stack: error.stack,
       code: error.code
     });
 
-    // Determine error status
-    let status = error.status || 500;
-    if (error.code === 11000) status = 409;
-    if (error.name === 'ValidationError') status = 400;
-
     return createResponse({
       success: false,
-      error: error.message || 'Internal server error',
-      code: error.code || 'SYNC_ERROR',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    }, status);
-
-  } finally {
-    // Cleanup MongoDB connection if needed
-    if (mongoConnection?.connection?.readyState === 1) {
-      // Keep connection alive for serverless environment
-      // MongoDB driver will handle connection pooling
-    }
+      error: 'Internal server error',
+      details: error.message
+    }, 500);
   }
 }
+
+// Export config for Vercel
+export const config = {
+  api: {
+    bodyParser: true
+  }
+};
