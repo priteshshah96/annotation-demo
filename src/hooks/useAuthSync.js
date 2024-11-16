@@ -1,49 +1,56 @@
-// src/hooks/useAuthSync.js
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useUser } from '@clerk/clerk-react';
-import { api, ApiError } from '../lib/api';
+import { useUser, useAuth } from '@clerk/clerk-react';
+import { api } from '../lib/api';
 
 export function useAuthSync() {
   const { user, isLoaded: isUserLoaded } = useUser();
+  const { getToken } = useAuth();
   const [isInitialSync, setIsInitialSync] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [error, setError] = useState(null);
-  const syncTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
 
-  const syncUser = useCallback(async (retryCount = 0) => {
+  const syncUser = useCallback(async () => {
     if (!user?.id || isSyncing || !mountedRef.current) return;
 
+    console.log('Starting user sync...'); // Debug log
+    
     try {
       setIsSyncing(true);
       setError(null);
 
-      const response = await api.user.sync();
-      
+      const token = await getToken();
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+
+      const response = await fetch('/api/user/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Sync failed');
+      }
+
+      const data = await response.json();
+      console.log('Sync successful:', data); // Debug log
+
       if (mountedRef.current) {
         setLastSyncTime(new Date().toISOString());
         setIsInitialSync(false);
       }
 
-      return response;
+      return data;
     } catch (error) {
-      console.error('Sync error:', {
-        message: error.message,
-        status: error.status,
-        details: error.details
-      });
-
+      console.error('Sync error:', error);
       if (mountedRef.current) {
-        setError(error instanceof ApiError ? error.message : 'Sync failed');
-        
-        // Retry logic for initial sync
-        if (isInitialSync && retryCount < 3) {
-          console.log(`Retrying sync (${retryCount + 1}/3)...`);
-          syncTimeoutRef.current = setTimeout(() => {
-            syncUser(retryCount + 1);
-          }, 1000 * (retryCount + 1));
-        }
+        setError(error.message);
       }
       throw error;
     } finally {
@@ -51,21 +58,24 @@ export function useAuthSync() {
         setIsSyncing(false);
       }
     }
-  }, [user?.id, isSyncing, isInitialSync]);
+  }, [user?.id, isSyncing, getToken]);
 
-  // Initial sync effect
+  // Initial sync
   useEffect(() => {
-    if (isUserLoaded && user?.id && isInitialSync) {
-      syncUser();
+    if (isUserLoaded && user?.id && isInitialSync && !isSyncing) {
+      console.log('Triggering initial sync...'); // Debug log
+      syncUser().catch(error => {
+        console.error('Initial sync failed:', error);
+      });
     }
+  }, [isUserLoaded, user?.id, isInitialSync, isSyncing, syncUser]);
 
+  // Cleanup
+  useEffect(() => {
     return () => {
       mountedRef.current = false;
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current);
-      }
     };
-  }, [isUserLoaded, user?.id, isInitialSync, syncUser]);
+  }, []);
 
   return {
     isInitialSync,
@@ -75,5 +85,3 @@ export function useAuthSync() {
     syncUser
   };
 }
-
-export default useAuthSync;

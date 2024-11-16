@@ -25,7 +25,12 @@ export class ApiError extends Error {
 
 class ApiClient {
   constructor(options = {}) {
-    this.baseUrl = process.env.VITE_API_URL || window.location.origin;
+    // Update baseUrl logic for Vercel
+    this.baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL 
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : process.env.VITE_API_URL 
+      || window.location.origin;
+    
     this.timeout = options.timeout || DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries || MAX_RETRIES;
     this.retryDelay = options.retryDelay || RETRY_DELAY;

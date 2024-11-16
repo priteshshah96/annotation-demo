@@ -1,4 +1,4 @@
-// src/api/vercel/auth/middleware.js
+// src/api/vercel/middleware/auth.js
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import { connectDB } from '../../../lib/db';
 import { User } from '../../../models/User';
