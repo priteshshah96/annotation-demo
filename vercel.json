@@ -1,6 +1,8 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
   "outputDirectory": "dist",
   "framework": "vite",
   "builds": [
@@ -40,23 +42,12 @@
   ],
   "headers": [
     {
-      "source": "/api/vercel/(.*)",
-      "headers": [
-        {"key": "Access-Control-Allow-Origin", "value": "*"},
-        {"key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS"},
-        {"key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"},
-        {"key": "Access-Control-Allow-Credentials", "value": "true"},
-        {"key": "Cache-Control", "value": "no-store, no-cache, must-revalidate"}
-      ]
-    },
-    {
       "source": "/(.*)",
       "headers": [
-        {"key": "X-Frame-Options", "value": "DENY"},
-        {"key": "X-Content-Type-Options", "value": "nosniff"},
-        {"key": "Referrer-Policy", "value": "strict-origin-when-cross-origin"},
-        {"key": "Permissions-Policy", "value": ""},
-        {"key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains"}
+        {
+          "key": "Cache-Control",
+          "value": "s-maxage=1, stale-while-revalidate"
+        }
       ]
     }
   ],
