@@ -1,5 +1,5 @@
 // src/lib/api.js
-import { RetryableError } from './errors';
+import { RetryableError } from '../lib/errors.js';
 
 const DEFAULT_TIMEOUT = 10000; // 10 seconds
 const MAX_RETRIES = 3;
