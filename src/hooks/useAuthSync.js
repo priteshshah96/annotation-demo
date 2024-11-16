@@ -2,8 +2,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 
-const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
-const REQUEST_TIMEOUT = 8000; // 8 second timeout
+const RETRY_DELAYS = [1000, 2000, 4000];
+const MAX_RETRIES = 3;
+const REQUEST_TIMEOUT = 8000;
 
 export function useAuthSync() {
   const { user } = useUser();
@@ -12,23 +13,20 @@ export function useAuthSync() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
-  const abortControllerRef = useRef(null);
-  const retryTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
+  const currentRequestRef = useRef(null);
 
   // Cleanup function
-  const cleanup = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+  const cleanup = useCallback(() => {
+    if (currentRequestRef.current) {
+      currentRequestRef.current.abort();
+      currentRequestRef.current = null;
     }
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-    }
-  };
+  }, []);
 
   const syncUser = useCallback(async (force = false) => {
-    if (!user?.id || (isSyncing && !force)) return;
-
-    // Cleanup any existing requests
+    if (!user?.id || (isSyncing && !force) || !mountedRef.current) return;
+    
     cleanup();
 
     try {
@@ -40,11 +38,14 @@ export function useAuthSync() {
         throw new Error('No authentication token available');
       }
 
-      // Create new AbortController for this request
-      abortControllerRef.current = new AbortController();
-      const timeoutId = setTimeout(() => 
-        abortControllerRef.current.abort(), REQUEST_TIMEOUT
-      );
+      // Create new AbortController
+      currentRequestRef.current = new AbortController();
+
+      const timeoutId = setTimeout(() => {
+        if (currentRequestRef.current) {
+          currentRequestRef.current.abort();
+        }
+      }, REQUEST_TIMEOUT);
 
       const response = await fetch('/api/vercel/user/sync', {
         method: 'POST',
@@ -52,24 +53,29 @@ export function useAuthSync() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        signal: abortControllerRef.current.signal
+        signal: currentRequestRef.current.signal
       });
 
       clearTimeout(timeoutId);
 
-      const data = await response.json();
+      if (!mountedRef.current) return;
 
       if (!response.ok) {
-        throw new Error(data.error || 'Sync failed');
+        const data = await response.json().catch(() => ({ error: 'Failed to parse response' }));
+        throw new Error(data.error || `Server error: ${response.status}`);
       }
 
-      // Success - reset retry count and initial sync flag
+      const data = await response.json();
+
+      if (!mountedRef.current) return;
+
       setIsInitialSync(false);
       setRetryCount(0);
-      
       return data;
 
     } catch (error) {
+      if (!mountedRef.current) return;
+
       console.error('Sync error:', {
         message: error.message,
         name: error.name,
@@ -78,33 +84,34 @@ export function useAuthSync() {
 
       setError(error.message);
 
-      // Retry logic with exponential backoff
-      if (retryCount < RETRY_DELAYS.length) {
-        const nextRetry = retryCount + 1;
-        console.log(`Scheduling retry ${nextRetry}/${RETRY_DELAYS.length}...`);
-        
-        retryTimeoutRef.current = setTimeout(() => {
-          setRetryCount(nextRetry);
-          syncUser(true);
-        }, RETRY_DELAYS[retryCount]);
+      if (error.name !== 'AbortError' && retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[retryCount];
+        await new Promise(resolve => setTimeout(resolve, delay));
+        if (mountedRef.current) {
+          setRetryCount(prev => prev + 1);
+          return syncUser(true);
+        }
       }
-
-      throw error;
     } finally {
-      setIsSyncing(false);
-      abortControllerRef.current = null;
+      if (mountedRef.current) {
+        setIsSyncing(false);
+        currentRequestRef.current = null;
+      }
     }
-  }, [user?.id, isSyncing, getToken, retryCount]);
+  }, [user?.id, isSyncing, getToken, retryCount, cleanup]);
 
-  // Initial sync
   useEffect(() => {
+    mountedRef.current = true;
+
     if (isInitialSync && user?.id) {
       syncUser(true);
     }
 
-    // Cleanup on unmount
-    return cleanup;
-  }, [isInitialSync, user?.id, syncUser]);
+    return () => {
+      mountedRef.current = false;
+      cleanup();
+    };
+  }, [isInitialSync, user?.id, syncUser, cleanup]);
 
   return {
     isInitialSync,
