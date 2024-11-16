@@ -29,7 +29,9 @@ export default async function handler(request) {
   let dbConnection = null;
   try {
     // Auth check
-    const authHeader = request.headers.get('authorization');
+    const authHeader = request.headers['authorization'] || 
+                  request.headers.authorization || 
+                  (request.headers.get && request.headers.get('authorization'));
     if (!authHeader?.startsWith('Bearer ')) {
       console.error('Auth header missing or invalid');
       throw new Error('Missing or invalid authorization header');
