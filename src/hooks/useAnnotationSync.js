@@ -1,269 +1,108 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { annotationApi } from '../services/annotationApi';
+import { useState, useCallback, useEffect } from 'react';
+import { useUser, useAuth } from '@clerk/clerk-react';
 
-export function useAnnotationSync(fileId) {
-  const mountedRef = useRef(true);
-  const [syncStatus, setSyncStatus] = useState({ 
-    show: false, 
-    status: 'saved', // 'saved' | 'saving' | 'error' | 'offline'
-    lastSync: null
-  });
-  const [isOnline, setIsOnline] = useState(window.navigator.onLine);
-  const [pendingSync, setPendingSync] = useState(false);
+const MAX_RETRIES = 3;
+const TIMEOUT_MS = 8000;
+const BASE_DELAY_MS = 1000;
+
+export function useAuthSync() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+  const [isInitialSync, setIsInitialSync] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  // Track online status
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      if (pendingSync && mountedRef.current) {
-        syncPendingAnnotations();
-      }
-    };
+  const syncUser = useCallback(async (retryAttempt = 0) => {
+    if (!user?.id) return;
     
-    const handleOffline = () => {
-      setIsOnline(false);
-      if (mountedRef.current) {
-        setSyncStatus(prev => ({ 
-          ...prev, 
-          status: 'offline',
-          show: true 
-        }));
-      }
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [pendingSync]);
-
-  // Sync a single annotation
-  const syncAnnotation = useCallback(async (annotation) => {
-    if (!annotation || !mountedRef.current || isSyncing) return;
-
-    if (!isOnline) {
-      const key = `annotation-${fileId}-${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
-      localStorage.setItem(key, JSON.stringify({
-        answer: annotation.answer,
-        timestamp: new Date().toISOString(),
-        pendingSync: true
-      }));
-      setPendingSync(true);
-      setSyncStatus({ 
-        show: true, 
-        status: 'offline',
-        lastSync: null
-      });
-      return;
-    }
+    let timeoutId;
+    const controller = new AbortController();
 
     try {
       setIsSyncing(true);
-      setSyncStatus(prev => ({ ...prev, show: true, status: 'saving' }));
-      
-      await annotationApi.saveAnnotation({
-        fileId,
-        ...annotation
+      setError(null);
+
+      const token = await getToken();
+      if (!token) {
+        throw new Error('No authentication token available');
+      }
+
+      // Set timeout
+      timeoutId = setTimeout(() => {
+        controller.abort();
+      }, TIMEOUT_MS);
+
+      const response = await fetch('/api/vercel/user/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        signal: controller.signal
       });
 
-      if (!mountedRef.current) return;
-
-      const key = `annotation-${fileId}-${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
-      localStorage.setItem(key, JSON.stringify({
-        answer: annotation.answer,
-        timestamp: new Date().toISOString(),
-        pendingSync: false
-      }));
-
-      setSyncStatus(prev => ({ 
-        ...prev,
-        status: 'saved',
-        lastSync: new Date().toISOString()
-      }));
-
-      setTimeout(() => {
-        if (mountedRef.current) {
-          setSyncStatus(prev => ({ ...prev, show: false }));
-        }
-      }, 2000);
-
-    } catch (error) {
-      console.error('Sync error:', error);
-      if (mountedRef.current) {
-        setSyncStatus(prev => ({ 
-          ...prev,
-          status: 'error',
-          lastSync: null
-        }));
-        setPendingSync(true);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setIsSyncing(false);
-      }
-    }
-  }, [fileId, isOnline, isSyncing]);
-
-  // Sync all pending annotations
-  const syncPendingAnnotations = useCallback(async () => {
-    if (!isOnline || !mountedRef.current || isSyncing) return;
-
-    try {
-      setIsSyncing(true);
-      const pendingAnnotations = [];
-
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith(`annotation-${fileId}`)) {
-          const data = JSON.parse(localStorage.getItem(key));
-          if (data?.pendingSync) {
-            const [_, __, abstractIndex, sentenceIndex, entityIndex] = key.split('-');
-            pendingAnnotations.push({
-              fileId,
-              abstractIndex: parseInt(abstractIndex),
-              sentenceIndex: parseInt(sentenceIndex),
-              entityIndex: parseInt(entityIndex),
-              answer: data.answer,
-              timestamp: data.timestamp
-            });
-          }
-        }
+      if (!response.ok) {
+        throw new Error(`Sync failed with status: ${response.status}`);
       }
 
-      if (pendingAnnotations.length === 0) {
-        setPendingSync(false);
-        return true;
-      }
-
-      if (!mountedRef.current) return false;
-      setSyncStatus({ show: true, status: 'saving' });
-
-      await annotationApi.syncAnnotations(fileId, pendingAnnotations);
-
-      if (!mountedRef.current) return false;
-
-      // Update localStorage
-      pendingAnnotations.forEach(annotation => {
-        const key = `annotation-${fileId}-${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
-        const data = JSON.parse(localStorage.getItem(key));
-        if (data) {
-          localStorage.setItem(key, JSON.stringify({
-            ...data,
-            pendingSync: false
-          }));
-        }
-      });
-
-      setPendingSync(false);
-      setSyncStatus({ 
-        show: true, 
-        status: 'saved',
-        lastSync: new Date().toISOString()
-      });
-
-      setTimeout(() => {
-        if (mountedRef.current) {
-          setSyncStatus(prev => ({ ...prev, show: false }));
-        }
-      }, 2000);
-
+      // Success case
+      clearTimeout(timeoutId);
+      setIsInitialSync(false);
+      setRetryCount(0);
       return true;
+
     } catch (error) {
-      console.error('Batch sync error:', error);
-      if (mountedRef.current) {
-        setSyncStatus({ 
-          show: true, 
-          status: 'error',
-          lastSync: null
-        });
+      clearTimeout(timeoutId);
+      console.error('Sync error:', {
+        attempt: retryAttempt,
+        error: error.message
+      });
+
+      // Handle abort/timeout
+      if (error.name === 'AbortError') {
+        error.message = 'Sync request timed out';
       }
-      return false;
-    } finally {
-      if (mountedRef.current) {
-        setIsSyncing(false);
-      }
-    }
-  }, [fileId, isOnline, isSyncing]);
 
-  // Final sync for completion
-  const finalizeSync = useCallback(async () => {
-    if (!mountedRef.current || isSyncing) return false;
-    
-    try {
-      setIsSyncing(true);
-      setSyncStatus(prev => ({ ...prev, show: true, status: 'saving' }));
+      setError(error.message);
 
-      // Perform final sync
-      const success = await syncPendingAnnotations();
-      
-      if (!mountedRef.current) return false;
-
-      // Additional cleanup
-      if (success) {
-        // Clear position data
-        localStorage.removeItem(`last-position-${fileId}`);
+      // Retry logic
+      if (retryAttempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, retryAttempt);
+        setRetryCount(retryAttempt + 1);
         
-        setSyncStatus({ 
-          show: true, 
-          status: 'saved',
-          lastSync: new Date().toISOString()
-        });
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return syncUser(retryAttempt + 1);
+      } else {
+        // Max retries reached
+        setIsInitialSync(false);
+        return false;
       }
-
-      return success;
-    } catch (error) {
-      console.error('Final sync error:', error);
-      if (mountedRef.current) {
-        setSyncStatus({ 
-          show: true, 
-          status: 'error',
-          lastSync: null
-        });
-      }
-      return false;
     } finally {
-      if (mountedRef.current) {
-        setIsSyncing(false);
-      }
+      setIsSyncing(false);
     }
-  }, [fileId, isSyncing, syncPendingAnnotations]);
+  }, [user?.id, getToken]);
 
-  // Periodic sync check
+  // Initial sync
   useEffect(() => {
-    let syncInterval;
-    if (!isSyncing) {
-      syncInterval = setInterval(() => {
-        if (isOnline && pendingSync && mountedRef.current) {
-          syncPendingAnnotations();
-        }
-      }, 30000);
+    if (isInitialSync && user?.id) {
+      syncUser();
     }
-    return () => {
-      if (syncInterval) {
-        clearInterval(syncInterval);
-      }
-    };
-  }, [isOnline, pendingSync, syncPendingAnnotations, isSyncing]);
+  }, [isInitialSync, user?.id, syncUser]);
 
-  // Cleanup on unmount
+  // Reset retry count on user change
   useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+    setRetryCount(0);
+  }, [user?.id]);
 
   return {
-    syncStatus,
-    syncAnnotation,
-    syncPendingAnnotations,
-    finalizeSync,
-    isOnline,
-    isSyncing
+    isInitialSync: isInitialSync && retryCount < MAX_RETRIES,
+    isSyncing,
+    error,
+    retryCount,
+    syncUser,
+    clearError: () => setError(null)
   };
 }
 
-export default useAnnotationSync;
+export default useAuthSync;

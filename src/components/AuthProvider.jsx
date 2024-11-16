@@ -1,9 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
-import { CircularProgress, Box } from '@mui/material';
+import { CircularProgress, Box, Typography } from '@mui/material';
 
 const AuthContext = createContext(null);
+const MAX_RETRIES = 3;
+const TIMEOUT_MS = 8000;
+const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 export const useAuthContext = () => {
   const context = useContext(AuthContext);
@@ -21,9 +24,13 @@ export const AuthProvider = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
   const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  const syncUser = useCallback(async (force = false) => {
-    if (!isSignedIn || isSyncing) return;
+  const syncUser = useCallback(async (force = false, retryAttempt = 0) => {
+    if ((!isSignedIn || isSyncing) && !force) return;
+
+    let timeoutId;
+    const controller = new AbortController();
 
     try {
       setIsSyncing(true);
@@ -33,28 +40,53 @@ export const AuthProvider = ({ children }) => {
         throw new Error('No authentication token available');
       }
 
+      // Set timeout
+      timeoutId = setTimeout(() => {
+        controller.abort();
+      }, TIMEOUT_MS);
+
       const response = await fetch('/api/vercel/user/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        throw new Error('Failed to sync user data');
+        throw new Error(`Sync failed with status: ${response.status}`);
       }
 
       setLastSyncTime(new Date().toISOString());
       setError(null);
+      setRetryCount(0);
 
     } catch (error) {
-      console.error('Auth sync error:', error);
+      clearTimeout(timeoutId);
+      console.error('Auth sync error:', {
+        attempt: retryAttempt,
+        error: error.message
+      });
+
       setError(error.message);
-      
-      // If sync fails due to auth issues, redirect to sign-in
-      if (error.message.includes('token') || error.message.includes('authentication')) {
+
+      // Handle specific errors
+      if (error.name === 'AbortError') {
+        if (retryAttempt < MAX_RETRIES) {
+          const delay = 1000 * Math.pow(2, retryAttempt);
+          setRetryCount(retryAttempt + 1);
+          
+          setTimeout(() => {
+            syncUser(force, retryAttempt + 1);
+          }, delay);
+          return;
+        }
+      } else if (error.message.includes('token') || error.message.includes('authentication')) {
         navigate('/sign-in', { replace: true });
+        return;
       }
     } finally {
       setIsSyncing(false);
@@ -80,8 +112,8 @@ export const AuthProvider = ({ children }) => {
     
     if (isSignedIn && !isInitializing) {
       syncInterval = setInterval(() => {
-        syncUser();
-      }, 5 * 60 * 1000); // Sync every 5 minutes
+        syncUser(false);
+      }, SYNC_INTERVAL_MS);
     }
 
     return () => {
@@ -91,16 +123,23 @@ export const AuthProvider = ({ children }) => {
     };
   }, [isSignedIn, isInitializing, syncUser]);
 
-  // Loading state
+  // Loading state with retry indication
   if (isInitializing) {
     return (
       <Box sx={{ 
         display: 'flex', 
+        flexDirection: 'column',
         justifyContent: 'center', 
         alignItems: 'center', 
-        height: '100vh' 
+        height: '100vh',
+        gap: 2
       }}>
         <CircularProgress />
+        {retryCount > 0 && (
+          <Typography variant="caption" color="text.secondary">
+            Retrying connection... ({retryCount}/{MAX_RETRIES})
+          </Typography>
+        )}
       </Box>
     );
   }
@@ -114,6 +153,7 @@ export const AuthProvider = ({ children }) => {
         error,
         lastSyncTime,
         syncUser,
+        retryCount,
         clearError: () => setError(null)
       }}
     >
