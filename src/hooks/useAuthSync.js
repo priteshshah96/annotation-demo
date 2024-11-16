@@ -1,4 +1,3 @@
-// src/hooks/useAuthSync.js
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
@@ -12,8 +11,8 @@ export function useAuthSync() {
   const [isInitialSync, setIsInitialSync] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
-  const mountedRef = useRef(true);
   const abortControllerRef = useRef(null);
+  const mountedRef = useRef(true);
 
   const cleanup = useCallback(() => {
     if (abortControllerRef.current) {
@@ -23,6 +22,7 @@ export function useAuthSync() {
   }, []);
 
   const syncUser = useCallback(async () => {
+    // Prevent sync if conditions not met
     if (!user?.id || isSyncing || !mountedRef.current) return;
 
     // Clean up any existing request
@@ -37,43 +37,37 @@ export function useAuthSync() {
         throw new Error('Authentication required');
       }
 
-      // Setup new request with timeout
+      // Create new abort controller
       abortControllerRef.current = new AbortController();
-      const timeoutId = setTimeout(() => {
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-      }, REQUEST_TIMEOUT);
 
-      const response = await fetch('/api/vercel/user/sync', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        signal: abortControllerRef.current.signal
+      // Set timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+          }
+          reject(new Error('Request timeout'));
+        }, REQUEST_TIMEOUT);
       });
 
-      clearTimeout(timeoutId);
+      // Make request with race against timeout
+      const response = await Promise.race([
+        fetch('/api/vercel/user/sync', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          signal: abortControllerRef.current.signal
+        }),
+        timeoutPromise
+      ]);
 
       if (!mountedRef.current) return;
 
       if (!response.ok) {
-        // Handle specific error cases
-        switch (response.status) {
-          case 401:
-          case 403:
-            navigate('/sign-in');
-            throw new Error('Authentication required');
-          case 404:
-            throw new Error('Sync endpoint not found');
-          case 429:
-            throw new Error('Too many requests, please try again later');
-          case 503:
-            throw new Error('Service temporarily unavailable');
-          default:
-            throw new Error('Failed to sync user data');
-        }
+        const data = await response.json();
+        throw new Error(data.error || 'Sync failed');
       }
 
       const data = await response.json();
@@ -83,30 +77,25 @@ export function useAuthSync() {
     } catch (error) {
       if (!mountedRef.current) return;
 
-      console.error('Sync error:', {
-        message: error.message,
-        name: error.name
-      });
-
-      // Only set error if it's not an abort
+      // Only set error for non-abort errors
       if (error.name !== 'AbortError') {
+        console.error('Sync error:', error);
         setError(error.message);
-      }
 
-      // Handle fatal errors
-      if (error.message.includes('authentication')) {
-        navigate('/sign-in');
+        // Handle auth errors
+        if (error.message.includes('authentication')) {
+          navigate('/sign-in');
+        }
       }
-
     } finally {
       if (mountedRef.current) {
         setIsSyncing(false);
         abortControllerRef.current = null;
       }
     }
-  }, [user?.id, isSyncing, getToken, navigate]);
+  }, [user?.id, isSyncing, getToken, navigate, cleanup]);
 
-  // Cleanup on unmount
+  // Clean up on unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {

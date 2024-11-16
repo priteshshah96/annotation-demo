@@ -1,5 +1,4 @@
-// src/pages/UserDashboard.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Container, 
   Typography, 
@@ -7,7 +6,8 @@ import {
   CircularProgress,
   Divider,
   Box,
-  Alert
+  Alert,
+  Button
 } from '@mui/material';
 import { useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
@@ -24,7 +24,13 @@ import { fileApi } from '../services/fileApi';
 import { useSnackbar } from '../hooks/useSnackbar';
 import { useAuthSync } from '../hooks/useAuthSync';
 
+const FETCH_TIMEOUT = 8000;
+
 const UserDashboard = () => {
+  // Refs for cleanup
+  const mountedRef = useRef(true);
+  const abortControllerRef = useRef(null);
+
   // Auth & Navigation
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
   const { getToken } = useAuth();
@@ -52,36 +58,52 @@ const UserDashboard = () => {
   // Custom Hooks
   const { showSnackbar, SnackbarComponent } = useSnackbar();
 
+  // Cleanup helper
+  const cleanup = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
+
   // Navigation Handlers
-  const handleNavigate = (path) => {
-    navigate(path);
-  };
+  const handleNavigate = useCallback((path) => {
+    if (mountedRef.current) {
+      navigate(path);
+    }
+  }, [navigate]);
 
   // Sign Out Handler
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     try {
-      // Perform final sync before signing out
-      await syncUser();
+      cleanup();
       await signOut();
     } catch (error) {
-      console.error('Error during sign out:', error);
-      showSnackbar('Error syncing before sign out', 'error');
-      // Sign out anyway
-      await signOut();
+      console.error('Sign out error:', error);
+      // Force sign out on error
+      signOut();
     }
-  };
+  }, [signOut, cleanup]);
 
   // File Upload Handler
-  const handleUpload = async (file) => {
-    if (isSyncing) {
-      showSnackbar('Please wait for sync to complete', 'warning');
-      return;
-    }
+  const handleUpload = useCallback(async (file) => {
+    if (isSyncing || isUploading) return;
+
+    cleanup();
+    abortControllerRef.current = new AbortController();
 
     try {
       setIsUploading(true);
-      
-      // Read file content
+      setError(null);
+
+      // Setup timeout
+      const timeoutId = setTimeout(() => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+      }, FETCH_TIMEOUT);
+
+      // Read and parse file
       const fileContent = await file.text();
       const parsedContent = JSON.parse(fileContent);
 
@@ -89,132 +111,131 @@ const UserDashboard = () => {
       await fileApi.uploadFile({
         name: file.name,
         content: parsedContent
-      });
+      }, { signal: abortControllerRef.current.signal });
 
-      await fetchDashboardData();
-      showSnackbar('File uploaded successfully', 'success');
+      clearTimeout(timeoutId);
+
+      if (mountedRef.current) {
+        await fetchDashboardData();
+        showSnackbar('File uploaded successfully', 'success');
+      }
     } catch (error) {
-      console.error('File upload error:', error);
-      showSnackbar(error.message || 'Error uploading file', 'error');
+      if (!mountedRef.current) return;
+
+      console.error('Upload error:', error);
+      if (error.name !== 'AbortError') {
+        showSnackbar(error.message || 'Error uploading file', 'error');
+      }
     } finally {
-      setIsUploading(false);
+      if (mountedRef.current) {
+        setIsUploading(false);
+        abortControllerRef.current = null;
+      }
     }
-  };
+  }, [isSyncing, isUploading, showSnackbar, fetchDashboardData, cleanup]);
 
   // Menu Handlers
-  const handleMenuOpen = (event, fileId) => {
-    if (isSyncing) {
-      showSnackbar('Please wait for sync to complete', 'warning');
-      return;
-    }
+  const handleMenuOpen = useCallback((event, fileId) => {
+    if (isSyncing) return;
+    
     event.stopPropagation();
     setSelectedFileId(fileId);
     setMenuAnchorEl(event.currentTarget);
-  };
+  }, [isSyncing]);
 
-  const handleMenuClose = () => {
+  const handleMenuClose = useCallback(() => {
     setMenuAnchorEl(null);
     setSelectedFileId(null);
-  };
+  }, []);
 
   // File Actions
-  const handleDeleteFile = async () => {
-    if (isSyncing) {
-      showSnackbar('Please wait for sync to complete', 'warning');
-      return;
-    }
+  const handleDeleteFile = useCallback(async () => {
+    if (isSyncing) return;
+
+    cleanup();
+    abortControllerRef.current = new AbortController();
 
     try {
-      await fileApi.deleteFile(selectedFileId);
-      await fetchDashboardData();
-      showSnackbar('File deleted successfully', 'success');
-    } catch (error) {
-      showSnackbar('Error deleting file', 'error');
-    }
-    handleMenuClose();
-  };
-
-  const handleExportFile = async () => {
-    if (isSyncing) {
-      showSnackbar('Please wait for sync to complete', 'warning');
-      return;
-    }
-
-    try {
-      const response = await fileApi.getFile(selectedFileId);
-      
-      // Create and trigger download
-      const blob = new Blob([JSON.stringify(response.file, null, 2)], {
-        type: 'application/json'
+      await fileApi.deleteFile(selectedFileId, { 
+        signal: abortControllerRef.current.signal 
       });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `annotations_${selectedFileId}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      showSnackbar('Export successful', 'success');
+      
+      if (mountedRef.current) {
+        await fetchDashboardData();
+        showSnackbar('File deleted successfully', 'success');
+      }
     } catch (error) {
-      showSnackbar('Error exporting file', 'error');
+      if (!mountedRef.current) return;
+      
+      if (error.name !== 'AbortError') {
+        showSnackbar('Error deleting file', 'error');
+      }
+    } finally {
+      if (mountedRef.current) {
+        handleMenuClose();
+        abortControllerRef.current = null;
+      }
     }
-    handleMenuClose();
-  };
-
-  const handleResetAnnotations = async () => {
-    if (isSyncing) {
-      showSnackbar('Please wait for sync to complete', 'warning');
-      return;
-    }
-
-    try {
-      handleNavigate(`/annotate/${selectedFileId}`);
-      showSnackbar('Navigating to annotation page...', 'info');
-    } catch (error) {
-      showSnackbar('Error navigating to annotation page', 'error');
-    }
-    handleMenuClose();
-  };
+  }, [selectedFileId, isSyncing, showSnackbar, handleMenuClose, fetchDashboardData, cleanup]);
 
   // Data Fetching
   const fetchDashboardData = useCallback(async () => {
-    if (isSyncing) return;
+    if (isSyncing || !mountedRef.current) return;
+
+    cleanup();
+    abortControllerRef.current = new AbortController();
 
     try {
       setLoading(true);
       setError(null);
 
       const [filesData, statsData] = await Promise.all([
-        fileApi.getFiles(),
-        fileApi.getUserStats()
+        fileApi.getFiles({ signal: abortControllerRef.current.signal }),
+        fileApi.getUserStats({ signal: abortControllerRef.current.signal })
       ]);
 
-      setFiles(filesData.files || []);
-      setStats(statsData);
+      if (mountedRef.current) {
+        setFiles(filesData.files || []);
+        setStats(statsData);
+      }
     } catch (error) {
-      setError('Error loading dashboard data');
-      console.error('Dashboard data fetch error:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [isSyncing]);
+      if (!mountedRef.current) return;
 
-  // Effects
+      if (error.name !== 'AbortError') {
+        console.error('Dashboard data fetch error:', error);
+        setError('Error loading dashboard data');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        abortControllerRef.current = null;
+      }
+    }
+  }, [isSyncing, cleanup]);
+
+  // Initial load effect
   useEffect(() => {
     if (isUserLoaded && !isSignedIn) {
       navigate('/sign-in');
     }
   }, [isUserLoaded, isSignedIn, navigate]);
 
+  // Data loading effect
   useEffect(() => {
     if (isUserLoaded && isSignedIn && !isInitialSync && !isSyncing) {
       fetchDashboardData();
     }
   }, [isUserLoaded, isSignedIn, isInitialSync, isSyncing, fetchDashboardData]);
 
-  // Loading States
+  // Cleanup effect
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      cleanup();
+    };
+  }, [cleanup]);
+
   if (!isUserLoaded || isInitialSync) {
     return (
       <Container sx={{ 
@@ -228,7 +249,6 @@ const UserDashboard = () => {
     );
   }
 
-  // Error States
   if (syncError) {
     return (
       <Container maxWidth="lg">
@@ -236,7 +256,7 @@ const UserDashboard = () => {
           <Alert 
             severity="error" 
             action={
-              <Button color="inherit" size="small" onClick={syncUser}>
+              <Button color="inherit" size="small" onClick={() => syncUser()}>
                 Retry
               </Button>
             }
