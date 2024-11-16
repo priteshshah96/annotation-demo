@@ -1,9 +1,9 @@
 import React from 'react';
-import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut } from '@clerk/clerk-react';
-import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
+import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import UserDashboard from './pages/UserDashboard';
 import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
-import { CircularProgress, Box, Typography } from '@mui/material';
+import { CircularProgress, Box } from '@mui/material';
 
 const LoadingFallback = () => (
   <Box sx={{ 
@@ -18,48 +18,69 @@ const LoadingFallback = () => (
   </Box>
 );
 
+// Protected route wrapper
+const ProtectedRoute = ({ children }) => {
+  return (
+    <>
+      <SignedIn>
+        {children}
+      </SignedIn>
+      <SignedOut>
+        <RedirectToSignIn />
+      </SignedOut>
+    </>
+  );
+};
+
 function ClerkProviderWithRoutes() {
-  const navigate = useNavigate();
+  console.log('Clerk Key:', import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ? 'Present' : 'Missing');
   
   return (
-    <ClerkProvider 
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}
-    >
+    <ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}>
       <Box sx={{ minHeight: '100vh' }}>
-        <SignedOut>
-          <Routes>
-            <Route 
-              path="/sign-in" 
-              element={<SignIn routing="path" afterSignInUrl="/" />} 
-            />
-            <Route 
-              path="/sign-up" 
-              element={<SignUp routing="path" afterSignUpUrl="/" />} 
-            />
-            <Route 
-              path="*" 
-              element={<Navigate to="/sign-in" replace />} 
-            />
-          </Routes>
-        </SignedOut>
-
-        <SignedIn>
-          <Routes>
-            <Route path="/" element={<UserDashboard />} />
-            <Route 
-              path="/file/:fileId" 
-              element={<UserAnnotationDashboard mode="view" />} 
-            />
-            <Route 
-              path="/annotate/:fileId" 
-              element={<UserAnnotationDashboard mode="edit" />} 
-            />
-            <Route 
-              path="*" 
-              element={<Navigate to="/" replace />} 
-            />
-          </Routes>
-        </SignedIn>
+        <Routes>
+          {/* Public routes */}
+          <Route
+            path="/sign-in/*"
+            element={<SignIn routing="path" signUpUrl="/sign-up" afterSignInUrl="/" />}
+          />
+          <Route
+            path="/sign-up/*"
+            element={<SignUp routing="path" signInUrl="/sign-in" afterSignUpUrl="/" />}
+          />
+          
+          {/* Protected routes */}
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <UserDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/file/:fileId"
+            element={
+              <ProtectedRoute>
+                <UserAnnotationDashboard mode="view" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/annotate/:fileId"
+            element={
+              <ProtectedRoute>
+                <UserAnnotationDashboard mode="edit" />
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Catch-all route */}
+          <Route
+            path="*"
+            element={<RedirectToSignIn />}
+          />
+        </Routes>
       </Box>
     </ClerkProvider>
   );

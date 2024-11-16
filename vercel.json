@@ -5,7 +5,7 @@
   "framework": "vite",
   "builds": [
     {
-      "src": "src/api/**/*.js",
+      "src": "src/api/vercel/**/*.js",
       "use": "@vercel/node",
       "config": {
         "maxDuration": 60,
@@ -21,43 +21,16 @@
     }
   ],
   "rewrites": [
-  {
-    "source": "/api/user/sync",
-    "destination": "/src/api/vercel/user/sync.js"
-  },
-  {
-    "source": "/api/files/upload",
-    "destination": "/src/api/vercel/files/upload.js"
-  },
-  {
-    "source": "/api/files/:fileId",
-    "destination": "/src/api/vercel/files/[fileId].js"
-  },
-  {
-    "source": "/api/files",
-    "destination": "/src/api/vercel/files/index.js"
-  },
-  {
-    "source": "/api/annotations/:fileId/reset",
-    "destination": "/src/api/vercel/annotations/[fileId]/reset.js"
-  },
-  {
-    "source": "/api/annotations/:fileId/sync",
-    "destination": "/src/api/vercel/annotations/[fileId]/sync.js"
-  },
-  {
-    "source": "/api/annotations/:fileId",
-    "destination": "/src/api/vercel/annotations/[fileId].js"
-  },
-  {
-    "source": "/api/annotations",
-    "destination": "/src/api/vercel/annotations/index.js"
-  },
-  {
-    "source": "/(.*)",
-    "destination": "/index.html"
-  }
-],
+    { "source": "/api/user/sync", "destination": "/src/api/vercel/user/sync.js" },
+    { "source": "/api/files/upload", "destination": "/src/api/vercel/files/upload.js" },
+    { "source": "/api/files/:fileId", "destination": "/src/api/vercel/files/[fileId].js" },
+    { "source": "/api/files", "destination": "/src/api/vercel/files/index.js" },
+    { "source": "/api/annotations/:fileId/reset", "destination": "/src/api/vercel/annotations/[fileId]/reset.js" },
+    { "source": "/api/annotations/:fileId/sync", "destination": "/src/api/vercel/annotations/[fileId]/sync.js" },
+    { "source": "/api/annotations/:fileId", "destination": "/src/api/vercel/annotations/[fileId].js" },
+    { "source": "/api/annotations", "destination": "/src/api/vercel/annotations/index.js" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
