@@ -1,130 +1,126 @@
 // src/lib/api.js
-import { useAuth } from '@clerk/clerk-react';
+import { RetryableError } from './errors';
 
-class ApiError extends Error {
-  constructor(message, status = 500, details = null) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.details = details;
+const DEFAULT_TIMEOUT = 10000; // 10 seconds
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+
+class ApiClient {
+  constructor(options = {}) {
+    this.baseUrl = process.env.VITE_API_URL || window.location.origin;
+    this.timeout = options.timeout || DEFAULT_TIMEOUT;
+    this.maxRetries = options.maxRetries || MAX_RETRIES;
+    this.retryDelay = options.retryDelay || RETRY_DELAY;
   }
-}
 
-export async function fetchWithAuth(url, options = {}) {
-  try {
-    // Use the correct base URL - if we're in development, use the local server
-    // If VITE_API_URL is not set, default to the proxy setup in vite.config.js
-    const baseUrl = process.env.VITE_API_URL || window.location.origin;
-    const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+  async fetchWithTimeout(url, options = {}) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), this.timeout);
 
-    // Get token using Clerk
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      clearTimeout(id);
+      return response;
+    } catch (error) {
+      clearTimeout(id);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timed out');
+      }
+      throw error;
+    }
+  }
+
+  async fetchWithRetry(url, options = {}, retryCount = 0) {
+    try {
+      const response = await this.fetchWithTimeout(url, options);
+      
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        
+        // Check if error is retryable
+        if (response.status >= 500 || response.status === 429) {
+          throw new RetryableError(data.error || 'Server error', response.status);
+        }
+        
+        throw new Error(data.error || 'Request failed');
+      }
+
+      return response;
+    } catch (error) {
+      if (error instanceof RetryableError && retryCount < this.maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, this.retryDelay * (retryCount + 1)));
+        return this.fetchWithRetry(url, options, retryCount + 1);
+      }
+      throw error;
+    }
+  }
+
+  async request(endpoint, options = {}) {
     const token = await window.Clerk.session?.getToken();
-    
     if (!token) {
-      throw new ApiError('Authentication required', 401);
+      throw new Error('Authentication required');
     }
 
-    // Prepare headers
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers
+    const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+    
+    const requestOptions = {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
     };
 
-    // Add request debugging
-    console.log('Making API request:', {
-      url: fullUrl,
-      method: options.method || 'GET',
-      headers: { ...headers, Authorization: 'Bearer [REDACTED]' }
-    });
-
-    // Make request
-    const response = await fetch(fullUrl, {
-      ...options,
-      headers,
-      credentials: 'include'
-    });
-
-    // Add response debugging
-    console.log('API Response:', {
-      status: response.status,
-      statusText: response.statusText,
-      url: response.url
-    });
-
-    // Parse response
-    let data;
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      data = await response.json();
-    } else {
-      data = await response.text();
-    }
-
-    // Handle non-200 responses
-    if (!response.ok) {
-      console.error('API error response:', {
-        status: response.status,
-        data
-      });
-      throw new ApiError(
-        data.error || 'API request failed',
-        response.status,
-        data.details
-      );
-    }
-
-    return data;
-  } catch (error) {
-    // Re-throw ApiErrors
-    if (error instanceof ApiError) {
-      console.error('API Error:', {
-        name: error.name,
-        message: error.message,
-        status: error.status,
-        details: error.details
+    try {
+      const response = await this.fetchWithRetry(url, requestOptions);
+      return await response.json();
+    } catch (error) {
+      console.error('API request failed:', {
+        endpoint,
+        error: error.message,
+        status: error.status
       });
       throw error;
     }
-
-    // Convert other errors to ApiError
-    console.error('Network error:', error);
-    throw new ApiError(
-      'Network error',
-      500,
-      error.message
-    );
   }
-}
 
-// API client with organized endpoints
-export const api = {
-  files: {
-    getAll: () => fetchWithAuth('/api/files'),
-    get: (id) => fetchWithAuth(`/api/files/${id}`),
-    upload: (data) => fetchWithAuth('/api/files/upload', {
+  // API Methods
+  files = {
+    getAll: () => this.request('/api/files'),
+    get: (id) => this.request(`/api/files/${id}`),
+    upload: (data) => this.request('/api/files/upload', {
       method: 'POST',
       body: JSON.stringify(data)
     }),
-    delete: (id) => fetchWithAuth(`/api/files/${id}`, {
+    delete: (id) => this.request(`/api/files/${id}`, {
       method: 'DELETE'
     })
-  },
-  annotations: {
-    get: (fileId) => fetchWithAuth(`/api/annotations/${fileId}`),
-    save: (data) => fetchWithAuth('/api/annotations', {
+  };
+
+  annotations = {
+    get: (fileId) => this.request(`/api/annotations/${fileId}`),
+    save: (data) => this.request('/api/annotations', {
       method: 'POST',
       body: JSON.stringify(data)
     }),
-    sync: (fileId, data, options) => fetchWithAuth(`/api/annotations/${fileId}/sync`, {
+    sync: (fileId, data) => this.request(`/api/annotations/${fileId}/sync`, {
       method: 'POST',
-      body: JSON.stringify(data),
-      ...options
+      body: JSON.stringify(data)
     }),
-    // Add specific reset endpoint
-    reset: (fileId, options) => fetchWithAuth(`/api/annotations/${fileId}/reset`, {
-      method: 'POST',
-      ...options
+    reset: (fileId) => this.request(`/api/annotations/${fileId}/reset`, {
+      method: 'POST'
     })
-  }
+  };
+
+  user = {
+    sync: () => this.request('/api/user/sync', {
+      method: 'POST'
+    })
+  };
 }
+
+export const api = new ApiClient();
