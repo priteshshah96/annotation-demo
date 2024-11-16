@@ -4,7 +4,7 @@ import React, { Suspense } from 'react';
 import { CircularProgress, Box } from '@mui/material';
 import UserDashboard from './pages/UserDashboard';
 import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
-import { AuthProvider } from './context/AuthProvider';
+import { AuthProvider } from './components/AuthProvider';
 
 // Loading component
 const LoadingFallback = () => (
