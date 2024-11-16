@@ -1,9 +1,27 @@
 // src/lib/api.js
-import { RetryableError } from '../lib/errors.js';
 
 const DEFAULT_TIMEOUT = 10000; // 10 seconds
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
+
+// Custom Error Classes
+export class RetryableError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = 'RetryableError';
+    this.status = status;
+  }
+}
+
+export class ApiError extends Error {
+  constructor(message, status = 500, details = null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.details = details;
+  }
+}
+
 
 class ApiClient {
   constructor(options = {}) {
@@ -27,7 +45,7 @@ class ApiClient {
     } catch (error) {
       clearTimeout(id);
       if (error.name === 'AbortError') {
-        throw new Error('Request timed out');
+        throw new ApiError('Request timed out', 408);
       }
       throw error;
     }
@@ -45,12 +63,13 @@ class ApiClient {
           throw new RetryableError(data.error || 'Server error', response.status);
         }
         
-        throw new Error(data.error || 'Request failed');
+        throw new ApiError(data.error || 'Request failed', response.status, data.details);
       }
 
       return response;
     } catch (error) {
       if (error instanceof RetryableError && retryCount < this.maxRetries) {
+        console.log(`Retrying request (${retryCount + 1}/${this.maxRetries})...`);
         await new Promise(resolve => setTimeout(resolve, this.retryDelay * (retryCount + 1)));
         return this.fetchWithRetry(url, options, retryCount + 1);
       }
@@ -61,7 +80,7 @@ class ApiClient {
   async request(endpoint, options = {}) {
     const token = await window.Clerk.session?.getToken();
     if (!token) {
-      throw new Error('Authentication required');
+      throw new ApiError('Authentication required', 401);
     }
 
     const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
@@ -76,13 +95,17 @@ class ApiClient {
     };
 
     try {
+      console.log(`Making API request to ${endpoint}...`);
       const response = await this.fetchWithRetry(url, requestOptions);
-      return await response.json();
+      const data = await response.json();
+      console.log(`API response from ${endpoint}:`, { status: response.status });
+      return data;
     } catch (error) {
       console.error('API request failed:', {
         endpoint,
         error: error.message,
-        status: error.status
+        status: error.status,
+        details: error.details
       });
       throw error;
     }

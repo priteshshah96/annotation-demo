@@ -1,7 +1,7 @@
 // src/hooks/useAuthSync.js
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUser } from '@clerk/clerk-react';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 
 export function useAuthSync() {
   const { user, isLoaded: isUserLoaded } = useUser();
@@ -28,12 +28,18 @@ export function useAuthSync() {
 
       return response;
     } catch (error) {
-      console.error('Sync error:', error);
+      console.error('Sync error:', {
+        message: error.message,
+        status: error.status,
+        details: error.details
+      });
+
       if (mountedRef.current) {
-        setError(error.message);
+        setError(error instanceof ApiError ? error.message : 'Sync failed');
         
         // Retry logic for initial sync
         if (isInitialSync && retryCount < 3) {
+          console.log(`Retrying sync (${retryCount + 1}/3)...`);
           syncTimeoutRef.current = setTimeout(() => {
             syncUser(retryCount + 1);
           }, 1000 * (retryCount + 1));
