@@ -8,7 +8,6 @@ function ClerkProviderWithRoutes() {
   const navigate = useNavigate();
   
   const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
-  const apiUrl = import.meta.env.VITE_API_URL;
   
   if (!clerkPubKey) {
     console.error("Missing Clerk Publishable Key");
@@ -19,20 +18,8 @@ function ClerkProviderWithRoutes() {
     <ClerkProvider 
       publishableKey={clerkPubKey}
       navigate={(to) => navigate(to)}
-      // Add Clerk configuration
-      options={{
-        baseUrl: apiUrl,
-        timeoutMs: 10000,
-        retryAttempts: 2
-      }}
     >
-      <AuthProvider
-        apiUrl={apiUrl}
-        onError={(error) => {
-          console.error('Auth error:', error);
-          navigate('/sign-in');
-        }}
-      >
+      <AuthProvider>
         <Routes>
           <Route path="/sign-in/*" element={<SignIn routing="path" path="/sign-in" />} />
           <Route path="/sign-up/*" element={<SignUp routing="path" path="/sign-up" />} />
@@ -44,3 +31,13 @@ function ClerkProviderWithRoutes() {
     </ClerkProvider>
   );
 }
+
+function App() {
+  return (
+    <BrowserRouter>
+      <ClerkProviderWithRoutes />
+    </BrowserRouter>
+  );
+}
+
+export default App;
