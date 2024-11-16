@@ -1,6 +1,6 @@
-import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import React from 'react';
+import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut } from '@clerk/clerk-react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense } from 'react';
 import { CircularProgress, Box } from '@mui/material';
 import UserDashboard from './pages/UserDashboard';
 import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
@@ -17,18 +17,13 @@ const LoadingFallback = () => (
   </Box>
 );
 
-// Protected route component
-const ProtectedRoute = ({ children }) => {
-  return <SignedIn>{children}</SignedIn>;
-};
-
 function App() {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
   if (!publishableKey) {
     return (
       <Box sx={{ p: 4, color: 'error.main' }}>
-        Error: Missing Clerk publishable key. Please check your environment variables.
+        Error: Missing Clerk publishable key
       </Box>
     );
   }
@@ -36,45 +31,55 @@ function App() {
   return (
     <ClerkProvider publishableKey={publishableKey}>
       <BrowserRouter>
-        <React.Suspense fallback={<LoadingFallback />}>
+        <Suspense fallback={<LoadingFallback />}>
           <Routes>
-            {/* Auth Routes */}
-            <Route path="/sign-in" element={<SignIn />} />
-            <Route path="/sign-up" element={<SignUp />} />
-            
+            {/* Public Routes */}
+            <Route
+              path="/sign-in/*"
+              element={<SignIn routing="path" path="/sign-in" />}
+            />
+            <Route
+              path="/sign-up/*"
+              element={<SignUp routing="path" path="/sign-up" />}
+            />
+
             {/* Protected Routes */}
             <Route
               path="/"
               element={
-                <ProtectedRoute>
+                <SignedIn>
                   <UserDashboard />
-                </ProtectedRoute>
+                </SignedIn>
               }
             />
             <Route
               path="/file/:fileId"
               element={
-                <ProtectedRoute>
+                <SignedIn>
                   <UserAnnotationDashboard mode="view" />
-                </ProtectedRoute>
+                </SignedIn>
               }
             />
             <Route
               path="/annotate/:fileId"
               element={
-                <ProtectedRoute>
+                <SignedIn>
                   <UserAnnotationDashboard mode="edit" />
-                </ProtectedRoute>
+                </SignedIn>
               }
             />
 
-            {/* Redirect unauthorized users to sign-in */}
+            {/* Default redirect for unauthenticated users */}
             <Route
               path="*"
-              element={<RedirectToSignIn />}
+              element={
+                <SignedOut>
+                  <Navigate to="/sign-in" replace />
+                </SignedOut>
+              }
             />
           </Routes>
-        </React.Suspense>
+        </Suspense>
       </BrowserRouter>
     </ClerkProvider>
   );
