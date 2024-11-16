@@ -26,8 +26,9 @@ const ProtectedRoute = ({ children }) => {
 
 function App() {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
-  
-  if (!publishableKey) {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!publishableKey && isProduction) {
     console.error('Missing Clerk publishable key');
     return (
       <Box sx={{ p: 4 }}>
@@ -38,57 +39,72 @@ function App() {
 
   return (
     <BrowserRouter>
-      <ClerkProvider publishableKey={publishableKey}>
+      {isProduction && publishableKey ? (
+        <ClerkProvider publishableKey={publishableKey}>
+          <React.Suspense fallback={<LoadingFallback />}>
+            <Routes>
+              {/* Auth Routes */}
+              <Route
+                path="/sign-in/*"
+                element={<SignIn routing="path" signUpUrl="/sign-up" />}
+              />
+              <Route
+                path="/sign-up/*"
+                element={<SignUp routing="path" signInUrl="/sign-in" />}
+              />
+
+              {/* Protected Routes */}
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <UserDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/file/:fileId"
+                element={
+                  <ProtectedRoute>
+                    <UserAnnotationDashboard mode="view" />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/annotate/:fileId"
+                element={
+                  <ProtectedRoute>
+                    <UserAnnotationDashboard mode="edit" />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Catch-all redirect to sign-in */}
+              <Route
+                path="*"
+                element={
+                  <SignedOut>
+                    <RedirectToSignIn />
+                  </SignedOut>
+                }
+              />
+            </Routes>
+          </React.Suspense>
+        </ClerkProvider>
+      ) : (
+        // For non-production or missing publishableKey: bypass authentication
         <React.Suspense fallback={<LoadingFallback />}>
           <Routes>
-            {/* Auth Routes */}
-            <Route
-              path="/sign-in/*"
-              element={<SignIn routing="path" signUpUrl="/sign-up" />}
-            />
-            <Route
-              path="/sign-up/*"
-              element={<SignUp routing="path" signInUrl="/sign-in" />}
-            />
-            
-            {/* Protected Routes */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <UserDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/file/:fileId"
-              element={
-                <ProtectedRoute>
-                  <UserAnnotationDashboard mode="view" />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/annotate/:fileId"
-              element={
-                <ProtectedRoute>
-                  <UserAnnotationDashboard mode="edit" />
-                </ProtectedRoute>
-              }
-            />
-            
-            {/* Catch-all redirect to sign-in */}
-            <Route
-              path="*"
-              element={
-                <SignedOut>
-                  <RedirectToSignIn />
-                </SignedOut>
-              }
-            />
+            {/* Routes without authentication */}
+            <Route path="/" element={<UserDashboard />} />
+            <Route path="/file/:fileId" element={<UserAnnotationDashboard mode="view" />} />
+            <Route path="/annotate/:fileId" element={<UserAnnotationDashboard mode="edit" />} />
+
+            {/* Catch-all redirect */}
+            <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </React.Suspense>
-      </ClerkProvider>
+      )}
     </BrowserRouter>
   );
 }

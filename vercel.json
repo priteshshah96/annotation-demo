@@ -62,6 +62,6 @@
   ],
   "env": {
     "VITE_API_URL": "/api/vercel",
-    "NODE_ENV": "production"
+    "NODE_ENV": "development"
   }
 }
