@@ -1,12 +1,9 @@
-import { ClerkProvider, SignIn, SignUp } from '@clerk/clerk-react';
+import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import React, { Suspense } from 'react';
 import { CircularProgress, Box } from '@mui/material';
 import UserDashboard from './pages/UserDashboard';
-import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
-import { AuthProvider } from './components/AuthProvider';
 
-// Loading component
 const LoadingFallback = () => (
   <Box sx={{ 
     display: 'flex', 
@@ -18,74 +15,53 @@ const LoadingFallback = () => (
   </Box>
 );
 
-// RequireAuth wrapper component
-const RequireAuth = ({ children }) => {
-  const { isAuthenticated, isInitializing } = useAuth();
-
-  if (isInitializing) {
-    return <LoadingFallback />;
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/sign-in" replace />;
-  }
-
-  return children;
-};
-
 function App() {
+  // Get publishable key from environment variable
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
   if (!publishableKey) {
     return (
       <Box sx={{ p: 4, color: 'error.main' }}>
-        Error: Missing Clerk publishable key. Please check your environment variables.
+        Missing Clerk Publishable Key
       </Box>
     );
   }
 
   return (
     <ClerkProvider publishableKey={publishableKey}>
-      <AuthProvider>
-        <BrowserRouter>
-          <Suspense fallback={<LoadingFallback />}>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/sign-in" element={<SignIn routing="path" path="/sign-in" />} />
-              <Route path="/sign-up" element={<SignUp routing="path" path="/sign-up" />} />
-              
-              {/* Protected Routes */}
-              <Route
-                path="/"
-                element={
-                  <RequireAuth>
+      <BrowserRouter>
+        <Suspense fallback={<LoadingFallback />}>
+          <Routes>
+            {/* Public auth routes */}
+            <Route 
+              path="/sign-in/*" 
+              element={<SignIn routing="path" path="/sign-in" />} 
+            />
+            <Route 
+              path="/sign-up/*" 
+              element={<SignUp routing="path" path="/sign-up" />} 
+            />
+            
+            {/* Protected routes */}
+            <Route
+              path="/"
+              element={
+                <>
+                  <SignedIn>
                     <UserDashboard />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/file/:fileId"
-                element={
-                  <RequireAuth>
-                    <UserAnnotationDashboard mode="view" />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/annotate/:fileId"
-                element={
-                  <RequireAuth>
-                    <UserAnnotationDashboard mode="edit" />
-                  </RequireAuth>
-                }
-              />
+                  </SignedIn>
+                  <SignedOut>
+                    <RedirectToSignIn />
+                  </SignedOut>
+                </>
+              }
+            />
 
-              {/* Catch all redirect to sign-in */}
-              <Route path="*" element={<Navigate to="/sign-in" replace />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </AuthProvider>
+            {/* Catch all redirect */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
     </ClerkProvider>
   );
 }
