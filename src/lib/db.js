@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import { createHash } from 'crypto';
 
 let cachedConnection = null;
 let connectionPromise = null;
@@ -20,10 +19,10 @@ class DatabaseError extends Error {
 }
 
 export async function connectDB() {
-  // If we're already connected, return the existing connection
-  if (cachedConnection?.readyState === CONNECTION_STATES.connected) {
+  // Fast path: return existing connection
+  if (mongoose.connections[0].readyState === CONNECTION_STATES.connected) {
     console.log('Using existing database connection');
-    return cachedConnection;
+    return mongoose.connection;
   }
 
   // If we're connecting, wait for the existing promise
@@ -37,16 +36,16 @@ export async function connectDB() {
   }
 
   try {
-    // Configure Mongoose options for Vercel environment
+    // Optimized options for serverless
     const options = {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 15000,    // Increased for Vercel
-      socketTimeoutMS: 60000,             // Increased for Vercel
-      connectTimeoutMS: 30000,            // Increased for Vercel
-      maxPoolSize: 50,                    // Adjusted for serverless
-      minPoolSize: 10,                    // Minimum connections
-      maxIdleTimeMS: 60000,              // Keep connections alive longer
-      heartbeatFrequencyMS: 15000,       // More frequent heartbeats
+      serverSelectionTimeoutMS: 5000,    // Reduced from 15000
+      socketTimeoutMS: 10000,            // Reduced from 60000
+      connectTimeoutMS: 10000,           // Reduced from 30000
+      maxPoolSize: 1,                    // Reduced from 50
+      minPoolSize: 0,                    // Reduced from 10
+      maxIdleTimeMS: 5000,              // Reduced from 60000
+      heartbeatFrequencyMS: 5000,       // Reduced from 15000
       ssl: true,
       tls: true,
       retryWrites: true,
@@ -58,96 +57,61 @@ export async function connectDB() {
       }
     };
 
-    console.log('Initializing new database connection...', {
-      uri: process.env.MONGODB_URI.split('@')[1], // Log only host part for security
-      options: { ...options, ssl: undefined, tls: undefined } // Remove sensitive data
-    });
+    console.log('Initializing new database connection...');
 
     // Create connection promise
     connectionPromise = mongoose.connect(process.env.MONGODB_URI, options);
 
-    // Wait for connection
-    cachedConnection = await connectionPromise;
+    // Wait for connection with timeout
+    const connectionTimeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Connection timeout')), 9000);
+    });
+
+    cachedConnection = await Promise.race([
+      connectionPromise,
+      connectionTimeout
+    ]);
+
     console.log('Database connected successfully');
 
-    // Set up connection event handlers
+    // Simplified error handling
     mongoose.connection.on('error', (err) => {
       console.error('MongoDB connection error:', {
         name: err.name,
-        message: err.message,
-        code: err.code
+        message: err.message
       });
-
-      // Reset cache on critical errors
-      if (err.name === 'MongoNetworkError' || err.name === 'MongoServerSelectionError') {
-        cachedConnection = null;
-        connectionPromise = null;
-      }
-    });
-
-    mongoose.connection.on('disconnected', () => {
-      console.log('MongoDB disconnected, clearing connection cache');
       cachedConnection = null;
       connectionPromise = null;
     });
 
-    mongoose.connection.on('reconnected', () => {
-      console.log('MongoDB reconnected');
+    mongoose.connection.on('disconnected', () => {
+      cachedConnection = null;
+      connectionPromise = null;
     });
 
-    // Monitor connection health
-    setInterval(() => {
-      if (mongoose.connection.readyState !== CONNECTION_STATES.connected) {
-        console.warn('Database connection health check failed:', {
-          state: mongoose.connection.readyState,
-          timestamp: new Date().toISOString()
-        });
-      }
-    }, 30000);
-
-    return cachedConnection;
+    // Return the connection
+    return mongoose.connection;
 
   } catch (error) {
     console.error('Database connection error:', {
       name: error.name,
       message: error.message,
-      code: error.code,
-      timestamp: new Date().toISOString()
+      code: error.code
     });
 
-    // Reset connection state
     cachedConnection = null;
     connectionPromise = null;
 
-    // Throw enhanced error
     throw new DatabaseError(
       `Failed to connect to database: ${error.message}`,
       error.code || 'CONNECTION_ERROR'
     );
   } finally {
-    // Clear connection promise
     connectionPromise = null;
   }
 }
 
-// Graceful shutdown handlers
-['SIGTERM', 'SIGINT', 'beforeExit'].forEach(signal => {
-  process.on(signal, async () => {
-    try {
-      if (mongoose.connection.readyState === CONNECTION_STATES.connected) {
-        console.log(`Closing MongoDB connection due to ${signal}`);
-        await mongoose.connection.close();
-        console.log('MongoDB connection closed successfully');
-      }
-    } catch (err) {
-      console.error('Error during database shutdown:', err);
-    } finally {
-      process.exit(0);
-    }
-  });
-});
-
-// Optional: Add connection status checker
+// Simplified status checker
 export function getDatabaseStatus() {
   return {
     isConnected: mongoose.connection.readyState === CONNECTION_STATES.connected,
@@ -155,3 +119,10 @@ export function getDatabaseStatus() {
     timestamp: new Date().toISOString()
   };
 }
+
+// Clean up on module unload
+process.on('beforeExit', async () => {
+  if (mongoose.connection.readyState === CONNECTION_STATES.connected) {
+    await mongoose.connection.close();
+  }
+});
