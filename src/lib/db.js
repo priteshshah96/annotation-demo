@@ -28,14 +28,14 @@ export async function connectDB() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 30000,
-      connectTimeoutMS: 10000,
+      serverSelectionTimeoutMS: 10000,    // Increased from 5000
+      socketTimeoutMS: 45000,             // Increased from 30000
+      connectTimeoutMS: 15000,            // Increased from 10000
       family: 4,
       maxPoolSize: 10,
       minPoolSize: 1,
-      maxIdleTimeMS: 10000,
-      heartbeatFrequencyMS: 5000,
+      maxIdleTimeMS: 30000,              // Increased from 10000
+      heartbeatFrequencyMS: 10000,       // Increased from 5000
       ssl: true,
       tls: true,
       retryWrites: true,

@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 
+const SYNC_TIMEOUT = 15000; // 15 seconds
+const RETRY_DELAY = 2000;   // 2 seconds between retries
+const MAX_RETRIES = 3;
+
 export function useAuthSync() {
   const { user, isLoaded: isUserLoaded } = useUser();
   const { getToken } = useAuth();
@@ -9,10 +13,15 @@ export function useAuthSync() {
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [error, setError] = useState(null);
   const mountedRef = useRef(true);
-  const syncTimeoutRef = useRef(null);
+  const abortController = useRef(null);
 
-  const syncUser = useCallback(async (retryCount = 3) => {
+  const syncUser = useCallback(async (retryCount = MAX_RETRIES) => {
     if (!user?.id || isSyncing || !mountedRef.current) return;
+
+    // Cancel any existing request
+    if (abortController.current) {
+      abortController.current.abort();
+    }
 
     try {
       setIsSyncing(true);
@@ -23,21 +32,23 @@ export function useAuthSync() {
         throw new Error('No authentication token available');
       }
 
-      // Get the base URL from environment or default to window.location.origin
-      const baseUrl = process.env.VITE_API_URL || window.location.origin;
-      
-      const response = await fetch(`${baseUrl}/api/user/sync`, {
+      // Create new abort controller
+      abortController.current = new AbortController();
+      const timeoutId = setTimeout(() => abortController.current.abort(), SYNC_TIMEOUT);
+
+      const response = await fetch('/api/user/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        // Add timeout
-        signal: AbortSignal.timeout(5000)
+        signal: abortController.current.signal
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Sync failed');
       }
 
@@ -46,64 +57,60 @@ export function useAuthSync() {
       if (mountedRef.current) {
         setLastSyncTime(new Date().toISOString());
         setIsInitialSync(false);
+        setError(null);
       }
 
       return data;
     } catch (error) {
       console.error('Sync error:', error);
       
-      // Implement retry logic
-      if (retryCount > 0 && error.name !== 'AbortError') {
+      if (!mountedRef.current) return;
+
+      // Only retry on network errors or timeouts, not auth errors
+      if (retryCount > 0 && 
+          (error.name === 'TimeoutError' || 
+           error.name === 'AbortError' || 
+           error.message.includes('failed to fetch'))) {
         console.log(`Retrying sync... (${retryCount} attempts remaining)`);
-        return new Promise(resolve => {
-          syncTimeoutRef.current = setTimeout(() => {
-            resolve(syncUser(retryCount - 1));
-          }, 1000);
-        });
+        
+        // Wait between retries
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return syncUser(retryCount - 1);
       }
 
-      if (mountedRef.current) {
-        setError(error.message);
-      }
+      setError(error.message);
       throw error;
     } finally {
       if (mountedRef.current) {
         setIsSyncing(false);
+        abortController.current = null;
       }
     }
   }, [user?.id, isSyncing, getToken]);
 
   // Initial sync
   useEffect(() => {
+    let mounted = true;
+
     if (isUserLoaded && user?.id && isInitialSync && !isSyncing) {
       syncUser().catch(error => {
-        console.error('Initial sync failed:', error);
+        if (mounted) {
+          console.error('Initial sync failed:', error);
+        }
       });
-    }
-  }, [isUserLoaded, user?.id, isInitialSync, isSyncing, syncUser]);
-
-  // Periodic sync
-  useEffect(() => {
-    let syncInterval;
-    if (isUserLoaded && user?.id && !isInitialSync) {
-      syncInterval = setInterval(() => {
-        syncUser().catch(console.error);
-      }, 5 * 60 * 1000); // Sync every 5 minutes
     }
 
     return () => {
-      if (syncInterval) {
-        clearInterval(syncInterval);
-      }
+      mounted = false;
     };
-  }, [isUserLoaded, user?.id, isInitialSync, syncUser]);
+  }, [isUserLoaded, user?.id, isInitialSync, isSyncing, syncUser]);
 
   // Cleanup
   useEffect(() => {
     return () => {
       mountedRef.current = false;
-      if (syncTimeoutRef.current) {
-        clearTimeout(syncTimeoutRef.current);
+      if (abortController.current) {
+        abortController.current.abort();
       }
     };
   }, []);

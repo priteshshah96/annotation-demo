@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
+import { CircularProgress, Box } from '@mui/material';
 
 const AuthContext = createContext(null);
 
@@ -19,52 +20,68 @@ export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
 
-  // Handle initial authentication check
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        if (isUserLoaded) {
-          if (!isSignedIn) {
-            navigate('/sign-in');
-          } else {
-            // Verify we can get a token
-            const token = await getToken();
-            if (!token) {
-              throw new Error('Failed to get authentication token');
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-        setError(error.message);
-      } finally {
-        setIsInitializing(false);
+  const initializeAuth = useCallback(async () => {
+    try {
+      if (!isUserLoaded) return;
+
+      if (!isSignedIn) {
+        navigate('/sign-in');
+        return;
       }
-    };
 
-    checkAuth();
+      // Verify token access
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Failed to get authentication token');
+      }
+
+      // Try initial sync
+      const response = await fetch('/api/user/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to sync user data');
+      }
+
+      setIsAuthChecked(true);
+    } catch (error) {
+      console.error('Auth initialization error:', error);
+      setError(error.message);
+    } finally {
+      setIsInitializing(false);
+    }
   }, [isUserLoaded, isSignedIn, navigate, getToken]);
 
-  // Memoize the context value to prevent unnecessary rerenders
+  useEffect(() => {
+    initializeAuth();
+  }, [initializeAuth]);
+
   const contextValue = React.useMemo(() => ({
     user,
     isInitializing,
-    isAuthenticated: isSignedIn,
+    isAuthenticated: isSignedIn && isAuthChecked,
     error,
     clearError: () => setError(null)
-  }), [user, isInitializing, isSignedIn, error]);
+  }), [user, isInitializing, isSignedIn, isAuthChecked, error]);
 
   if (!isUserLoaded || isInitializing) {
     return (
-      <div style={{ 
+      <Box sx={{ 
         display: 'flex', 
         justifyContent: 'center', 
         alignItems: 'center', 
         height: '100vh' 
       }}>
-        Loading...
-      </div>
+        <CircularProgress />
+      </Box>
     );
   }
 

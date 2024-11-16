@@ -4,34 +4,16 @@ import { User } from '../../../models/User.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Credentials': 'true',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+  'Access-Control-Allow-Origin': process.env.VERCEL_URL || '*',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
   'Content-Type': 'application/json'
-};
-
-// Unified header access
-const getAuthHeader = (req) => {
-  // Handle Vercel Edge headers
-  if (req.headers instanceof Headers) {
-    return req.headers.get('authorization');
-  }
-  
-  // Handle Vercel Node.js headers
-  if (req.headers && typeof req.headers === 'object') {
-    return req.headers.authorization || req.headers.Authorization;
-  }
-  
-  return null;
 };
 
 const createResponse = (data, status = 200) => {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-    }
+    headers: corsHeaders
   });
 };
 
@@ -44,17 +26,26 @@ export default async function handler(req) {
     });
   }
 
+  // Get auth header
+  const authHeader = req.headers.get?.('authorization') || 
+                    req.headers?.['authorization'] || 
+                    req.headers?.['Authorization'];
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    return createResponse({
+      success: false,
+      error: 'Missing or invalid authorization header'
+    }, 401);
+  }
+
   try {
-    await connectDB();
-    
-    // Get and validate auth token
-    const authHeader = getAuthHeader(req);
-    if (!authHeader?.startsWith('Bearer ')) {
-      return createResponse({
-        success: false,
-        error: 'Missing or invalid authorization header'
-      }, 401);
-    }
+    // Connect to database with increased timeout
+    const db = await Promise.race([
+      connectDB(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database connection timeout')), 10000)
+      )
+    ]);
 
     const token = authHeader.split(' ')[1];
     
@@ -71,21 +62,13 @@ export default async function handler(req) {
       }, 401);
     }
 
-    // Get Clerk user
+    // Get user data
     const userId = decoded.sub;
-    let clerkUser;
-    try {
-      clerkUser = await clerkClient.users.getUser(userId);
-    } catch (error) {
-      console.error('Failed to fetch Clerk user:', error);
-      return createResponse({
-        success: false,
-        error: 'User not found',
-        code: 'USER_NOT_FOUND'
-      }, 404);
-    }
+    const [clerkUser, existingUser] = await Promise.all([
+      clerkClient.users.getUser(userId),
+      User.findOne({ clerkId: userId })
+    ]);
 
-    // Find primary email
     const primaryEmail = clerkUser.emailAddresses.find(email => 
       email.id === clerkUser.primaryEmailAddressId
     )?.emailAddress;
@@ -97,47 +80,35 @@ export default async function handler(req) {
       }, 400);
     }
 
-    // Update or create user in MongoDB
-    let user;
-    try {
-      user = await User.findOneAndUpdate(
-        { clerkId: userId },
-        {
-          $set: {
-            email: primaryEmail,
-            firstName: clerkUser.firstName,
-            lastName: clerkUser.lastName,
-            lastLoginAt: new Date()
-          },
-          $setOnInsert: { createdAt: new Date() }
+    // Update or create user
+    const user = await User.findOneAndUpdate(
+      { clerkId: userId },
+      {
+        $set: {
+          email: primaryEmail,
+          firstName: clerkUser.firstName,
+          lastName: clerkUser.lastName,
+          lastLoginAt: new Date()
         },
-        { 
-          upsert: true, 
-          new: true,
-          runValidators: true
-        }
-      );
+        $setOnInsert: { createdAt: new Date() }
+      },
+      { 
+        upsert: true, 
+        new: true,
+        runValidators: true
+      }
+    );
 
-      // Success response
-      return createResponse({
-        success: true,
-        user: {
-          id: user._id.toString(),
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          lastLoginAt: user.lastLoginAt
-        }
-      });
-
-    } catch (error) {
-      console.error('MongoDB operation failed:', error);
-      return createResponse({
-        success: false,
-        error: 'Database operation failed',
-        code: 'DB_ERROR'
-      }, 500);
-    }
+    return createResponse({
+      success: true,
+      user: {
+        id: user._id.toString(),
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        lastLoginAt: user.lastLoginAt
+      }
+    });
 
   } catch (error) {
     console.error('Sync error:', {
@@ -154,9 +125,9 @@ export default async function handler(req) {
   }
 }
 
-// Export config for Vercel
 export const config = {
   api: {
-    bodyParser: true
+    bodyParser: true,
+    externalResolver: true
   }
 };
