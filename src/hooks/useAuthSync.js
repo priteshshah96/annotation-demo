@@ -1,32 +1,31 @@
 // src/hooks/useAuthSync.js
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
+import { useNavigate } from 'react-router-dom';
 
-const RETRY_DELAYS = [1000, 2000, 4000];
-const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT = 8000;
 
 export function useAuthSync() {
   const { user } = useUser();
   const { getToken } = useAuth();
+  const navigate = useNavigate();
   const [isInitialSync, setIsInitialSync] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
   const mountedRef = useRef(true);
-  const currentRequestRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-  // Cleanup function
   const cleanup = useCallback(() => {
-    if (currentRequestRef.current) {
-      currentRequestRef.current.abort();
-      currentRequestRef.current = null;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
   }, []);
 
-  const syncUser = useCallback(async (force = false) => {
-    if (!user?.id || (isSyncing && !force) || !mountedRef.current) return;
-    
+  const syncUser = useCallback(async () => {
+    if (!user?.id || isSyncing || !mountedRef.current) return;
+
+    // Clean up any existing request
     cleanup();
 
     try {
@@ -35,15 +34,14 @@ export function useAuthSync() {
 
       const token = await getToken();
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new Error('Authentication required');
       }
 
-      // Create new AbortController
-      currentRequestRef.current = new AbortController();
-
+      // Setup new request with timeout
+      abortControllerRef.current = new AbortController();
       const timeoutId = setTimeout(() => {
-        if (currentRequestRef.current) {
-          currentRequestRef.current.abort();
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
         }
       }, REQUEST_TIMEOUT);
 
@@ -53,7 +51,7 @@ export function useAuthSync() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        signal: currentRequestRef.current.signal
+        signal: abortControllerRef.current.signal
       });
 
       clearTimeout(timeoutId);
@@ -61,16 +59,25 @@ export function useAuthSync() {
       if (!mountedRef.current) return;
 
       if (!response.ok) {
-        const data = await response.json().catch(() => ({ error: 'Failed to parse response' }));
-        throw new Error(data.error || `Server error: ${response.status}`);
+        // Handle specific error cases
+        switch (response.status) {
+          case 401:
+          case 403:
+            navigate('/sign-in');
+            throw new Error('Authentication required');
+          case 404:
+            throw new Error('Sync endpoint not found');
+          case 429:
+            throw new Error('Too many requests, please try again later');
+          case 503:
+            throw new Error('Service temporarily unavailable');
+          default:
+            throw new Error('Failed to sync user data');
+        }
       }
 
       const data = await response.json();
-
-      if (!mountedRef.current) return;
-
       setIsInitialSync(false);
-      setRetryCount(0);
       return data;
 
     } catch (error) {
@@ -78,46 +85,47 @@ export function useAuthSync() {
 
       console.error('Sync error:', {
         message: error.message,
-        name: error.name,
-        retryCount
+        name: error.name
       });
 
-      setError(error.message);
-
-      if (error.name !== 'AbortError' && retryCount < MAX_RETRIES) {
-        const delay = RETRY_DELAYS[retryCount];
-        await new Promise(resolve => setTimeout(resolve, delay));
-        if (mountedRef.current) {
-          setRetryCount(prev => prev + 1);
-          return syncUser(true);
-        }
+      // Only set error if it's not an abort
+      if (error.name !== 'AbortError') {
+        setError(error.message);
       }
+
+      // Handle fatal errors
+      if (error.message.includes('authentication')) {
+        navigate('/sign-in');
+      }
+
     } finally {
       if (mountedRef.current) {
         setIsSyncing(false);
-        currentRequestRef.current = null;
+        abortControllerRef.current = null;
       }
     }
-  }, [user?.id, isSyncing, getToken, retryCount, cleanup]);
+  }, [user?.id, isSyncing, getToken, navigate]);
 
+  // Cleanup on unmount
   useEffect(() => {
     mountedRef.current = true;
-
-    if (isInitialSync && user?.id) {
-      syncUser(true);
-    }
-
     return () => {
       mountedRef.current = false;
       cleanup();
     };
-  }, [isInitialSync, user?.id, syncUser, cleanup]);
+  }, [cleanup]);
+
+  // Initial sync
+  useEffect(() => {
+    if (isInitialSync && user?.id) {
+      syncUser();
+    }
+  }, [isInitialSync, user?.id, syncUser]);
 
   return {
     isInitialSync,
     isSyncing,
     error,
-    retryCount,
     syncUser,
     cancelSync: cleanup
   };

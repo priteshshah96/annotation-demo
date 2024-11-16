@@ -1,10 +1,10 @@
+// src/components/providers/AuthProvider.jsx
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
-import { CircularProgress, Box, Typography } from '@mui/material';
+import { CircularProgress, Box } from '@mui/material';
 
 const AuthContext = createContext(null);
-const MAX_RETRIES = 3;
 const TIMEOUT_MS = 8000;
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -24,9 +24,8 @@ export const AuthProvider = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
   const [lastSyncTime, setLastSyncTime] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
 
-  const syncUser = useCallback(async (force = false, retryAttempt = 0) => {
+  const syncUser = useCallback(async (force = false) => {
     if ((!isSignedIn || isSyncing) && !force) return;
 
     let timeoutId;
@@ -34,16 +33,15 @@ export const AuthProvider = ({ children }) => {
 
     try {
       setIsSyncing(true);
+      setError(null);
+
       const token = await getToken();
-      
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new Error('Authentication required');
       }
 
       // Set timeout
-      timeoutId = setTimeout(() => {
-        controller.abort();
-      }, TIMEOUT_MS);
+      timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
       const response = await fetch('/api/vercel/user/sync', {
         method: 'POST',
@@ -57,36 +55,19 @@ export const AuthProvider = ({ children }) => {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Sync failed with status: ${response.status}`);
+        const data = await response.json();
+        throw new Error(data.error || 'Sync failed');
       }
 
+      const data = await response.json();
       setLastSyncTime(new Date().toISOString());
-      setError(null);
-      setRetryCount(0);
 
     } catch (error) {
-      clearTimeout(timeoutId);
-      console.error('Auth sync error:', {
-        attempt: retryAttempt,
-        error: error.message
-      });
-
+      console.error('Auth sync error:', error);
       setError(error.message);
 
-      // Handle specific errors
-      if (error.name === 'AbortError') {
-        if (retryAttempt < MAX_RETRIES) {
-          const delay = 1000 * Math.pow(2, retryAttempt);
-          setRetryCount(retryAttempt + 1);
-          
-          setTimeout(() => {
-            syncUser(force, retryAttempt + 1);
-          }, delay);
-          return;
-        }
-      } else if (error.message.includes('token') || error.message.includes('authentication')) {
+      if (error.message.includes('authentication') || error.status === 401) {
         navigate('/sign-in', { replace: true });
-        return;
       }
     } finally {
       setIsSyncing(false);
@@ -94,7 +75,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isSignedIn, isSyncing, getToken, navigate]);
 
-  // Initial auth check and sync
+  // Initial auth check
   useEffect(() => {
     if (isUserLoaded) {
       if (!isSignedIn) {
@@ -112,7 +93,7 @@ export const AuthProvider = ({ children }) => {
     
     if (isSignedIn && !isInitializing) {
       syncInterval = setInterval(() => {
-        syncUser(false);
+        syncUser();
       }, SYNC_INTERVAL_MS);
     }
 
@@ -123,23 +104,15 @@ export const AuthProvider = ({ children }) => {
     };
   }, [isSignedIn, isInitializing, syncUser]);
 
-  // Loading state with retry indication
   if (isInitializing) {
     return (
       <Box sx={{ 
         display: 'flex', 
-        flexDirection: 'column',
         justifyContent: 'center', 
         alignItems: 'center', 
-        height: '100vh',
-        gap: 2
+        height: '100vh' 
       }}>
         <CircularProgress />
-        {retryCount > 0 && (
-          <Typography variant="caption" color="text.secondary">
-            Retrying connection... ({retryCount}/{MAX_RETRIES})
-          </Typography>
-        )}
       </Box>
     );
   }
@@ -153,7 +126,6 @@ export const AuthProvider = ({ children }) => {
         error,
         lastSyncTime,
         syncUser,
-        retryCount,
         clearError: () => setError(null)
       }}
     >

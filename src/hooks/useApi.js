@@ -1,7 +1,11 @@
+// src/hooks/useApi.js
 import { useAuth } from '@clerk/clerk-react';
 import { useState, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-class ApiError extends Error {
+const REQUEST_TIMEOUT = 8000;
+
+export class ApiError extends Error {
   constructor(message, status, details = null) {
     super(message);
     this.status = status;
@@ -12,29 +16,36 @@ class ApiError extends Error {
 
 export function useApi() {
   const { getToken } = useAuth();
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
 
-  const fetchWithAuth = useCallback(async (url, options = {}, retryCount = 3) => {
+  const fetchWithAuth = useCallback(async (url, options = {}) => {
+    // Cleanup any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
     try {
       setIsLoading(true);
       setError(null);
-
-      // Cancel any pending requests
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
 
       // Create new abort controller
       abortControllerRef.current = new AbortController();
       
       const token = await getToken();
       if (!token) {
-        throw new ApiError('No authentication token available', 401);
+        throw new ApiError('Authentication required', 401);
       }
 
-      // Get base URL from environment or default
+      // Setup timeout
+      const timeoutId = setTimeout(() => {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+      }, REQUEST_TIMEOUT);
+
       const baseUrl = '/api/vercel';
       const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
 
@@ -45,64 +56,65 @@ export function useApi() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        signal: abortControllerRef.current.signal,
-        credentials: 'include'
+        signal: abortControllerRef.current.signal
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new ApiError(
-          data.error || 'API request failed',
-          response.status,
-          data.details
-        );
+        // Handle specific error cases
+        switch (response.status) {
+          case 401:
+          case 403:
+            navigate('/sign-in');
+            throw new ApiError('Authentication required', response.status);
+          case 404:
+            throw new ApiError('Resource not found', response.status);
+          case 429:
+            throw new ApiError('Rate limit exceeded', response.status);
+          default:
+            throw new ApiError(data.error || 'Request failed', response.status, data.details);
+        }
       }
 
       return data;
+
     } catch (error) {
-      // Don't retry if request was aborted or unauthorized
-      if (error.name === 'AbortError' || error.status === 401) {
-        throw error;
+      if (error.name === 'AbortError') {
+        throw new ApiError('Request timeout', 408);
       }
-
-      // Implement retry logic
-      if (retryCount > 0) {
-        console.log(`Retrying request... (${retryCount} attempts remaining)`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return fetchWithAuth(url, options, retryCount - 1);
-      }
-
-      const apiError = error instanceof ApiError ? error : new ApiError('Network error', 500, error.message);
-      setError(apiError);
-      throw apiError;
+      throw error;
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
-  }, [getToken]);
+  }, [getToken, navigate]);
 
+  // API endpoints with simplified error handling
   const api = {
     files: {
-      getAll: (options = {}) => fetchWithAuth('/api/files', options),
-      get: (id, options = {}) => fetchWithAuth(`/api/files/${id}`, options),
-      upload: (data, options = {}) => fetchWithAuth('/api/files/upload', {
+      getAll: (options = {}) => fetchWithAuth('/files', options),
+      get: (id, options = {}) => fetchWithAuth(`/files/${id}`, options),
+      upload: (data, options = {}) => fetchWithAuth('/files/upload', {
         method: 'POST',
         body: JSON.stringify(data),
         ...options
       }),
-      delete: (id, options = {}) => fetchWithAuth(`/api/files/${id}`, {
+      delete: (id, options = {}) => fetchWithAuth(`/files/${id}`, {
         method: 'DELETE',
         ...options
       })
     },
     annotations: {
-      get: (fileId, options = {}) => fetchWithAuth(`/api/annotations/${fileId}`, options),
-      save: (data, options = {}) => fetchWithAuth('/api/annotations', {
+      get: (fileId, options = {}) => fetchWithAuth(`/annotations/${fileId}`, options),
+      save: (data, options = {}) => fetchWithAuth('/annotations', {
         method: 'POST',
         body: JSON.stringify(data),
         ...options
       }),
-      sync: (fileId, data, options = {}) => fetchWithAuth(`/api/annotations/${fileId}/sync`, {
+      sync: (fileId, data, options = {}) => fetchWithAuth(`/annotations/${fileId}/sync`, {
         method: 'POST',
         body: JSON.stringify(data),
         ...options
