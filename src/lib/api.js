@@ -47,17 +47,11 @@ class ApiClient {
     }
     
     // Client-side
-    const vercelUrl = process.env.VERCEL_URL;
-    if (vercelUrl) {
-      // Force HTTPS for production Vercel deployments
-      return `https://${vercelUrl}/api/vercel`;
-    }
-    
-    // Development fallback
+    const apiUrl = import.meta.env.VITE_API_URL || '/api/vercel';
     const origin = window.location.origin;
-    console.log('Using origin as base URL:', origin);
-    return `${origin}/api/vercel`;
-  }
+    console.log('Using API URL:', `${origin}${apiUrl}`);
+    return `${origin}${apiUrl}`;
+}
 
   async fetchWithTimeout(url, options = {}) {
     const controller = new AbortController();

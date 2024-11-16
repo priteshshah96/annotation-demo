@@ -27,6 +27,15 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
   
+  if (!publishableKey) {
+    console.error('Missing Clerk publishable key');
+    return (
+      <Box sx={{ p: 4 }}>
+        Error: Missing authentication configuration.
+      </Box>
+    );
+  }
+
   return (
     <BrowserRouter>
       <ClerkProvider publishableKey={publishableKey}>
@@ -46,29 +55,29 @@ function App() {
             <Route
               path="/"
               element={
-                <SignedIn>
+                <ProtectedRoute>
                   <UserDashboard />
-                </SignedIn>
+                </ProtectedRoute>
               }
             />
             <Route
               path="/file/:fileId"
               element={
-                <SignedIn>
+                <ProtectedRoute>
                   <UserAnnotationDashboard mode="view" />
-                </SignedIn>
+                </ProtectedRoute>
               }
             />
             <Route
               path="/annotate/:fileId"
               element={
-                <SignedIn>
+                <ProtectedRoute>
                   <UserAnnotationDashboard mode="edit" />
-                </SignedIn>
+                </ProtectedRoute>
               }
             />
             
-            {/* Public Routes */}
+            {/* Catch-all redirect to sign-in */}
             <Route
               path="*"
               element={

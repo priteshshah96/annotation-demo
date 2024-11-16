@@ -48,9 +48,20 @@
         {"key": "Access-Control-Allow-Credentials", "value": "true"},
         {"key": "Cache-Control", "value": "no-store, no-cache, must-revalidate"}
       ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {"key": "X-Frame-Options", "value": "DENY"},
+        {"key": "X-Content-Type-Options", "value": "nosniff"},
+        {"key": "Referrer-Policy", "value": "strict-origin-when-cross-origin"},
+        {"key": "Permissions-Policy", "value": ""},
+        {"key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains"}
+      ]
     }
   ],
   "env": {
-    "VITE_API_URL": "/api/vercel"
+    "VITE_API_URL": "/api/vercel",
+    "NODE_ENV": "production"
   }
 }
