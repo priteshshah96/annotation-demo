@@ -29,6 +29,10 @@ export default defineConfig(({ mode }) => {
             });
           }
         }
+      },
+      historyApiFallback: {
+        disableDotRule: true,
+        index: '/index.html'
       }
     },
     build: {

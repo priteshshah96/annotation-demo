@@ -16,7 +16,6 @@ const LoadingFallback = () => (
 );
 
 function App() {
-  // Get publishable key from environment variable
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
   if (!publishableKey) {
@@ -28,21 +27,36 @@ function App() {
   }
 
   return (
-    <ClerkProvider publishableKey={publishableKey}>
+    <ClerkProvider 
+      publishableKey={publishableKey}
+      navigate={(to) => window.history.pushState({}, '', to)}
+    >
       <BrowserRouter>
         <Suspense fallback={<LoadingFallback />}>
           <Routes>
-            {/* Public auth routes */}
             <Route 
               path="/sign-in/*" 
-              element={<SignIn routing="path" path="/sign-in" />} 
+              element={
+                <SignIn 
+                  routing="path" 
+                  path="/sign-in" 
+                  afterSignInUrl="/"
+                  signUpUrl="/sign-up"
+                />
+              } 
             />
             <Route 
               path="/sign-up/*" 
-              element={<SignUp routing="path" path="/sign-up" />} 
+              element={
+                <SignUp 
+                  routing="path" 
+                  path="/sign-up"
+                  afterSignUpUrl="/"
+                  signInUrl="/sign-in"
+                />
+              } 
             />
             
-            {/* Protected routes */}
             <Route
               path="/"
               element={
@@ -51,13 +65,12 @@ function App() {
                     <UserDashboard />
                   </SignedIn>
                   <SignedOut>
-                    <RedirectToSignIn />
+                    <RedirectToSignIn redirectUrl="/" />
                   </SignedOut>
                 </>
               }
             />
 
-            {/* Catch all redirect */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
