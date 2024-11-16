@@ -1,41 +1,52 @@
 import mongoose from 'mongoose';
 import { createHash } from 'crypto';
 
-const MONGODB_URI = process.env.MONGODB_URI;
+let cachedConnection = null;
+let connectionPromise = null;
 
-if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable');
-}
+const CONNECTION_STATES = {
+  disconnected: 0,
+  connected: 1,
+  connecting: 2,
+  disconnecting: 3,
+};
 
-const getCacheKey = (uri) => {
-  return createHash('md5').update(uri).digest('hex');
-}
-
-const cacheKey = getCacheKey(MONGODB_URI);
-global.mongoose = global.mongoose || {};
-let cached = global.mongoose[cacheKey];
-
-if (!cached) {
-  cached = global.mongoose[cacheKey] = { conn: null, promise: null };
+class DatabaseError extends Error {
+  constructor(message, code = 'DB_ERROR') {
+    super(message);
+    this.name = 'DatabaseError';
+    this.code = code;
+  }
 }
 
 export async function connectDB() {
-  if (cached.conn) {
-    console.log('Using cached database connection');
-    return cached.conn;
+  // If we're already connected, return the existing connection
+  if (cachedConnection?.readyState === CONNECTION_STATES.connected) {
+    console.log('Using existing database connection');
+    return cachedConnection;
   }
 
-  if (!cached.promise) {
-    const opts = {
+  // If we're connecting, wait for the existing promise
+  if (connectionPromise) {
+    console.log('Waiting for existing connection attempt...');
+    return connectionPromise;
+  }
+
+  if (!process.env.MONGODB_URI) {
+    throw new DatabaseError('MONGODB_URI environment variable is not defined', 'ENV_ERROR');
+  }
+
+  try {
+    // Configure Mongoose options for Vercel environment
+    const options = {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 10000,    // Increased from 5000
-      socketTimeoutMS: 45000,             // Increased from 30000
-      connectTimeoutMS: 15000,            // Increased from 10000
-      family: 4,
-      maxPoolSize: 10,
-      minPoolSize: 1,
-      maxIdleTimeMS: 30000,              // Increased from 10000
-      heartbeatFrequencyMS: 10000,       // Increased from 5000
+      serverSelectionTimeoutMS: 15000,    // Increased for Vercel
+      socketTimeoutMS: 60000,             // Increased for Vercel
+      connectTimeoutMS: 30000,            // Increased for Vercel
+      maxPoolSize: 50,                    // Adjusted for serverless
+      minPoolSize: 10,                    // Minimum connections
+      maxIdleTimeMS: 60000,              // Keep connections alive longer
+      heartbeatFrequencyMS: 15000,       // More frequent heartbeats
       ssl: true,
       tls: true,
       retryWrites: true,
@@ -47,55 +58,100 @@ export async function connectDB() {
       }
     };
 
-    console.log('Creating new database connection...');
-    
-    try {
-      cached.promise = mongoose.connect(MONGODB_URI, opts);
-      cached.conn = await cached.promise;
-      console.log('Database connected successfully');
-      
-      mongoose.connection.on('error', (err) => {
-        console.error('MongoDB error event:', err);
-        if (err.name === 'MongoNetworkError') {
-          cached.conn = null;
-          cached.promise = null;
-        }
+    console.log('Initializing new database connection...', {
+      uri: process.env.MONGODB_URI.split('@')[1], // Log only host part for security
+      options: { ...options, ssl: undefined, tls: undefined } // Remove sensitive data
+    });
+
+    // Create connection promise
+    connectionPromise = mongoose.connect(process.env.MONGODB_URI, options);
+
+    // Wait for connection
+    cachedConnection = await connectionPromise;
+    console.log('Database connected successfully');
+
+    // Set up connection event handlers
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', {
+        name: err.name,
+        message: err.message,
+        code: err.code
       });
 
-      mongoose.connection.on('disconnected', () => {
-        console.log('MongoDB disconnected, clearing cache');
-        cached.conn = null;
-        cached.promise = null;
-      });
+      // Reset cache on critical errors
+      if (err.name === 'MongoNetworkError' || err.name === 'MongoServerSelectionError') {
+        cachedConnection = null;
+        connectionPromise = null;
+      }
+    });
 
-      return cached.conn;
-    } catch (error) {
-      console.error('Connection error:', {
-        name: error.name,
-        message: error.message,
-        code: error.code
-      });
-      cached.promise = null;
-      cached.conn = null;
-      throw error;
-    }
-  }
+    mongoose.connection.on('disconnected', () => {
+      console.log('MongoDB disconnected, clearing connection cache');
+      cachedConnection = null;
+      connectionPromise = null;
+    });
 
-  try {
-    return await cached.promise;
+    mongoose.connection.on('reconnected', () => {
+      console.log('MongoDB reconnected');
+    });
+
+    // Monitor connection health
+    setInterval(() => {
+      if (mongoose.connection.readyState !== CONNECTION_STATES.connected) {
+        console.warn('Database connection health check failed:', {
+          state: mongoose.connection.readyState,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }, 30000);
+
+    return cachedConnection;
+
   } catch (error) {
-    console.error('Cached promise error:', error);
-    cached.promise = null;
-    throw error;
+    console.error('Database connection error:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      timestamp: new Date().toISOString()
+    });
+
+    // Reset connection state
+    cachedConnection = null;
+    connectionPromise = null;
+
+    // Throw enhanced error
+    throw new DatabaseError(
+      `Failed to connect to database: ${error.message}`,
+      error.code || 'CONNECTION_ERROR'
+    );
+  } finally {
+    // Clear connection promise
+    connectionPromise = null;
   }
 }
 
+// Graceful shutdown handlers
 ['SIGTERM', 'SIGINT', 'beforeExit'].forEach(signal => {
   process.on(signal, async () => {
-    if (mongoose.connection.readyState === 1) {
-      await mongoose.connection.close();
-      console.log('MongoDB connection closed through', signal);
+    try {
+      if (mongoose.connection.readyState === CONNECTION_STATES.connected) {
+        console.log(`Closing MongoDB connection due to ${signal}`);
+        await mongoose.connection.close();
+        console.log('MongoDB connection closed successfully');
+      }
+    } catch (err) {
+      console.error('Error during database shutdown:', err);
+    } finally {
+      process.exit(0);
     }
-    process.exit(0);
   });
 });
+
+// Optional: Add connection status checker
+export function getDatabaseStatus() {
+  return {
+    isConnected: mongoose.connection.readyState === CONNECTION_STATES.connected,
+    state: mongoose.connection.readyState,
+    timestamp: new Date().toISOString()
+  };
+}

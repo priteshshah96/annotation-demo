@@ -35,7 +35,7 @@ export function useApi() {
       }
 
       // Get base URL from environment or default
-      const baseUrl = process.env.VITE_API_URL || window.location.origin;
+      const baseUrl = '/api/vercel';
       const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
 
       const response = await fetch(fullUrl, {

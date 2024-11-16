@@ -22,18 +22,41 @@ export class ApiError extends Error {
   }
 }
 
-
 class ApiClient {
   constructor(options = {}) {
-    // Update baseUrl logic for Vercel
-    this.baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL 
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : process.env.VITE_API_URL 
-      || window.location.origin;
-    
+    this.baseUrl = this.getBaseUrl();
     this.timeout = options.timeout || DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries || MAX_RETRIES;
     this.retryDelay = options.retryDelay || RETRY_DELAY;
+    
+    // Log configuration on initialization
+    console.log('API Client initialized:', {
+      baseUrl: this.baseUrl,
+      timeout: this.timeout,
+      maxRetries: this.maxRetries
+    });
+  }
+
+  getBaseUrl() {
+    // Enhanced URL handling for Vercel deployment
+    if (typeof window === 'undefined') {
+      // Server-side
+      return process.env.VERCEL_URL ? 
+        `https://${process.env.VERCEL_URL}/api/vercel` : 
+        'http://localhost:3000/api/vercel';
+    }
+    
+    // Client-side
+    const vercelUrl = process.env.VERCEL_URL;
+    if (vercelUrl) {
+      // Force HTTPS for production Vercel deployments
+      return `https://${vercelUrl}/api/vercel`;
+    }
+    
+    // Development fallback
+    const origin = window.location.origin;
+    console.log('Using origin as base URL:', origin);
+    return `${origin}/api/vercel`;
   }
 
   async fetchWithTimeout(url, options = {}) {
@@ -41,14 +64,26 @@ class ApiClient {
     const id = setTimeout(() => controller.abort(), this.timeout);
 
     try {
+      console.log(`Making request to: ${url}`, {
+        method: options.method || 'GET',
+        headers: options.headers
+      });
+
       const response = await fetch(url, {
         ...options,
         signal: controller.signal
       });
+      
       clearTimeout(id);
       return response;
     } catch (error) {
       clearTimeout(id);
+      console.error('Request failed:', {
+        url,
+        error: error.message,
+        name: error.name
+      });
+      
       if (error.name === 'AbortError') {
         throw new ApiError('Request timed out', 408);
       }
@@ -62,6 +97,11 @@ class ApiClient {
       
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
+        console.error('API Error Response:', {
+          status: response.status,
+          data,
+          url
+        });
         
         // Check if error is retryable
         if (response.status >= 500 || response.status === 429) {
@@ -74,36 +114,39 @@ class ApiClient {
       return response;
     } catch (error) {
       if (error instanceof RetryableError && retryCount < this.maxRetries) {
-        console.log(`Retrying request (${retryCount + 1}/${this.maxRetries})...`);
+        const nextRetry = retryCount + 1;
+        console.log(`Retrying request (${nextRetry}/${this.maxRetries}):`, url);
+        
         await new Promise(resolve => setTimeout(resolve, this.retryDelay * (retryCount + 1)));
-        return this.fetchWithRetry(url, options, retryCount + 1);
+        return this.fetchWithRetry(url, options, nextRetry);
       }
       throw error;
     }
   }
 
   async request(endpoint, options = {}) {
-    const token = await window.Clerk.session?.getToken();
-    if (!token) {
-      throw new ApiError('Authentication required', 401);
-    }
-
-    const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
-    
-    const requestOptions = {
-      ...options,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...options.headers
-      }
-    };
-
     try {
-      console.log(`Making API request to ${endpoint}...`);
+      const token = await window.Clerk?.session?.getToken();
+      if (!token) {
+        console.error('No authentication token available');
+        throw new ApiError('Authentication required', 401);
+      }
+
+      const url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+      
+      const requestOptions = {
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...options.headers
+        }
+      };
+
+      console.log(`API Request: ${options.method || 'GET'} ${url}`);
       const response = await this.fetchWithRetry(url, requestOptions);
       const data = await response.json();
-      console.log(`API response from ${endpoint}:`, { status: response.status });
+      
       return data;
     } catch (error) {
       console.error('API request failed:', {
@@ -116,38 +159,101 @@ class ApiClient {
     }
   }
 
-  // API Methods
+  // API Methods with enhanced error handling
   files = {
-    getAll: () => this.request('/api/files'),
-    get: (id) => this.request(`/api/files/${id}`),
-    upload: (data) => this.request('/api/files/upload', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    }),
-    delete: (id) => this.request(`/api/files/${id}`, {
-      method: 'DELETE'
-    })
+    getAll: async () => {
+      try {
+        return await this.request('/files');
+      } catch (error) {
+        console.error('Failed to get files:', error);
+        throw error;
+      }
+    },
+    get: async (id) => {
+      try {
+        return await this.request(`/files/${id}`);
+      } catch (error) {
+        console.error(`Failed to get file ${id}:`, error);
+        throw error;
+      }
+    },
+    upload: async (data) => {
+      try {
+        return await this.request('/files/upload', {
+          method: 'POST',
+          body: JSON.stringify(data)
+        });
+      } catch (error) {
+        console.error('Failed to upload file:', error);
+        throw error;
+      }
+    },
+    delete: async (id) => {
+      try {
+        return await this.request(`/files/${id}`, {
+          method: 'DELETE'
+        });
+      } catch (error) {
+        console.error(`Failed to delete file ${id}:`, error);
+        throw error;
+      }
+    }
   };
 
   annotations = {
-    get: (fileId) => this.request(`/api/annotations/${fileId}`),
-    save: (data) => this.request('/api/annotations', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    }),
-    sync: (fileId, data) => this.request(`/api/annotations/${fileId}/sync`, {
-      method: 'POST',
-      body: JSON.stringify(data)
-    }),
-    reset: (fileId) => this.request(`/api/annotations/${fileId}/reset`, {
-      method: 'POST'
-    })
+    get: async (fileId) => {
+      try {
+        return await this.request(`/annotations/${fileId}`);
+      } catch (error) {
+        console.error(`Failed to get annotations for file ${fileId}:`, error);
+        throw error;
+      }
+    },
+    save: async (data) => {
+      try {
+        return await this.request('/annotations', {
+          method: 'POST',
+          body: JSON.stringify(data)
+        });
+      } catch (error) {
+        console.error('Failed to save annotation:', error);
+        throw error;
+      }
+    },
+    sync: async (fileId, data) => {
+      try {
+        return await this.request(`/annotations/${fileId}/sync`, {
+          method: 'POST',
+          body: JSON.stringify(data)
+        });
+      } catch (error) {
+        console.error(`Failed to sync annotations for file ${fileId}:`, error);
+        throw error;
+      }
+    },
+    reset: async (fileId) => {
+      try {
+        return await this.request(`/annotations/${fileId}/reset`, {
+          method: 'POST'
+        });
+      } catch (error) {
+        console.error(`Failed to reset annotations for file ${fileId}:`, error);
+        throw error;
+      }
+    }
   };
 
   user = {
-    sync: () => this.request('/api/user/sync', {
-      method: 'POST'
-    })
+    sync: async () => {
+      try {
+        return await this.request('/user/sync', {
+          method: 'POST'
+        });
+      } catch (error) {
+        console.error('Failed to sync user:', error);
+        throw error;
+      }
+    }
   };
 }
 

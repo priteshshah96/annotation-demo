@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 
-const SYNC_TIMEOUT = 15000; // 15 seconds
+const SYNC_TIMEOUT = 30000; // 30 seconds
 const RETRY_DELAY = 2000;   // 2 seconds between retries
 const MAX_RETRIES = 3;
 
@@ -34,9 +34,8 @@ export function useAuthSync() {
 
       // Create new abort controller
       abortController.current = new AbortController();
-      const timeoutId = setTimeout(() => abortController.current.abort(), SYNC_TIMEOUT);
-
-      const response = await fetch('/api/user/sync', {
+      
+      const response = await fetch('/api/vercel/user/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -44,8 +43,6 @@ export function useAuthSync() {
         },
         signal: abortController.current.signal
       });
-
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -66,14 +63,12 @@ export function useAuthSync() {
       
       if (!mountedRef.current) return;
 
-      // Only retry on network errors or timeouts, not auth errors
+      // Only retry on network errors or timeouts
       if (retryCount > 0 && 
           (error.name === 'TimeoutError' || 
            error.name === 'AbortError' || 
-           error.message.includes('failed to fetch'))) {
+           !error.status)) { // Network errors don't have status
         console.log(`Retrying sync... (${retryCount} attempts remaining)`);
-        
-        // Wait between retries
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         return syncUser(retryCount - 1);
       }
@@ -88,20 +83,20 @@ export function useAuthSync() {
     }
   }, [user?.id, isSyncing, getToken]);
 
-  // Initial sync
+  // Initial sync with delay
   useEffect(() => {
-    let mounted = true;
-
+    let syncTimeout;
     if (isUserLoaded && user?.id && isInitialSync && !isSyncing) {
-      syncUser().catch(error => {
-        if (mounted) {
-          console.error('Initial sync failed:', error);
-        }
-      });
+      // Add small delay before initial sync
+      syncTimeout = setTimeout(() => {
+        syncUser().catch(console.error);
+      }, 1000);
     }
 
     return () => {
-      mounted = false;
+      if (syncTimeout) {
+        clearTimeout(syncTimeout);
+      }
     };
   }, [isUserLoaded, user?.id, isInitialSync, isSyncing, syncUser]);
 
@@ -120,6 +115,8 @@ export function useAuthSync() {
     isSyncing,
     lastSyncTime,
     error,
-    syncUser
+    syncUser,
+    // Add retry method
+    retrySync: () => syncUser(MAX_RETRIES)
   };
 }

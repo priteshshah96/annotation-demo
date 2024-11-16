@@ -11,36 +11,46 @@
         "maxDuration": 60,
         "maxLambdaSize": "50mb",
         "memory": 1024,
-        "nodeVersion": "20.x"
+        "nodeVersion": "20.x",
+        "includeFiles": [
+          "src/lib/**",
+          "src/models/**"
+        ]
       }
     },
     {
       "src": "package.json",
       "use": "@vercel/static-build",
-      "config": { "distDir": "dist" }
+      "config": { 
+        "distDir": "dist",
+        "zeroConfig": true
+      }
     }
   ],
   "rewrites": [
-    { "source": "/api/user/sync", "destination": "/src/api/vercel/user/sync.js" },
-    { "source": "/api/files/upload", "destination": "/src/api/vercel/files/upload.js" },
-    { "source": "/api/files/:fileId", "destination": "/src/api/vercel/files/[fileId].js" },
-    { "source": "/api/files", "destination": "/src/api/vercel/files/index.js" },
-    { "source": "/api/annotations/:fileId/reset", "destination": "/src/api/vercel/annotations/[fileId]/reset.js" },
-    { "source": "/api/annotations/:fileId/sync", "destination": "/src/api/vercel/annotations/[fileId]/sync.js" },
-    { "source": "/api/annotations/:fileId", "destination": "/src/api/vercel/annotations/[fileId].js" },
-    { "source": "/api/annotations", "destination": "/src/api/vercel/annotations/index.js" },
+    { "source": "/api/vercel/user/sync", "destination": "/src/api/vercel/user/sync.js" },
+    { "source": "/api/vercel/files/upload", "destination": "/src/api/vercel/files/upload.js" },
+    { "source": "/api/vercel/files/:fileId", "destination": "/src/api/vercel/files/[fileId].js" },
+    { "source": "/api/vercel/files", "destination": "/src/api/vercel/files/index.js" },
+    { "source": "/api/vercel/annotations/:fileId/reset", "destination": "/src/api/vercel/annotations/[fileId]/reset.js" },
+    { "source": "/api/vercel/annotations/:fileId/sync", "destination": "/src/api/vercel/annotations/[fileId]/sync.js" },
+    { "source": "/api/vercel/annotations/:fileId", "destination": "/src/api/vercel/annotations/[fileId].js" },
+    { "source": "/api/vercel/annotations", "destination": "/src/api/vercel/annotations/index.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/api/vercel/(.*)",
       "headers": [
         {"key": "Access-Control-Allow-Origin", "value": "*"},
         {"key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS"},
         {"key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"},
         {"key": "Access-Control-Allow-Credentials", "value": "true"},
-        {"key": "Access-Control-Max-Age", "value": "7200"}
+        {"key": "Cache-Control", "value": "no-store, no-cache, must-revalidate"}
       ]
     }
-  ]
+  ],
+  "env": {
+    "VITE_API_URL": "/api/vercel"
+  }
 }
