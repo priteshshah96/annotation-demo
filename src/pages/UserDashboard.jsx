@@ -24,8 +24,6 @@ import { fileApi } from '../services/fileApi';
 import { useSnackbar } from '../hooks/useSnackbar';
 import { useAuthSync } from '../hooks/useAuthSync';
 
-const FETCH_TIMEOUT = 8000;
-
 const UserDashboard = () => {
   // Refs for cleanup
   const mountedRef = useRef(true);
@@ -80,10 +78,44 @@ const UserDashboard = () => {
       await signOut();
     } catch (error) {
       console.error('Sign out error:', error);
-      // Force sign out on error
-      signOut();
+      signOut(); // Force sign out on error
     }
   }, [signOut, cleanup]);
+
+  // Data Fetching
+  const fetchDashboardData = useCallback(async () => {
+    if (isSyncing || !mountedRef.current) return;
+
+    cleanup();
+    abortControllerRef.current = new AbortController();
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const [filesData, statsData] = await Promise.all([
+        fileApi.getFiles({ signal: abortControllerRef.current.signal }),
+        fileApi.getUserStats({ signal: abortControllerRef.current.signal })
+      ]);
+
+      if (mountedRef.current) {
+        setFiles(filesData.files || []);
+        setStats(statsData);
+      }
+    } catch (error) {
+      if (!mountedRef.current) return;
+
+      if (error.name !== 'AbortError') {
+        console.error('Dashboard data fetch error:', error);
+        setError('Error loading dashboard data');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        abortControllerRef.current = null;
+      }
+    }
+  }, [isSyncing, cleanup]);
 
   // File Upload Handler
   const handleUpload = useCallback(async (file) => {
@@ -96,24 +128,10 @@ const UserDashboard = () => {
       setIsUploading(true);
       setError(null);
 
-      // Setup timeout
-      const timeoutId = setTimeout(() => {
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-      }, FETCH_TIMEOUT);
-
-      // Read and parse file
-      const fileContent = await file.text();
-      const parsedContent = JSON.parse(fileContent);
-
-      // Upload file
       await fileApi.uploadFile({
         name: file.name,
-        content: parsedContent
+        content: JSON.parse(await file.text())
       }, { signal: abortControllerRef.current.signal });
-
-      clearTimeout(timeoutId);
 
       if (mountedRef.current) {
         await fetchDashboardData();
@@ -122,7 +140,6 @@ const UserDashboard = () => {
     } catch (error) {
       if (!mountedRef.current) return;
 
-      console.error('Upload error:', error);
       if (error.name !== 'AbortError') {
         showSnackbar(error.message || 'Error uploading file', 'error');
       }
@@ -178,56 +195,38 @@ const UserDashboard = () => {
     }
   }, [selectedFileId, isSyncing, showSnackbar, handleMenuClose, fetchDashboardData, cleanup]);
 
-  // Data Fetching
-  const fetchDashboardData = useCallback(async () => {
-    if (isSyncing || !mountedRef.current) return;
-
-    cleanup();
-    abortControllerRef.current = new AbortController();
-
+  const handleExportFile = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
-
-      const [filesData, statsData] = await Promise.all([
-        fileApi.getFiles({ signal: abortControllerRef.current.signal }),
-        fileApi.getUserStats({ signal: abortControllerRef.current.signal })
-      ]);
-
-      if (mountedRef.current) {
-        setFiles(filesData.files || []);
-        setStats(statsData);
-      }
+      const data = await fileApi.exportFile(selectedFileId);
+      const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      handleMenuClose();
     } catch (error) {
-      if (!mountedRef.current) return;
-
-      if (error.name !== 'AbortError') {
-        console.error('Dashboard data fetch error:', error);
-        setError('Error loading dashboard data');
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        abortControllerRef.current = null;
-      }
+      console.error('Export error:', error);
+      showSnackbar('Error exporting file', 'error');
     }
-  }, [isSyncing, cleanup]);
+  }, [selectedFileId, handleMenuClose, showSnackbar]);
 
-  // Initial load effect
+  // Effects
   useEffect(() => {
     if (isUserLoaded && !isSignedIn) {
       navigate('/sign-in');
     }
   }, [isUserLoaded, isSignedIn, navigate]);
 
-  // Data loading effect
   useEffect(() => {
     if (isUserLoaded && isSignedIn && !isInitialSync && !isSyncing) {
       fetchDashboardData();
     }
   }, [isUserLoaded, isSignedIn, isInitialSync, isSyncing, fetchDashboardData]);
 
-  // Cleanup effect
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -309,7 +308,6 @@ const UserDashboard = () => {
           onClose={handleMenuClose}
           onDelete={handleDeleteFile}
           onExport={handleExportFile}
-          onReset={handleResetAnnotations}
           onNavigate={handleNavigate}
           file={files.find(f => f._id === selectedFileId)}
           disabledActions={!selectedFileId || isSyncing ? 
