@@ -1,4 +1,3 @@
-
 import { ClerkProvider } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import React, { Suspense } from 'react';
@@ -65,7 +64,7 @@ function App() {
                     path="/sign-in"
                     routing="path"
                     signUpUrl="/sign-up"
-                    redirectUrl="/"
+                    fallbackRedirectUrl="/"
                   />
                 } 
               />
@@ -82,7 +81,7 @@ function App() {
                     path="/sign-up"
                     routing="path"
                     signInUrl="/sign-in"
-                    redirectUrl="/"
+                    fallbackRedirectUrl="/"
                   />
                 } 
               />

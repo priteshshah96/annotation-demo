@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useUser, useAuth, useClerk } from '@clerk/clerk-react';
+import { useUser, useAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { CircularProgress, Box, Typography } from '@mui/material';
 
@@ -27,14 +27,9 @@ export const AuthProvider = ({ children }) => {
     user: null
   });
 
-  console.log('Auth Provider State:', {
-    isUserLoaded,
-    isSignedIn,
-    isInitializing,
-    isSyncing,
-    error,
-    user: user?.id
-  });
+  const log = (message, data = {}) => {
+    console.log(`[AuthProvider] ${message}`, data);
+  };
 
   const syncUser = useCallback(async (force = false) => {
     if ((!isSignedIn || isSyncing) && !force) return;
@@ -48,7 +43,6 @@ export const AuthProvider = ({ children }) => {
         throw new Error('No authentication token available');
       }
 
-      // Make API call to sync user
       const response = await fetch('/api/vercel/user/sync', {
         method: 'POST',
         headers: {
@@ -69,7 +63,7 @@ export const AuthProvider = ({ children }) => {
       });
 
     } catch (error) {
-      console.error('Auth sync error:', error);
+      log('Auth sync error', { error });
       setError(error.message);
 
       if (error.message.includes('authentication') || error.status === 401) {
@@ -81,26 +75,21 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isSignedIn, isSyncing, getToken, navigate, user]);
 
-  // Initial auth check
   useEffect(() => {
-    console.log('Auth initialization effect running:', {
-      isUserLoaded,
-      isSignedIn
-    });
+    log('Auth initialization effect running', { isUserLoaded, isSignedIn });
 
     if (isUserLoaded) {
       if (!isSignedIn) {
-        console.log('User not signed in, redirecting to sign-in');
+        log('User not signed in, redirecting to sign-in');
         navigate('/sign-in', { replace: true });
         setIsInitializing(false);
       } else {
-        console.log('User signed in, syncing user data');
+        log('User signed in, syncing user data');
         syncUser(true);
       }
     }
   }, [isUserLoaded, isSignedIn, navigate, syncUser]);
 
-  // Loading state
   if (isInitializing || !isUserLoaded) {
     return (
       <Box sx={{ 
@@ -119,7 +108,6 @@ export const AuthProvider = ({ children }) => {
     );
   }
 
-  // Error state
   if (error) {
     return (
       <Box sx={{ 
