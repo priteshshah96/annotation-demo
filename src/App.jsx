@@ -13,7 +13,10 @@ if (!clerkPubKey) {
 function App() {
   return (
     <BrowserRouter>
-      <ClerkProvider publishableKey={clerkPubKey}>
+      <ClerkProvider 
+        publishableKey={clerkPubKey}
+        navigate={(to) => window.location.href = to}
+      >
         <SnackbarProvider maxSnack={3}>
           <AuthProvider>
             <AppRoutes />
