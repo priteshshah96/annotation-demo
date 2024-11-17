@@ -1,5 +1,5 @@
 // Edge-compatible MongoDB client
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
@@ -97,6 +97,9 @@ let client = null;
 
 export async function connectDB() {
   if (!client) {
+    if (!MONGODB_URI) {
+      throw new Error('MONGODB_URI is not defined');
+    }
     client = new MongoDBClient(MONGODB_URI);
     console.log('[MongoDB] Connected successfully');
   }

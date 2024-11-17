@@ -1,46 +1,61 @@
-import { validateAuth, createAuthResponse } from '../middleware/auth.js';
-import { connectDB } from '../../../lib/db.js';
-import { User } from '../../../models/User.js';
+import { validateAuth } from '../../../src/lib/auth.js';
+import { connectDB } from '../../../src/lib/db.js';
 
 export const config = {
+  runtime: 'edge',
   regions: ['iad1'],
 };
 
-class SyncError extends Error {
-  constructor(message, status = 500) {
-    super(message);
-    this.status = status;
-  }
-}
-
-export default async function handler(req, res) {
+export default async function handler(req) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }), 
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 
   try {
-    const { user } = await validateAuth(req);
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    const auth = await validateAuth(req);
+    if (!auth || !auth.user) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }), 
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    await connectDB();
-    const updatedUser = await User.findOneAndUpdate(
-      { clerkId: user.clerkId },
-      { lastSync: new Date() },
-      { new: true }
-    );
+    const db = await connectDB();
+    const user = await db.findOne('users', { userId: auth.user.id });
+    
+    if (!user) {
+      // Create new user if doesn't exist
+      await db.insertOne('users', {
+        userId: auth.user.id,
+        lastSync: new Date().toISOString()
+      });
+    } else {
+      // Update existing user
+      await db.updateOne(
+        'users',
+        { userId: auth.user.id },
+        { $set: { lastSync: new Date().toISOString() } }
+      );
+    }
 
-    return res.status(200).json({
-      success: true,
-      user: {
-        id: updatedUser._id,
-        email: updatedUser.email,
-        lastSync: updatedUser.lastSync
-      }
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        user: {
+          id: auth.user.id,
+          lastSync: new Date().toISOString()
+        }
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
     console.error('[Sync Error]:', error);
-    return createAuthResponse(error);
+    return new Response(
+      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }

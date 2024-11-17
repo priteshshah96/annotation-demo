@@ -1,3 +1,6 @@
+const CLERK_API_URL = 'https://api.clerk.com/v1';
+const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY;
+
 export async function validateAuth(req) {
   try {
     const token = req.headers.get('authorization')?.split(' ')[1];
@@ -5,14 +8,19 @@ export async function validateAuth(req) {
       return null;
     }
 
-    const response = await fetch('https://api.clerk.dev/v1/session', {
+    if (!CLERK_SECRET_KEY) {
+      throw new Error('CLERK_SECRET_KEY is not defined');
+    }
+
+    const response = await fetch(`${CLERK_API_URL}/sessions/${token}`, {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `Bearer ${CLERK_SECRET_KEY}`,
         'Content-Type': 'application/json',
       },
     });
 
     if (!response.ok) {
+      console.error('Clerk API error:', await response.text());
       return null;
     }
 
