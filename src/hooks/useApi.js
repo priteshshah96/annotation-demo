@@ -42,7 +42,7 @@ export function useApi() {
         log("Token missing, redirecting to sign-in");
         throw new ApiError('Authentication required', 401);
       }
-      log("Token retrieved", { token });
+      log("Token retrieved");
 
       const timeoutId = setTimeout(() => {
         if (abortControllerRef.current) {
@@ -54,7 +54,7 @@ export function useApi() {
       const baseUrl = '/api/vercel';
       const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
 
-      log("Making API request", { url: fullUrl, options });
+      log("Making API request", { url: fullUrl });
 
       const response = await fetch(fullUrl, {
         ...options,
@@ -86,12 +86,12 @@ export function useApi() {
         }
       }
 
-      log("API request successful", { data });
+      log("API request successful");
       return data;
 
     } catch (error) {
       if (error.name === 'AbortError') {
-        log("Request aborted", { error });
+        log("Request aborted");
         throw new ApiError('Request timeout', 408);
       }
       log("Error during API request", { error });
@@ -103,6 +103,14 @@ export function useApi() {
   }, [getToken, navigate]);
 
   const api = {
+    // Add user endpoints
+    user: {
+      sync: (options = {}) => fetchWithAuth('/user/sync', {
+        method: 'POST',
+        ...options
+      })
+    },
+    // Existing files endpoints
     files: {
       getAll: (options = {}) => fetchWithAuth('/files', options),
       get: (id, options = {}) => fetchWithAuth(`/files/${id}`, options),
@@ -116,6 +124,7 @@ export function useApi() {
         ...options
       })
     },
+    // Existing annotations endpoints
     annotations: {
       get: (fileId, options = {}) => fetchWithAuth(`/annotations/${fileId}`, options),
       save: (data, options = {}) => fetchWithAuth('/annotations', {
