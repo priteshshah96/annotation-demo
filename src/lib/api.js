@@ -12,10 +12,7 @@ class ApiError extends Error {
 
 export async function fetchWithAuth(url, options = {}) {
   try {
-    // Use the correct base URL - if we're in development, use the local server
-    // If VITE_API_URL is not set, default to the proxy setup in vite.config.js
-    const baseUrl = import.meta.env.VITE_API_URL || '';
-    const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+    const fullUrl = url.startsWith('/') ? url : `/${url}`;
 
     // Get token using Clerk
     const token = await window.Clerk.session?.getToken();
@@ -41,8 +38,7 @@ export async function fetchWithAuth(url, options = {}) {
     // Make request
     const response = await fetch(fullUrl, {
       ...options,
-      headers,
-      credentials: 'include'
+      headers
     });
 
     // Add response debugging
@@ -121,10 +117,9 @@ export const api = {
       body: JSON.stringify(data),
       ...options
     }),
-    // Add specific reset endpoint
     reset: (fileId, options) => fetchWithAuth(`/api/annotations/${fileId}/reset`, {
       method: 'POST',
       ...options
     })
   }
-}
+};

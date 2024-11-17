@@ -548,7 +548,7 @@ app.post('/api/annotations/:fileId/reset', authenticateAndSync, async (req, res)
   }
 });
 
-
+// Add route to sync annotations
 app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -650,15 +650,19 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   try {
     console.log('Attempting MongoDB connection...');
-    await mongoose.connect(process.env.VITE_MONGODB_URI, {
+    console.log('MongoDB URI:', process.env.MONGODB_URI ? 'URI is set' : 'URI is missing');
+    
+    await mongoose.connect(process.env.MONGODB_URI, {
       serverApi: {
         version: '1',
         strict: true,
         deprecationErrors: true
-      }
+      },
+      retryWrites: true,
+      w: 'majority'
     });
     
-    console.log('MongoDB Connected to:', mongoose.connection.host);
+    console.log('MongoDB Connected successfully');
     console.log('Database name:', mongoose.connection.db.databaseName);
     
     app.listen(port, () => {
@@ -668,6 +672,10 @@ const startServer = async () => {
     });
   } catch (error) {
     console.error('Server startup error:', error);
+    console.error('Connection details:', {
+      uri: process.env.MONGODB_URI ? 'URI is set' : 'URI is missing',
+      env: process.env.NODE_ENV
+    });
     process.exit(1);
   }
 };
