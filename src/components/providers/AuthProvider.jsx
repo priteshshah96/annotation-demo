@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useUser, useAuth } from '@clerk/clerk-react';
+import { useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { CircularProgress, Box } from '@mui/material';
 
@@ -16,20 +16,32 @@ export const useAuthContext = () => {
 export const AuthProvider = ({ children }) => {
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
   const { getToken } = useAuth();
+  const { signOut } = useClerk();
   const navigate = useNavigate();
   const [isInitializing, setIsInitializing] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
 
-  // Initial auth check
   useEffect(() => {
     if (isUserLoaded) {
       if (!isSignedIn) {
-        navigate('/sign-in', { replace: true });
+        // Use window.location for full page reload to clear any state
+        window.location.href = '/sign-in';
+        return;
       }
       setIsInitializing(false);
     }
-  }, [isUserLoaded, isSignedIn, navigate]);
+  }, [isUserLoaded, isSignedIn]);
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      // Clerk will handle the redirect
+    } catch (error) {
+      console.error('Sign out error:', error);
+      setError('Failed to sign out');
+    }
+  };
 
   if (isInitializing) {
     return (
@@ -52,6 +64,7 @@ export const AuthProvider = ({ children }) => {
         isSyncing,
         error,
         getToken,
+        signOut: handleSignOut,
         clearError: () => setError(null)
       }}
     >

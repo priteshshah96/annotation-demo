@@ -2,28 +2,14 @@
   "version": 2,
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
-  "installCommand": "npm install",
   "framework": "vite",
-  "builds": [
-    {
-      "src": "src/api/vercel/**/*.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": { 
-        "distDir": "dist"
-      }
-    }
-  ],
   "rewrites": [
     { 
       "source": "/api/vercel/:path*",
       "destination": "/src/api/vercel/:path*.js"
     },
     { 
-      "source": "/((?!api/.*).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]
