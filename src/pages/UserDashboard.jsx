@@ -14,7 +14,7 @@ import {
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useState, useEffect } from 'react';
 import { useApi } from '../hooks/useApi';
-import { enqueueSnackbar } from '../hooks/useSnackbar';
+import { useSnackbar } from 'notistack';
 
 const UserDashboard = () => {
   const theme = useTheme();
@@ -23,6 +23,7 @@ const UserDashboard = () => {
   const { getToken } = useAuth();
   const navigate = useNavigate();
   const { api, isLoading: isApiLoading, error: apiError } = useApi();
+  const { enqueueSnackbar } = useSnackbar();
   
   const [isVerifying, setIsVerifying] = useState(true);
   const [connectionError, setConnectionError] = useState(null);

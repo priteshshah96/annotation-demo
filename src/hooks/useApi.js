@@ -2,12 +2,12 @@
 import { useAuth } from '@clerk/clerk-react';
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { enqueueSnackbar } from './useSnackbar';
+import { useSnackbar } from 'notistack';
 
 const REQUEST_TIMEOUT = 15000;
 
 class ApiError extends Error {
-  constructor(message, status = 500, details = null) {
+  constructor(message, status, details = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -18,6 +18,7 @@ class ApiError extends Error {
 export function useApi() {
   const { getToken } = useAuth();
   const navigate = useNavigate();
+  const { enqueueSnackbar } = useSnackbar();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
