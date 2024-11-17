@@ -42,7 +42,10 @@ function App() {
       >
         <ClerkProvider
           publishableKey={clerkPubKey}
-          navigate={(to) => window.location.href = to}
+          navigate={(to) => {
+            window.history.pushState({}, '', to);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }}
           appearance={{
             baseTheme: theme,
             elements: {

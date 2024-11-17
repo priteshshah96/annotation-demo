@@ -68,6 +68,7 @@ export function AuthProvider({ children }) {
   const syncUser = useCallback(async (retryAttempt = 0) => {
     if (!isSignedIn || !userId) {
       setUser(null);
+      setIsLoading(false);
       return;
     }
 
@@ -77,25 +78,15 @@ export function AuthProvider({ children }) {
         throw new AuthError('No authentication token available', 401);
       }
 
-      try {
-        const response = await api.user.sync(token);
-        
-        if (!response?.user) {
-          throw new AuthError('Invalid user data received from server');
-        }
-
-        setUser(response.user);
-        setRetryCount(0);
-        clearError();
-      } catch (error) {
-        if (error.status === 401 || error.status === 403) {
-          setUser(null);
-          navigate('/sign-in');
-          return;
-        }
-
-        throw error;
+      const response = await api.user.sync(token);
+      
+      if (!response?.user) {
+        throw new AuthError('Invalid user data received from server');
       }
+
+      setUser(response.user);
+      setRetryCount(0);
+      clearError();
     } catch (error) {
       handleError(error, 'User sync failed');
 
@@ -107,8 +98,10 @@ export function AuthProvider({ children }) {
         await new Promise(resolve => setTimeout(resolve, delay));
         return syncUser(retryAttempt + 1);
       }
+    } finally {
+      setIsLoading(false);
     }
-  }, [isSignedIn, userId, getToken, handleError, navigate, clearError]);
+  }, [isSignedIn, userId, getToken, handleError, clearError]);
 
   // Initial auth check and user sync
   useEffect(() => {
