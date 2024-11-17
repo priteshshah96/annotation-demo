@@ -2,147 +2,104 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
+import { api } from '../lib/api';
 
 const AuthContext = createContext(null);
 
-const REQUEST_TIMEOUT = 10000;
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
-
-class AuthError extends Error {
-  constructor(message, status = 500, details = null) {
-    super(message);
-    this.name = 'AuthError';
-    this.status = status;
-    this.details = details;
-  }
-}
-
 export function AuthProvider({ children }) {
-  const { isLoaded: clerkLoaded, isSignedIn, userId } = useClerkAuth();
+  const { isLoaded: clerkLoaded, isSignedIn, user: clerkUser } = useClerkAuth();
   const { getToken } = useClerk();
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
   
-  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
 
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
-
-  const handleError = useCallback((error, context = '') => {
-    console.error(`[AuthProvider] ${context}:`, error);
-    
-    let message = error.message || 'An unexpected error occurred';
-    let shouldRedirect = false;
-    let variant = 'error';
-    
-    if (error.message?.includes('authentication') || error.status === 401) {
-      message = 'Please sign in to continue';
-      shouldRedirect = true;
-    }
-
-    setError(message);
-    enqueueSnackbar(message, { 
-      variant,
-      autoHideDuration: 5000,
-      preventDuplicate: true
-    });
-
-    if (shouldRedirect) {
-      navigate('/sign-in');
-    }
-  }, [navigate, enqueueSnackbar]);
-
-  // Sync user with backend
-  const syncUser = useCallback(async (retryAttempt = 0) => {
-    if (!isSignedIn || !userId) {
-      setUser(null);
-      setIsLoading(false);
-      return;
-    }
+  // Fetch user data and files from your backend
+  const syncUserData = useCallback(async () => {
+    if (!isSignedIn || !clerkUser) return null;
 
     try {
       const token = await getToken();
       if (!token) {
-        throw new AuthError('No authentication token available', 401);
+        throw new Error('No authentication token available');
       }
 
-      const response = await fetch('/api/vercel/v1/auth/verify', {
-        method: 'GET',
+      // Fetch user data including files from your backend
+      const response = await fetch('/api/vercel/v1/user/sync', {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         }
       });
 
       if (!response.ok) {
-        throw new AuthError('Failed to sync user data', response.status);
+        throw new Error('Failed to sync user data');
       }
 
       const data = await response.json();
       
       if (!data?.user) {
-        throw new AuthError('Invalid user data received from server');
+        throw new Error('Invalid user data received');
       }
 
-      setUser(data.user);
-      setRetryCount(0);
-      clearError();
+      return data.user;
+
     } catch (error) {
-      handleError(error, 'User sync failed');
-
-      if (retryAttempt < MAX_RETRIES) {
-        const delay = RETRY_DELAY * Math.pow(2, retryAttempt);
-        console.log(`[AuthProvider] Retrying user sync in ${delay}ms`, error);
-        setRetryCount(retryAttempt + 1);
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return syncUser(retryAttempt + 1);
-      }
-    } finally {
-      setIsLoading(false);
+      console.error('User sync failed:', error);
+      enqueueSnackbar('Failed to load user data', { variant: 'error' });
+      return null;
     }
-  }, [isSignedIn, userId, getToken, handleError, clearError]);
+  }, [isSignedIn, clerkUser, getToken, enqueueSnackbar]);
 
-  // Initial auth check and user sync
+  // Effect to handle authentication and data sync
   useEffect(() => {
     if (!clerkLoaded) return;
 
-    const initializeAuth = async () => {
+    const initializeUser = async () => {
+      setIsLoading(true);
+      
       try {
-        setIsLoading(true);
-        
-        if (!isSignedIn && !window.location.pathname.match(/\/(sign-in|sign-up)/)) {
-          navigate('/sign-in');
-          return;
-        }
-
-        if (isSignedIn) {
-          await syncUser();
+        if (isSignedIn && clerkUser) {
+          // Sync user data and files
+          const syncedData = await syncUserData();
+          setUserData(syncedData);
         } else {
-          setUser(null);
+          setUserData(null);
+          // Only redirect if not on auth pages
+          if (!window.location.pathname.match(/\/(sign-in|sign-up)/)) {
+            navigate('/sign-in');
+          }
         }
       } catch (error) {
-        handleError(error, 'Auth initialization failed');
+        console.error('Error initializing user:', error);
+        enqueueSnackbar('Error loading user data', { variant: 'error' });
       } finally {
         setIsLoading(false);
       }
     };
 
-    initializeAuth();
-  }, [clerkLoaded, isSignedIn, syncUser, navigate, handleError]);
+    initializeUser();
+  }, [clerkLoaded, isSignedIn, clerkUser, syncUserData, navigate, enqueueSnackbar]);
+
+  // Re-sync when authentication state changes
+  useEffect(() => {
+    if (isSignedIn && clerkUser) {
+      syncUserData().then(data => {
+        if (data) {
+          setUserData(data);
+        }
+      });
+    }
+  }, [isSignedIn, clerkUser, syncUserData]);
 
   const contextValue = {
-    user,
+    user: userData || clerkUser, // Fallback to Clerk user if sync hasn't completed
     isLoading,
-    error,
-    clearError,
-    syncUser,
-    isAuthenticated: isSignedIn && !!user
+    isAuthenticated: isSignedIn && !!clerkUser,
+    files: userData?.files || [], // Provide files from synced data
+    refreshUserData: syncUserData // Allow manual refresh of user data
   };
 
   return (
