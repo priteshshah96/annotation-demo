@@ -13,6 +13,22 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('App Error:', error, errorInfo);
+    // Additional logging or error reporting can be added here
+    // For example, sending error details to a monitoring service
+    if (process.env.NODE_ENV === 'production') {
+      // Send error details to an external logging service
+      fetch('/api/logError', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          error: error.toString(),
+          errorInfo,
+          location: window.location.href,
+        }),
+      });
+    }
   }
 
   render() {
