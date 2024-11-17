@@ -10,7 +10,12 @@ function App() {
   const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
   if (!clerkPubKey) {
-    throw new Error("Missing Clerk Publishable Key");
+    console.error('Missing Clerk Publishable Key');
+    return (
+      <div style={{ padding: 20, color: 'red' }}>
+        Error: Missing VITE_CLERK_PUBLISHABLE_KEY environment variable
+      </div>
+    );
   }
 
   return (
