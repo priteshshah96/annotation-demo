@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import React, { Suspense } from 'react';
 import { CircularProgress, Box, Typography } from '@mui/material';
 import { SignIn, SignUp } from '@clerk/clerk-react';
-import AuthProvider from './components/providers/AuthProvider';
+import AuthProvider from './components/AuthProvider';
 
 // Lazy load the dashboard
 const UserDashboard = React.lazy(() => import('./pages/UserDashboard'));
