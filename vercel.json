@@ -3,56 +3,28 @@
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "outputDirectory": "dist",
   "framework": "vite",
   "builds": [
     {
       "src": "src/api/vercel/**/*.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 60,
-        "maxLambdaSize": "50mb",
-        "memory": 1024,
-        "nodeVersion": "20.x",
-        "includeFiles": [
-          "src/lib/**",
-          "src/models/**"
-        ]
-      }
+      "use": "@vercel/node"
     },
     {
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": { 
-        "distDir": "dist",
-        "zeroConfig": true
+        "distDir": "dist"
       }
     }
   ],
   "rewrites": [
-    { "source": "/api/vercel/user/sync", "destination": "/src/api/vercel/user/sync.js" },
-    { "source": "/api/vercel/files/upload", "destination": "/src/api/vercel/files/upload.js" },
-    { "source": "/api/vercel/files/:fileId", "destination": "/src/api/vercel/files/[fileId].js" },
-    { "source": "/api/vercel/files", "destination": "/src/api/vercel/files/index.js" },
-    { "source": "/api/vercel/annotations/:fileId/reset", "destination": "/src/api/vercel/annotations/[fileId]/reset.js" },
-    { "source": "/api/vercel/annotations/:fileId/sync", "destination": "/src/api/vercel/annotations/[fileId]/sync.js" },
-    { "source": "/api/vercel/annotations/:fileId", "destination": "/src/api/vercel/annotations/[fileId].js" },
-    { "source": "/api/vercel/annotations", "destination": "/src/api/vercel/annotations/index.js" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "s-maxage=1, stale-while-revalidate"
-        }
-      ]
+    { 
+      "source": "/api/vercel/:path*",
+      "destination": "/src/api/vercel/:path*.js"
+    },
+    { 
+      "source": "/((?!api/.*).*)",
+      "destination": "/index.html"
     }
-  ],
-  "env": {
-    "VITE_API_URL": "/api/vercel",
-    "NODE_ENV": "development"
-  }
+  ]
 }

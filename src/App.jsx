@@ -1,41 +1,21 @@
 import { ClerkProvider } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import React, { Suspense } from 'react';
-import { CircularProgress, Box, Typography } from '@mui/material';
-import { SignIn, SignUp } from '@clerk/clerk-react';
-import AuthProvider from './components/AuthProvider';
-
-// Lazy load the dashboard
-const UserDashboard = React.lazy(() => import('./pages/UserDashboard'));
-
-const LoadingFallback = () => (
-  <Box sx={{ 
-    display: 'flex', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    height: '100vh' 
-  }}>
-    <CircularProgress />
-  </Box>
-);
+import { SignIn, SignUp, SignedIn, SignedOut } from '@clerk/clerk-react';
+import { ThemeProvider, CssBaseline } from '@mui/material';
+import AuthProvider from './providers/AuthProvider';
+import UserDashboard from './pages/UserDashboard';
 
 function App() {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
-  const log = (message, data = {}) => {
-    console.log(`[App] ${message}`, data);
-  };
-
   if (!publishableKey) {
-    log("Missing Clerk Publishable Key");
     return (
       <Box sx={{ p: 4, color: 'error.main' }}>
-        <Typography>Missing Clerk Publishable Key</Typography>
+        Missing Clerk Publishable Key
       </Box>
     );
   }
 
-  log("Rendering App with ClerkProvider");
   return (
     <ClerkProvider 
       publishableKey={publishableKey}
@@ -47,50 +27,60 @@ function App() {
         }
       }}
     >
-      <BrowserRouter>
-        <AuthProvider>
-          <Suspense fallback={<LoadingFallback />}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <BrowserRouter>
+          <AuthProvider>
             <Routes>
+              {/* Auth Routes */}
               <Route 
                 path="/sign-in" 
                 element={
-                  <SignIn 
-                    appearance={{ 
-                      layout: { 
-                        socialButtonsPlacement: "bottom",
-                        term: "https://clerk.com/terms"
-                      }
-                    }}
-                    path="/sign-in"
-                    routing="path"
-                    signUpUrl="/sign-up"
-                    fallbackRedirectUrl="/"
-                  />
+                  <SignedOut>
+                    <SignIn 
+                      appearance={{ 
+                        layout: { socialButtonsPlacement: "bottom" }
+                      }}
+                      redirectUrl="/"
+                      routing="path"
+                    />
+                  </SignedOut>
                 } 
               />
               <Route 
                 path="/sign-up" 
                 element={
-                  <SignUp 
-                    appearance={{ 
-                      layout: { 
-                        socialButtonsPlacement: "bottom",
-                        term: "https://clerk.com/terms"
-                      }
-                    }}
-                    path="/sign-up"
-                    routing="path"
-                    signInUrl="/sign-in"
-                    fallbackRedirectUrl="/"
-                  />
+                  <SignedOut>
+                    <SignUp 
+                      appearance={{ 
+                        layout: { socialButtonsPlacement: "bottom" }
+                      }}
+                      redirectUrl="/"
+                      routing="path"
+                    />
+                  </SignedOut>
                 } 
               />
-              <Route path="/" element={<UserDashboard />} />
-              <Route path="*" element={<Navigate to="/sign-in" replace />} />
+              
+              {/* Protected Routes */}
+              <Route 
+                path="/"
+                element={
+                  <SignedIn>
+                    <UserDashboard />
+                  </SignedIn>
+                }
+              />
+
+              {/* Catch-all redirect */}
+              <Route
+                path="*"
+                element={<Navigate to="/" replace />}
+              />
             </Routes>
-          </Suspense>
-        </AuthProvider>
-      </BrowserRouter>
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
     </ClerkProvider>
   );
 }
