@@ -73,6 +73,33 @@ export function AuthProvider({ children }) {
   const [lastSync, setLastSync] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
 
+  const logError = useCallback(async (error, context = '') => {
+    try {
+      await fetch('/api/vercel/error/log', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          error: error.toString(),
+          errorInfo: {
+            message: error.message,
+            stack: error.stack,
+            context
+          },
+          location: window.location.href,
+          timestamp: new Date().toISOString(),
+          additionalContext: {
+            context,
+            pathname: window.location.pathname
+          }
+        })
+      });
+    } catch (logError) {
+      console.error('Failed to log error:', logError);
+    }
+  }, []);
+
   const clearError = useCallback(() => {
     setError(null);
     errorTracker.errors.clear();
@@ -86,7 +113,15 @@ export function AuthProvider({ children }) {
     let variant = 'error';
     let shouldRedirect = false;
     
-    switch(error.code) {
+    // Normalize error object
+    const normalizedError = {
+      message: error.message || error.toString(),
+      code: error.code || 'UNKNOWN_ERROR',
+      stack: error.stack,
+      context
+    };
+    
+    switch(normalizedError.code) {
       case 'TOKEN_EXPIRED':
         message = 'Your session has expired. Please sign in again.';
         shouldRedirect = true;
@@ -111,7 +146,7 @@ export function AuthProvider({ children }) {
         }
     }
 
-    setError({ message, code: error.code });
+    setError({ message, code: normalizedError.code });
     enqueueSnackbar(message, { 
       variant,
       autoHideDuration: 5000,
@@ -121,7 +156,10 @@ export function AuthProvider({ children }) {
     if (shouldRedirect) {
       navigate('/sign-in');
     }
-  }, [navigate, enqueueSnackbar]);
+    
+    // Log the error with additional context
+    logError(normalizedError, context);
+  }, [navigate, enqueueSnackbar, logError]);
 
   const syncUser = useCallback(async (retry = false) => {
     if (syncInProgress || !isSignedIn) return;

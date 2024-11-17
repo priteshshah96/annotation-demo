@@ -24,16 +24,24 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { error, errorInfo, location, userAgent, timestamp } = req.body;
+    const { 
+      error, 
+      errorInfo, 
+      location, 
+      userAgent, 
+      timestamp,
+      additionalContext 
+    } = req.body;
 
-    // Log error to console for internal tracking
-    console.error('Internal Error Log:', {
-      error: error?.toString() || 'Unknown Error',
-      errorInfo,
+    // Simple console logging for development
+    console.error('Development Error Log:', {
+      errorMessage: error?.toString() || 'Unknown Error',
+      errorDetails: {
+        ...errorInfo,
+        additionalContext
+      },
       location,
-      userAgent,
-      timestamp: timestamp || new Date().toISOString(),
-      environment: process.env.NODE_ENV
+      timestamp: timestamp || new Date().toISOString()
     });
 
     return res.status(200).json({ 
@@ -41,7 +49,7 @@ export default async function handler(req, res) {
       tracked: true 
     });
   } catch (err) {
-    console.error('Unexpected error in logging:', err);
+    console.error('Error logging failed:', err);
     return res.status(500).json({ 
       message: 'Error logging failed', 
       details: err.message 
