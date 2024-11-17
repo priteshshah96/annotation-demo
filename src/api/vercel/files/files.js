@@ -4,7 +4,8 @@ import { Annotation } from '../../../models/Annotation';
 import { validateAuth, createAuthResponse } from '../middleware/auth';
 
 export const config = {
-  runtime: 'nodejs',
+  // Removed the runtime configuration as per the latest guidelines
+  // runtime: 'nodejs',
   regions: ['iad1'],
 };
 

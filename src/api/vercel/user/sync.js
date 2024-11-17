@@ -3,7 +3,8 @@ import { connectDB } from '../../../lib/db';
 import { User } from '../../../models/User';
 
 export const config = {
-  runtime: 'nodejs',
+  // Removed the runtime configuration as per the latest guidelines
+  // runtime: 'nodejs',
   regions: ['iad1'],
 };
 
