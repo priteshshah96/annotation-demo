@@ -164,6 +164,16 @@ const UserDashboard = () => {
   useEffect(() => {
     if (isUserLoaded && isSignedIn) {
       fetchDashboardData();
+
+      // Add listener for annotation updates
+      const handleAnnotationUpdate = () => {
+        fetchDashboardData();
+      };
+
+      window.addEventListener('annotationUpdate', handleAnnotationUpdate);
+      return () => {
+        window.removeEventListener('annotationUpdate', handleAnnotationUpdate);
+      };
     }
   }, [isUserLoaded, isSignedIn]);
 

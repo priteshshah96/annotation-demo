@@ -25,13 +25,27 @@ export async function connectDB() {
         strict: true,
         deprecationErrors: true,
       },
+      connectTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+      ssl: true,
+      retryWrites: true,
+      w: 'majority',
+      retryReads: true,
+      serverSelectionTimeoutMS: 60000,
+      maxPoolSize: 10,
+      minPoolSize: 0,
     };
 
     cached.promise = mongoose.connect(MONGODB_URI, opts).then(mongoose => {
       console.log('MongoDB connected successfully');
       return mongoose;
     }).catch(error => {
-      console.error('MongoDB connection error:', error);
+      console.error('MongoDB connection error details:', {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        uri: MONGODB_URI ? MONGODB_URI.replace(/\/\/[^@]+@/, '//****:****@') : 'not set'
+      });
       cached.promise = null;
       throw error;
     });
