@@ -33,20 +33,12 @@ class ApiClient {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), options.timeout || REQUEST_TIMEOUT);
 
-      const token = await window.Clerk?.session?.getToken();
-      if (!token && !options.skipAuth) {
-        throw new ApiError('Authentication required', 401);
-      }
-
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` }),
-        ...options.headers
-      };
-
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
         ...options,
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
         signal: controller.signal
       });
 
@@ -95,10 +87,13 @@ class ApiClient {
 
   // User endpoints
   user = {
-    sync: async () => {
+    sync: async (token) => {
       const response = await this.request('/user/sync', { 
         method: 'POST',
-        cache: false
+        cache: false,
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       
       if (!response?.user) {
@@ -108,10 +103,13 @@ class ApiClient {
       return response;
     },
     
-    getProfile: async () => {
+    getProfile: async (token) => {
       const response = await this.request('/user/profile', { 
         method: 'GET',
-        cache: true
+        cache: true,
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       
       if (!response?.user) {
@@ -124,49 +122,69 @@ class ApiClient {
 
   // Files endpoints
   files = {
-    list: () => this.request('/files', { 
+    list: (token) => this.request('/files', { 
       method: 'GET',
-      cache: true
+      cache: true,
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     }),
     
-    upload: (file, onProgress) => {
+    upload: (token, file, onProgress) => {
       const formData = new FormData();
       formData.append('file', file);
 
       return this.request('/files/upload', {
         method: 'POST',
-        headers: {},
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData,
         onProgress
       });
     },
     
-    getProgress: (fileId) => this.request(`/files/${fileId}/progress`, { 
+    getProgress: (token, fileId) => this.request(`/files/${fileId}/progress`, { 
       method: 'GET',
       cache: true,
-      cacheTime: 30000 // 30 seconds
+      cacheTime: 30000, // 30 seconds
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     })
   };
 
   // Annotations endpoints
   annotations = {
-    list: (fileId) => this.request(`/annotations/${fileId}`, { 
+    list: (token, fileId) => this.request(`/annotations/${fileId}`, { 
       method: 'GET',
-      cache: true
+      cache: true,
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     }),
     
-    create: (fileId, data) => this.request(`/annotations/${fileId}`, {
+    create: (token, fileId, data) => this.request(`/annotations/${fileId}`, {
       method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify(data)
     }),
     
-    update: (fileId, annotationId, data) => this.request(`/annotations/${fileId}/${annotationId}`, {
+    update: (token, fileId, annotationId, data) => this.request(`/annotations/${fileId}/${annotationId}`, {
       method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify(data)
     }),
     
-    delete: (fileId, annotationId) => this.request(`/annotations/${fileId}/${annotationId}`, {
-      method: 'DELETE'
+    delete: (token, fileId, annotationId) => this.request(`/annotations/${fileId}/${annotationId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     })
   };
 }

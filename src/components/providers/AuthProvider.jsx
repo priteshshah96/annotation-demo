@@ -78,7 +78,7 @@ export function AuthProvider({ children }) {
       }
 
       try {
-        const response = await api.user.sync();
+        const response = await api.user.sync(token);
         
         if (!response?.user) {
           throw new AuthError('Invalid user data received from server');
