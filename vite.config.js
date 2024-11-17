@@ -4,15 +4,6 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    port: 5173,
-    historyApiFallback: true
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src')
-    }
-  },
   build: {
     rollupOptions: {
       output: {
@@ -21,6 +12,11 @@ export default defineConfig({
           clerk: ['@clerk/clerk-react']
         }
       }
-    }
+    },
+    sourcemap: false // Reduces console noise
+  },
+  server: {
+    port: 5173,
+    host: true
   }
 });

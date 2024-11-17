@@ -1,30 +1,23 @@
 import { ClerkProvider } from '@clerk/clerk-react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SignIn, SignUp } from '@clerk/clerk-react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { createTheme } from '@mui/material/styles';
 import UserDashboard from './pages/UserDashboard';
 
-// Create Material-UI theme
-const theme = createTheme({
-  // Your theme customization here
-});
-
-const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
-
-if (!clerkPubKey) {
-  throw new Error("Missing Clerk Publishable Key");
-}
+const theme = createTheme({});
 
 function App() {
+  const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+  if (!clerkPubKey) {
+    throw new Error("Missing Clerk Publishable Key");
+  }
+
   return (
     <ClerkProvider 
       publishableKey={clerkPubKey}
       appearance={{
-        variables: {
-          colorPrimary: '#000000',
-          colorTextOnPrimaryBackground: '#ffffff',
-        },
         elements: {
           formButtonPrimary: {
             fontSize: 14,
@@ -44,19 +37,33 @@ function App() {
           <Routes>
             <Route 
               path="/sign-in/*" 
-              element={<SignIn routing="path" redirectUrl={'/protected'} />}
+              element={
+                <SignIn 
+                  routing="path" 
+                  path="/sign-in"
+                  afterSignInUrl="/dashboard"
+                  signUpUrl="/sign-up"
+                />
+              } 
             />
             <Route 
               path="/sign-up/*" 
-              element={<SignUp routing="path" redirectUrl={'/protected'}  />}
+              element={
+                <SignUp 
+                  routing="path" 
+                  path="/sign-up"
+                  afterSignUpUrl="/dashboard"
+                  signInUrl="/sign-in"
+                />
+              } 
             />
             <Route 
-              path="/protected" 
+              path="/dashboard"
               element={<UserDashboard />}
             />
             <Route 
               path="/" 
-              element={<UserDashboard />}
+              element={<Navigate to="/dashboard" replace />}
             />
           </Routes>
         </BrowserRouter>
