@@ -52,16 +52,15 @@ class ApiClient {
 
       clearTimeout(timeoutId);
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
         throw new ApiError(
-          error.message || `HTTP error! status: ${response.status}`,
+          data.error || `HTTP error! status: ${response.status}`,
           response.status,
-          error.details
+          data.details
         );
       }
-
-      const data = await response.json();
 
       if (cacheKey) {
         this.cache.set(cacheKey, {
@@ -81,7 +80,11 @@ class ApiClient {
         return this.request(endpoint, options, retryCount + 1);
       }
 
-      throw error;
+      if (error instanceof ApiError) {
+        throw error;
+      }
+
+      throw new ApiError(error.message || 'Request failed', 500);
     }
   }
 
@@ -92,13 +95,40 @@ class ApiClient {
 
   // User endpoints
   user = {
-    sync: () => this.request('/user/sync', { method: 'POST' }),
-    getProfile: () => this.request('/user/profile', { method: 'GET', cache: true }),
+    sync: async () => {
+      const response = await this.request('/user/sync', { 
+        method: 'POST',
+        cache: false
+      });
+      
+      if (!response?.user) {
+        throw new ApiError('Invalid user data received from server');
+      }
+      
+      return response;
+    },
+    
+    getProfile: async () => {
+      const response = await this.request('/user/profile', { 
+        method: 'GET',
+        cache: true
+      });
+      
+      if (!response?.user) {
+        throw new ApiError('Invalid profile data received from server');
+      }
+      
+      return response;
+    }
   };
 
   // Files endpoints
   files = {
-    list: () => this.request('/files', { method: 'GET', cache: true }),
+    list: () => this.request('/files', { 
+      method: 'GET',
+      cache: true
+    }),
+    
     upload: (file, onProgress) => {
       const formData = new FormData();
       formData.append('file', file);
@@ -110,6 +140,7 @@ class ApiClient {
         onProgress
       });
     },
+    
     getProgress: (fileId) => this.request(`/files/${fileId}/progress`, { 
       method: 'GET',
       cache: true,
@@ -123,14 +154,17 @@ class ApiClient {
       method: 'GET',
       cache: true
     }),
+    
     create: (fileId, data) => this.request(`/annotations/${fileId}`, {
       method: 'POST',
       body: JSON.stringify(data)
     }),
+    
     update: (fileId, annotationId, data) => this.request(`/annotations/${fileId}/${annotationId}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     }),
+    
     delete: (fileId, annotationId) => this.request(`/annotations/${fileId}/${annotationId}`, {
       method: 'DELETE'
     })

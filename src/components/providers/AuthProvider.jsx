@@ -77,14 +77,13 @@ export function AuthProvider({ children }) {
         throw new AuthError('No authentication token available', 401);
       }
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
-
       try {
         const response = await api.user.sync();
-        if (!response || !response.user) {
-          throw new AuthError('Invalid user data received');
+        
+        if (!response?.user) {
+          throw new AuthError('Invalid user data received from server');
         }
+
         setUser(response.user);
         setRetryCount(0);
         clearError();
@@ -94,9 +93,8 @@ export function AuthProvider({ children }) {
           navigate('/sign-in');
           return;
         }
+
         throw error;
-      } finally {
-        clearTimeout(timeoutId);
       }
     } catch (error) {
       handleError(error, 'User sync failed');
@@ -105,6 +103,7 @@ export function AuthProvider({ children }) {
         const delay = RETRY_DELAY * Math.pow(2, retryAttempt);
         console.log(`[AuthProvider] Retrying user sync in ${delay}ms`, error);
         setRetryCount(retryAttempt + 1);
+        
         await new Promise(resolve => setTimeout(resolve, delay));
         return syncUser(retryAttempt + 1);
       }
@@ -151,7 +150,8 @@ export function AuthProvider({ children }) {
     isLoading,
     error,
     clearError,
-    syncUser
+    syncUser,
+    isAuthenticated: isSignedIn && !!user
   };
 
   return (
