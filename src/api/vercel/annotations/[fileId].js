@@ -3,8 +3,9 @@ import { connectDB } from '../../../lib/db';
 import { Annotation } from '../../../models/Annotation';
 import { File } from '../../../models/File';
 
+// Removed the runtime configuration as per the latest guidelines
 export const config = {
-  runtime: 'nodejs',
+  // runtime: 'nodejs',
   regions: ['iad1'],
 };
 
