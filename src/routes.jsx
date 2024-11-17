@@ -20,6 +20,7 @@ function AppRoutes() {
             !isSignedIn ? (
               <SignIn 
                 routing="path"
+                path="/sign-in"
                 redirectUrl="/"
                 appearance={{
                   layout: {
