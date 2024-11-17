@@ -1,20 +1,32 @@
-import { connectDB } from '../lib/db.js';
-import { File } from '../models/File.js';
-import { Annotation } from '../models/Annotation.js';
-import { validateAuth } from './middleware/auth.js';
+import { connectDB } from '../../../lib/db';
+import { File } from '../../../models/File';
+import { Annotation } from '../../../models/Annotation';
+import { validateAuth, createAuthResponse } from '../middleware/auth';
 
 export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '4mb'
-    }
-  }
+  runtime: 'nodejs',
+  regions: ['iad1'],
 };
 
-// Helper function to set CORS headers
+class FileError extends Error {
+  constructor(message, status = 500, code = 'FILE_ERROR') {
+    super(message);
+    this.name = 'FileError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+// Set CORS headers
 const setCorsHeaders = (res) => {
+  const allowedOrigins = [
+    process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
+    'http://localhost:5173',
+    process.env.NEXT_PUBLIC_CLERK_FRONTEND_API
+  ].filter(Boolean);
+
   res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', process.env.VERCEL_URL || '*');
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigins.join(', '));
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
@@ -22,205 +34,150 @@ const setCorsHeaders = (res) => {
   );
 };
 
-export default async function handler(req, res) {
-  try {
-    setCorsHeaders(res);
-
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-
-    await connectDB();
-    const auth = await validateAuth(req);
-    
-    if (!auth?.user) {
-      return res.status(401).json({
-        error: 'Unauthorized',
-        details: 'Invalid authentication or user not found'
-      });
-    }
-
-    const { fileId } = req.query;
-    const path = req.url;
-
-    // Handle file upload
-    if (path.includes('/upload') && req.method === 'POST') {
-      return handleUpload(req, res, auth.user._id);
-    }
-
-    // Handle file operations with fileId
-    if (fileId) {
-      switch (req.method) {
-        case 'GET':
-          return handleGetFile(req, res, auth.user._id, fileId);
-        case 'DELETE':
-          return handleDeleteFile(req, res, auth.user._id, fileId);
-        default:
-          return res.status(405).json({ error: 'Method not allowed' });
-      }
-    }
-
-    // Handle list all files (GET without fileId)
-    if (req.method === 'GET') {
-      return handleListFiles(req, res, auth.user._id);
-    }
-
-    return res.status(404).json({ error: 'Not found' });
-  } catch (error) {
-    console.error('Files API error:', error);
-    return res.status(500).json({
-      error: 'Failed to process request',
-      details: error.message
-    });
-  }
-}
-
-// Handler for /api/files/upload
-async function handleUpload(req, res, userId) {
-  const { name, content } = req.body;
-
-  if (!name || !content) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid request data',
-      details: 'Name and content are required'
-    });
-  }
-
-  if (!Array.isArray(content)) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid file format',
-      details: 'Content must be an array of abstracts'
-    });
-  }
-
-  const totalSteps = content.reduce((total, abstract) => {
-    if (!abstract.sentences || !Array.isArray(abstract.sentences)) {
-      return total;
-    }
-    return total + abstract.sentences.reduce((sentTotal, sentence) => {
-      const entityCount = sentence.scientific_entities?.length || 0;
-      return sentTotal + entityCount + 1;
-    }, 0);
-  }, 0);
-
-  const newFile = new File({
-    userId,
-    name,
-    abstracts: content,
-    totalSteps,
-    progress: 0,
-    uploadDate: new Date()
-  });
-
-  const savedFile = await newFile.save();
-
-  return res.status(201).json({
-    success: true,
-    file: savedFile,
-    message: 'File uploaded successfully'
-  });
-}
-
-// Handler for /api/files/:fileId (GET)
-async function handleGetFile(req, res, userId, fileId) {
-  const file = await File.findOne({ 
-    _id: fileId, 
-    userId 
-  }).lean();
-
+async function handleUpload(req, res, auth) {
+  const formData = await req.formData();
+  const file = formData.get('file');
+  
   if (!file) {
-    return res.status(404).json({
-      success: false,
-      error: 'File not found'
-    });
+    throw new FileError('No file uploaded', 400, 'NO_FILE');
   }
 
-  const annotations = await Annotation.find({
-    fileId: file._id,
-    userId
-  }).lean();
+  const fileData = new File({
+    userId: auth.user._id,
+    name: file.name,
+    type: file.type,
+    size: file.size,
+    content: await file.arrayBuffer(),
+    uploadedAt: new Date()
+  });
 
-  const annotationsMap = annotations.reduce((acc, annotation) => {
-    const key = `${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
-    acc[key] = annotation.answer;
-    return acc;
-  }, {});
-
-  const progress = Math.min((annotations.length * 100) / file.totalSteps, 100);
-
-  return res.json({
+  await fileData.save();
+  
+  return res.status(200).json({
     success: true,
     file: {
-      _id: file._id,
-      name: file.name,
-      abstracts: file.abstracts,
-      totalSteps: file.totalSteps,
-      progress: Math.round(progress * 10) / 10,
-      uploadDate: file.uploadDate,
-      metadata: file.metadata || {},
-      annotations: annotationsMap
+      id: fileData._id,
+      name: fileData.name,
+      type: fileData.type,
+      size: fileData.size,
+      uploadedAt: fileData.uploadedAt
     }
   });
 }
 
-// Handler for /api/files/:fileId (DELETE)
-async function handleDeleteFile(req, res, userId, fileId) {
-  const file = await File.findOne({
+async function handleGetFile(fileId, res, auth) {
+  const file = await File.findOne({ 
     _id: fileId,
-    userId
+    userId: auth.user._id 
   });
 
   if (!file) {
-    return res.status(404).json({
-      success: false,
-      error: 'File not found'
-    });
+    throw new FileError('File not found', 404, 'FILE_NOT_FOUND');
   }
 
-  const session = await File.startSession();
-  try {
-    await session.withTransaction(async () => {
-      await File.deleteOne({ _id: fileId }).session(session);
-      await Annotation.deleteMany({ fileId }).session(session);
-    });
-
-    return res.json({
-      success: true,
-      message: 'File and related annotations deleted successfully'
-    });
-  } finally {
-    await session.endSession();
-  }
+  return res.status(200).json({
+    success: true,
+    file: {
+      id: file._id,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      content: file.content,
+      uploadedAt: file.uploadedAt
+    }
+  });
 }
 
-// Handler for /api/files (GET - list all files)
-async function handleListFiles(req, res, userId) {
-  const files = await File.find({ userId })
-    .sort({ uploadDate: -1 })
-    .lean();
-    
-  const filesWithProgress = await Promise.all(files.map(async (file) => {
-    const annotationCount = await Annotation.countDocuments({
-      fileId: file._id,
-      userId
-    });
-    
-    const progress = Math.min((annotationCount * 100) / file.totalSteps, 100);
-    
-    return {
-      _id: file._id,
-      name: file.name,
-      totalSteps: file.totalSteps,
-      progress: Math.round(progress * 10) / 10,
-      uploadDate: file.uploadDate,
-      metadata: file.metadata || {}
-    };
-  }));
+async function handleListFiles(res, auth) {
+  const files = await File.find({ userId: auth.user._id })
+    .select('-content')
+    .sort({ uploadedAt: -1 });
 
-  return res.json({
+  return res.status(200).json({
     success: true,
-    files: filesWithProgress
+    files: files.map(file => ({
+      id: file._id,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      uploadedAt: file.uploadedAt
+    }))
   });
+}
+
+async function handleDeleteFile(fileId, res, auth) {
+  const file = await File.findOneAndDelete({ 
+    _id: fileId,
+    userId: auth.user._id 
+  });
+
+  if (!file) {
+    throw new FileError('File not found', 404, 'FILE_NOT_FOUND');
+  }
+
+  // Delete associated annotations
+  await Annotation.deleteMany({ fileId });
+
+  return res.status(200).json({
+    success: true,
+    message: 'File deleted successfully'
+  });
+}
+
+export default async function handler(req, res) {
+  // Set CORS headers
+  setCorsHeaders(res);
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  try {
+    // Validate authentication for all requests
+    const auth = await validateAuth(req);
+
+    // Connect to database
+    await connectDB();
+
+    // Extract file ID from URL if present
+    const fileId = req.query.fileId;
+
+    // Route to appropriate handler
+    switch (req.method) {
+      case 'POST':
+        return await handleUpload(req, res, auth);
+      
+      case 'GET':
+        if (!fileId) {
+          return await handleListFiles(res, auth);
+        }
+        return await handleGetFile(fileId, res, auth);
+      
+      case 'DELETE':
+        if (!fileId) {
+          throw new FileError('File ID is required', 400, 'MISSING_FILE_ID');
+        }
+        return await handleDeleteFile(fileId, res, auth);
+      
+      default:
+        throw new FileError('Method not allowed', 405, 'METHOD_NOT_ALLOWED');
+    }
+
+  } catch (error) {
+    console.error('[Files API] Error:', error);
+    
+    if (error instanceof FileError) {
+      const response = createAuthResponse(error);
+      return res.status(error.status).json(response);
+    }
+
+    const defaultError = new FileError(
+      'File operation failed',
+      500,
+      'FILE_OPERATION_FAILED'
+    );
+    const response = createAuthResponse(defaultError);
+    return res.status(defaultError.status).json(response);
+  }
 }

@@ -4,29 +4,57 @@ let cachedConnection = null;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
+const mongoOptions = {
+  maxPoolSize: 1,
+  minPoolSize: 0,
+  maxIdleTimeMS: 10000, // 10 seconds
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 15000,
+  connectTimeoutMS: 15000,
+  retryWrites: true,
+  w: 'majority',
+  keepAlive: true,
+  keepAliveInitialDelay: 300000 // 5 minutes
+};
+
+// Connection monitoring
+mongoose.connection.on('disconnected', () => {
+  console.error('[MongoDB] Disconnected');
+  cachedConnection = null;
+});
+
+mongoose.connection.on('error', (error) => {
+  console.error('[MongoDB] Connection error:', error);
+  cachedConnection = null;
+});
+
+// Safe write operation wrapper
+export const safeWrite = async (operation) => {
+  try {
+    return await operation;
+  } catch (error) {
+    if (error.code === 11000) {
+      throw new Error('Duplicate entry detected');
+    }
+    if (error.name === 'ValidationError') {
+      throw new Error(`Validation error: ${error.message}`);
+    }
+    console.error('[MongoDB] Write operation failed:', error);
+    throw error;
+  }
+};
+
 async function attemptConnection(retryCount = 0) {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      maxPoolSize: 1,
-      minPoolSize: 0,
-      maxIdleTimeMS: 10000, // 10 seconds
-      serverSelectionTimeoutMS: 10000,
-      socketTimeoutMS: 15000,
-      connectTimeoutMS: 15000,
-      retryWrites: true,
-      w: 'majority',
-      keepAlive: true,
-      keepAliveInitialDelay: 300000 // 5 minutes
-    });
-
-    console.log('DB Connected successfully');
+    const conn = await mongoose.connect(process.env.MONGODB_URI, mongoOptions);
+    console.log('[MongoDB] Connected successfully');
     return conn;
   } catch (error) {
-    console.error(`DB Connection attempt ${retryCount + 1} failed:`, error);
+    console.error(`[MongoDB] Connection attempt ${retryCount + 1} failed:`, error);
     
     if (retryCount < MAX_RETRIES) {
-      console.log(`Retrying connection in ${RETRY_DELAY}ms...`);
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      console.log(`[MongoDB] Retrying connection in ${RETRY_DELAY}ms...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retryCount)));
       return attemptConnection(retryCount + 1);
     }
     
@@ -36,11 +64,9 @@ async function attemptConnection(retryCount = 0) {
 
 export async function connectDB() {
   if (cachedConnection) {
-    // Check if the connection is still valid
     if (mongoose.connection.readyState === 1) {
       return cachedConnection;
     }
-    // Reset cached connection if it's not valid
     cachedConnection = null;
   }
 
@@ -53,9 +79,7 @@ export async function connectDB() {
     cachedConnection = conn;
     return conn;
   } catch (error) {
-    console.error('DB Connection error:', error);
-    // Clear cached connection on error
-    cachedConnection = null;
+    console.error('[MongoDB] Connection failed:', error);
     throw error;
   }
 }

@@ -58,8 +58,8 @@ async function validateToken(token, retryCount = 0) {
     }
 
     throw new AuthError(
-      'Invalid token', 
-      401, 
+      'Invalid token',
+      401,
       error.code || 'INVALID_TOKEN'
     );
   }
@@ -67,15 +67,10 @@ async function validateToken(token, retryCount = 0) {
 
 async function getOrCreateUser(clerkId, retryCount = 0) {
   try {
-    const cacheKey = `user-${clerkId}`;
-    const cachedUser = AUTH_CACHE.get(cacheKey);
-    
-    if (cachedUser && Date.now() - cachedUser.timestamp < CACHE_TTL) {
-      log("User found in cache", { clerkId });
-      return cachedUser.user;
-    }
+    await connectDB();
+    log("Database connection established", { clerkId });
 
-    let user = await User.findOne({ clerkId }).exec();
+    let user = await User.findOne({ clerkId });
     log("User database query executed", { clerkId, found: !!user });
 
     if (!user) {
@@ -86,56 +81,36 @@ async function getOrCreateUser(clerkId, retryCount = 0) {
         email.id === clerkUser.primaryEmailAddressId
       );
 
-      if (!primaryEmail?.emailAddress) {
-        throw new AuthError('No primary email found', 400, 'EMAIL_REQUIRED');
+      if (!primaryEmail) {
+        throw new AuthError(
+          'User has no primary email address',
+          400,
+          'NO_PRIMARY_EMAIL'
+        );
       }
 
-      // Create user with retry on duplicate key error
-      try {
-        user = await User.create({
-          clerkId,
-          email: primaryEmail.emailAddress,
-          firstName: clerkUser.firstName || null,
-          lastName: clerkUser.lastName || null,
-          createdAt: new Date(),
-          lastLoginAt: new Date()
-        });
-        log("New user created", { userId: user._id });
-      } catch (error) {
-        if (error.code === 11000 && retryCount < MAX_RETRIES) {
-          // Duplicate key error, retry after delay
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-          return getOrCreateUser(clerkId, retryCount + 1);
-        }
-        throw error;
-      }
-    } else {
-      // Update user data if needed
-      const needsUpdate = user.lastLoginAt < new Date(Date.now() - 5 * 60 * 1000);
-      if (needsUpdate) {
-        user.lastLoginAt = new Date();
-        await user.save();
-        log("User last login updated", { userId: user._id });
-      }
+      user = new User({
+        clerkId,
+        email: primaryEmail.emailAddress,
+        firstName: clerkUser.firstName,
+        lastName: clerkUser.lastName,
+        lastSync: new Date()
+      });
+
+      await user.save();
+      log("New user created", { userId: user._id });
     }
-
-    AUTH_CACHE.set(cacheKey, {
-      user,
-      timestamp: Date.now()
-    });
 
     return user;
   } catch (error) {
-    log("Error during user retrieval/creation", { 
+    log("Error in getOrCreateUser", { 
       error: error.message, 
-      clerkId,
-      retryCount 
+      retryCount,
+      code: error.code 
     });
 
     if (retryCount < MAX_RETRIES && 
-        (error.name === 'MongoNetworkError' || 
-         error.name === 'MongoTimeoutError' ||
-         error.code === 11000)) {
+        (error.code === 'network_error' || error.code === 'service_unavailable')) {
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retryCount)));
       return getOrCreateUser(clerkId, retryCount + 1);
     }
@@ -148,122 +123,72 @@ async function getOrCreateUser(clerkId, retryCount = 0) {
 setInterval(() => {
   const now = Date.now();
   let expiredCount = 0;
+  
   for (const [key, value] of AUTH_CACHE.entries()) {
     if (now - value.timestamp > CACHE_TTL) {
       AUTH_CACHE.delete(key);
       expiredCount++;
     }
   }
+  
   if (expiredCount > 0) {
-    log("Expired cache entries cleaned", { count: expiredCount });
+    log(`Cleaned ${expiredCount} expired cache entries`);
   }
 }, CACHE_TTL);
 
 export async function validateAuth(req) {
-  const startTime = Date.now();
-  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
   try {
-    // Establish DB connection first
-    await connectDB();
-    log("Database connection established", { requestId });
-
-    // Extract and validate auth header
-    const authHeader = req.headers.get('authorization') || 
-                      req.headers['authorization'] || 
-                      req.headers['Authorization'];
-
-    if (!authHeader?.startsWith('Bearer ')) {
-      log("Missing or invalid authorization header", { requestId });
-      throw new AuthError('Missing or invalid authorization header', 401, 'MISSING_AUTH');
+    const authHeader = req.headers.get('authorization') || req.headers['authorization'];
+    
+    if (!authHeader) {
+      throw new AuthError(
+        'No authorization header',
+        401,
+        'NO_AUTH_HEADER'
+      );
     }
 
-    const token = authHeader.split(' ')[1];
-    log("Authorization token extracted", { requestId });
+    const token = authHeader.replace('Bearer ', '');
+    if (!token) {
+      throw new AuthError(
+        'No token provided',
+        401,
+        'NO_TOKEN'
+      );
+    }
 
-    // Validate token and get user in parallel
-    const [decoded, connection] = await Promise.all([
-      validateToken(token),
-      mongoose.connection.readyState !== 1 ? connectDB() : Promise.resolve()
-    ]);
-
-    log("Token validated successfully", { requestId, sub: decoded.sub });
+    const decoded = await validateToken(token);
+    if (!decoded || !decoded.sub) {
+      throw new AuthError(
+        'Invalid token payload',
+        401,
+        'INVALID_TOKEN_PAYLOAD'
+      );
+    }
 
     const user = await getOrCreateUser(decoded.sub);
-    log("User retrieved or created", { requestId, userId: user._id });
-
-    const duration = Date.now() - startTime;
-    log("Auth validation completed", { 
-      requestId, 
-      duration: `${duration}ms`, 
-      userId: user._id 
-    });
-
-    return {
-      session: decoded,
-      user,
-      userId: user._id,
-      requestId
-    };
-
+    return { user, token: decoded };
   } catch (error) {
-    const duration = Date.now() - startTime;
-    log("Auth validation failed", { 
-      requestId,
-      error: error.message, 
-      code: error.code,
-      duration: `${duration}ms` 
-    });
-
-    // Map specific error types to appropriate responses
-    if (error.code === 'resource_not_found') {
-      throw new AuthError('User not found', 404, 'USER_NOT_FOUND');
+    if (error instanceof AuthError) {
+      throw error;
     }
-    if (error.code === 'token_expired') {
-      throw new AuthError('Session expired', 401, 'TOKEN_EXPIRED');
-    }
-    if (error.code === 'token_invalid') {
-      throw new AuthError('Invalid session', 401, 'TOKEN_INVALID');
-    }
-    if (error.name === 'MongoNetworkError') {
-      throw new AuthError('Database connection error', 503, 'DB_ERROR');
-    }
-
+    
     throw new AuthError(
-      error.message, 
-      error.status || 401, 
-      error.code || 'AUTH_FAILED'
+      'Authentication failed',
+      401,
+      'AUTH_FAILED'
     );
   }
 }
 
 export function createAuthResponse(error) {
-  const traceId = `auth_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  log("Creating auth error response", { 
-    traceId,
-    error: error.message,
-    code: error.code
-  });
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-store',
-    'X-Trace-ID': traceId
-  };
-
-  return new Response(
-    JSON.stringify({
-      success: false,
-      error: 'Authentication failed',
-      message: error.message,
-      code: error.code,
-      traceId,
+  return {
+    success: false,
+    error: {
+      message: error?.message || 'An unexpected error occurred',
+      code: error?.code || 'UNKNOWN_ERROR',
+      status: error?.status || 500,
       timestamp: new Date().toISOString()
-    }), 
-    { 
-      status: error.status || 401,
-      headers
     }
-  );
+  };
 }

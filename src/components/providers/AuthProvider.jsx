@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
@@ -8,6 +8,57 @@ const AuthContext = createContext(null);
 const SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
+
+// Token management
+const tokenManager = {
+  lastToken: null,
+  lastFetch: null,
+  expiryBuffer: 5 * 60 * 1000, // 5 minutes
+
+  async getToken(getTokenFn) {
+    const now = Date.now();
+    if (this.lastToken && this.lastFetch && 
+        (now - this.lastFetch < this.expiryBuffer)) {
+      return this.lastToken;
+    }
+    
+    const newToken = await getTokenFn();
+    this.lastToken = newToken;
+    this.lastFetch = now;
+    return newToken;
+  },
+
+  clearToken() {
+    this.lastToken = null;
+    this.lastFetch = null;
+  }
+};
+
+// Error tracking
+const errorTracker = {
+  errors: new Map(),
+  
+  track(error, context) {
+    const key = `${context}_${Date.now()}`;
+    this.errors.set(key, { error, timestamp: Date.now() });
+    
+    // Clean old errors (older than 1 hour)
+    const hour = 60 * 60 * 1000;
+    for (const [key, value] of this.errors) {
+      if (Date.now() - value.timestamp > hour) {
+        this.errors.delete(key);
+      }
+    }
+    
+    return key;
+  },
+  
+  getRecent(context) {
+    return Array.from(this.errors.entries())
+      .filter(([key]) => key.startsWith(context))
+      .map(([_, value]) => value.error);
+  }
+};
 
 export function AuthProvider({ children }) {
   const { isLoaded: clerkLoaded, isSignedIn } = useClerkAuth();
@@ -22,26 +73,42 @@ export function AuthProvider({ children }) {
   const [lastSync, setLastSync] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
 
-  const clearError = () => setError(null);
+  const clearError = useCallback(() => {
+    setError(null);
+    errorTracker.errors.clear();
+  }, []);
 
-  const handleError = (error, context = '') => {
+  const handleError = useCallback((error, context = '') => {
     console.error(`[AuthProvider] ${context}:`, error);
+    errorTracker.track(error, context);
     
     let message = 'An unexpected error occurred';
     let variant = 'error';
+    let shouldRedirect = false;
     
-    if (error.code === 'TOKEN_EXPIRED') {
-      message = 'Your session has expired. Please sign in again.';
-      navigate('/sign-in');
-    } else if (error.code === 'NETWORK_ERROR') {
-      message = 'Network connection issue. Please check your connection.';
-      variant = 'warning';
-    } else if (error.code === 'DB_ERROR') {
-      message = 'Database connection issue. Please try again later.';
-      variant = 'warning';
-    } else if (error.status === 404) {
-      message = 'User account not found. Please sign in again.';
-      navigate('/sign-in');
+    switch(error.code) {
+      case 'TOKEN_EXPIRED':
+        message = 'Your session has expired. Please sign in again.';
+        shouldRedirect = true;
+        tokenManager.clearToken();
+        break;
+      case 'NETWORK_ERROR':
+        message = 'Network connection issue. Please check your connection.';
+        variant = 'warning';
+        break;
+      case 'DB_ERROR':
+        message = 'Database connection issue. Please try again later.';
+        variant = 'warning';
+        break;
+      case 'AUTH_ERROR':
+        message = 'Authentication error. Please sign in again.';
+        shouldRedirect = true;
+        break;
+      default:
+        if (error.status === 404) {
+          message = 'User account not found. Please sign in again.';
+          shouldRedirect = true;
+        }
     }
 
     setError({ message, code: error.code });
@@ -50,17 +117,21 @@ export function AuthProvider({ children }) {
       autoHideDuration: 5000,
       preventDuplicate: true
     });
-  };
 
-  const syncUser = async (retry = false) => {
+    if (shouldRedirect) {
+      navigate('/sign-in');
+    }
+  }, [navigate, enqueueSnackbar]);
+
+  const syncUser = useCallback(async (retry = false) => {
     if (syncInProgress || !isSignedIn) return;
     
     try {
       setSyncInProgress(true);
-      const token = await getToken();
+      const token = await tokenManager.getToken(getToken);
       
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new Error({ code: 'TOKEN_ERROR', message: 'No authentication token available' });
       }
 
       const response = await fetch('/api/user/sync', {
@@ -80,8 +151,6 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       setLastSync(new Date());
       setRetryCount(0);
-      
-      // Clear any existing errors since sync succeeded
       clearError();
       
     } catch (error) {
@@ -98,7 +167,7 @@ export function AuthProvider({ children }) {
     } finally {
       setSyncInProgress(false);
     }
-  };
+  }, [isSignedIn, getToken, retryCount, clearError, handleError]);
 
   // Initial auth check and user sync
   useEffect(() => {
@@ -112,7 +181,7 @@ export function AuthProvider({ children }) {
           await syncUser(true);
         } else {
           setUser(null);
-          // Only redirect if we're not already on an auth page
+          tokenManager.clearToken();
           if (!window.location.pathname.match(/\/(sign-in|sign-up)/)) {
             navigate('/sign-in');
           }
@@ -125,21 +194,20 @@ export function AuthProvider({ children }) {
     };
 
     initializeAuth();
-  }, [clerkLoaded, isSignedIn]);
+  }, [clerkLoaded, isSignedIn, syncUser, navigate, handleError]);
 
   // Periodic sync
   useEffect(() => {
     if (!isSignedIn || !user) return;
 
     const syncInterval = setInterval(() => {
-      // Only sync if more than SYNC_INTERVAL has passed since last sync
       if (!lastSync || Date.now() - lastSync.getTime() >= SYNC_INTERVAL) {
         syncUser(true);
       }
     }, SYNC_INTERVAL);
 
     return () => clearInterval(syncInterval);
-  }, [isSignedIn, user, lastSync]);
+  }, [isSignedIn, user, lastSync, syncUser]);
 
   // Network status monitoring
   useEffect(() => {
@@ -155,14 +223,7 @@ export function AuthProvider({ children }) {
     };
 
     const handleOffline = () => {
-      enqueueSnackbar('Connection lost', { 
-        variant: 'warning',
-        autoHideDuration: null
-      });
-      setError({ 
-        message: 'Network connection lost',
-        code: 'NETWORK_ERROR'
-      });
+      handleError({ code: 'NETWORK_ERROR' }, 'Network disconnected');
     };
 
     window.addEventListener('online', handleOnline);
@@ -172,33 +233,30 @@ export function AuthProvider({ children }) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [error]);
+  }, [error, clearError, syncUser, enqueueSnackbar, handleError]);
 
-  const value = {
+  const contextValue = {
     user,
     isLoading,
     error,
+    syncInProgress,
+    lastSync,
     clearError,
     syncUser,
-    syncInProgress,
-    lastSync
+    getAuthToken: () => tokenManager.getToken(getToken)
   };
 
-  if (!clerkLoaded) {
-    return <div>Loading authentication...</div>;
-  }
-
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
+};
