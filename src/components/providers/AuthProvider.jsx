@@ -5,8 +5,10 @@ import { useSnackbar } from 'notistack';
 
 const AuthContext = createContext(null);
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 export function AuthProvider({ children }) {
-  const { isLoaded: clerkLoaded, isSignedIn } = useClerkAuth();
+  const { isLoaded: clerkLoaded, isSignedIn, userId } = useClerkAuth();
   const { getToken } = useClerk();
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
@@ -42,7 +44,33 @@ export function AuthProvider({ children }) {
     }
   }, [navigate, enqueueSnackbar]);
 
-  // Initial auth check
+  // Sync user with backend
+  const syncUser = useCallback(async () => {
+    if (!isSignedIn || !userId) return;
+
+    try {
+      const token = await getToken();
+      const response = await fetch(`${API_URL}/api/user/sync`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setUser(data);
+    } catch (error) {
+      handleError(error, 'User sync failed');
+    }
+  }, [isSignedIn, userId, getToken, handleError]);
+
+  // Initial auth check and user sync
   useEffect(() => {
     if (!clerkLoaded) return;
 
@@ -52,6 +80,11 @@ export function AuthProvider({ children }) {
         
         if (!isSignedIn && !window.location.pathname.match(/\/(sign-in|sign-up)/)) {
           navigate('/sign-in');
+          return;
+        }
+
+        if (isSignedIn) {
+          await syncUser();
         }
       } catch (error) {
         handleError(error, 'Auth initialization failed');
@@ -61,14 +94,15 @@ export function AuthProvider({ children }) {
     };
 
     initializeAuth();
-  }, [clerkLoaded, isSignedIn, navigate, handleError]);
+  }, [clerkLoaded, isSignedIn, navigate, handleError, syncUser]);
 
   const value = {
     user,
     isLoading,
     error,
     clearError,
-    getToken
+    getToken,
+    syncUser
   };
 
   return (
