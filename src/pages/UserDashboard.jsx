@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import DashboardHeader from '../components/dashboard/DashboardHeader';
 import StatsPanel from '../components/dashboard/StatsPanel';
 import FileUploader from '../components/dashboard/FileUploader';
-import FilesList from '../components/dashboard/FileList';
+import FileList from '../components/dashboard/FileList';
 import FileActionsMenu from '../components/dashboard/FileActionsMenu';
 
 // Services & Utilities
@@ -210,7 +210,7 @@ const UserDashboard = () => {
 
         <Divider sx={{ my: 3 }} />
 
-        <FilesList
+        <FileList
           files={files}
           onMenuOpen={handleMenuOpen}
           onNavigate={handleNavigate}
