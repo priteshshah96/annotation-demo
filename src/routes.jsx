@@ -1,14 +1,17 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useContext } from 'react';
-import { AuthContext } from './components/providers/AuthProvider';
+import { useAuth } from './components/providers/AuthProvider';
 import ErrorBoundary from './ErrorBoundary';
 import UserDashboard from './pages/UserDashboard';
 import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
 
 function AppRoutes() {
-  const { isAuthenticated } = useContext(AuthContext);
+  const { user, isLoading } = useAuth();
 
-  if (!isAuthenticated) {
+  if (isLoading) {
+    return null; // or a loading spinner
+  }
+
+  if (!user) {
     return <Navigate to="/sign-in" replace />;
   }
 
