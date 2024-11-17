@@ -17,7 +17,7 @@ const port = process.env.PORT || 3000;
 
 // Basic Middleware Setup
 app.use(cors({
-  origin: ['http://localhost:5173', process.env.CLIENT_URL].filter(Boolean),
+  origin: ['http://localhost:5173', process.env.CLIENT_URL, 'https://annotation-demo.onrender.com'].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -636,6 +636,16 @@ app.use('/api/annotations', (err, req, res, next) => {
   next(err);
 });
 
+// Serve static files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static('dist'));
+  
+  // Handle client-side routing
+  app.get('*', (req, res) => {
+    res.sendFile(new URL('./dist/index.html', import.meta.url).pathname);
+  });
+}
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Global error:', err);
@@ -650,33 +660,42 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   try {
     console.log('Attempting MongoDB connection...');
-    console.log('MongoDB URI:', process.env.MONGODB_URI ? 'URI is set' : 'URI is missing');
+    console.log('MongoDB URI:', process.env.VITE_MONGODB_URI ? 'URI is set' : 'URI is missing');
     
-    await mongoose.connect(process.env.MONGODB_URI, {
+    await mongoose.connect(process.env.VITE_MONGODB_URI, {
       serverApi: {
         version: '1',
         strict: true,
         deprecationErrors: true
       },
       retryWrites: true,
-      w: 'majority'
+      w: 'majority',
+      connectTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 50
     });
     
     console.log('MongoDB Connected successfully');
     console.log('Database name:', mongoose.connection.db.databaseName);
     
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
+    const serverPort = process.env.PORT || 3000;
+    app.listen(serverPort, '0.0.0.0', () => {
+      console.log(`Server running on port ${serverPort}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
       console.log('MongoDB connection state:', mongoose.connection.readyState);
     });
   } catch (error) {
     console.error('Server startup error:', error);
     console.error('Connection details:', {
-      uri: process.env.MONGODB_URI ? 'URI is set' : 'URI is missing',
+      uri: process.env.VITE_MONGODB_URI ? 'URI is set' : 'URI is missing',
       env: process.env.NODE_ENV
     });
-    process.exit(1);
+    if (process.env.NODE_ENV === 'production') {
+      console.log('Attempting to recover from error...');
+      setTimeout(startServer, 5000);
+    } else {
+      process.exit(1);
+    }
   }
 };
 

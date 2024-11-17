@@ -7,10 +7,15 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 3000
       - key: VITE_MONGODB_URI
         sync: false
       - key: VITE_CLERK_PUBLISHABLE_KEY
         sync: false
       - key: CLERK_SECRET_KEY
         sync: false
+      - key: CLIENT_URL
+        value: https://annotation-demo.onrender.com
+    staticPublishPath: ./dist
     autoDeploy: true
