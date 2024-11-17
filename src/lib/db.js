@@ -10,6 +10,20 @@ const CONNECTION_STATES = {
   disconnecting: 3,
 };
 
+class DatabaseError extends Error {
+  constructor(message, code = 'DB_ERROR') {
+    super(message);
+    this.name = 'DatabaseError';
+    this.code = code;
+  }
+}
+
+export const getDatabaseStatus = () => ({
+  isConnected: mongoose.connection.readyState === CONNECTION_STATES.connected,
+  state: mongoose.connection.readyState,
+  timestamp: new Date().toISOString()
+});
+
 export async function connectDB() {
   // Fast path: return existing connection
   if (mongoose.connections[0].readyState === CONNECTION_STATES.connected) {
@@ -24,10 +38,12 @@ export async function connectDB() {
   }
 
   if (!process.env.MONGODB_URI) {
-    throw new Error('MONGODB_URI environment variable is not defined');
+    throw new DatabaseError('MONGODB_URI environment variable is not defined', 'ENV_ERROR');
   }
 
   try {
+    console.log('Initializing new database connection...');
+    
     // Optimized options for serverless
     const options = {
       bufferCommands: false,
@@ -44,16 +60,40 @@ export async function connectDB() {
       w: 'majority'
     };
 
-    console.log('Initializing new database connection...');
     connectionPromise = mongoose.connect(process.env.MONGODB_URI, options);
     cachedConnection = await connectionPromise;
 
     console.log('Database connected successfully');
+
+    // Set up error handlers
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', err);
+      cachedConnection = null;
+      connectionPromise = null;
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.error('MongoDB disconnected');
+      cachedConnection = null;
+      connectionPromise = null;
+    });
+
     return mongoose.connection;
 
   } catch (error) {
-    console.error('Database connection error:', error);
-    throw error;
+    console.error('Database connection error:', {
+      name: error.name,
+      message: error.message,
+      code: error.code
+    });
+
+    cachedConnection = null;
+    connectionPromise = null;
+
+    throw new DatabaseError(
+      `Failed to connect to database: ${error.message}`,
+      error.code || 'CONNECTION_ERROR'
+    );
   } finally {
     connectionPromise = null;
   }

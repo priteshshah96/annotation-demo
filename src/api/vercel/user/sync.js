@@ -1,6 +1,5 @@
-// src/api/vercel/user/sync.js
 import { clerkClient } from '@clerk/clerk-sdk-node';
-import { connectDB, getDatabaseStatus } from '../../../lib/db.js';
+import { connectDB } from '../../../lib/db.js';
 import { User } from '../../../models/User.js';
 
 const TIMEOUT_MS = 8000;
@@ -24,99 +23,78 @@ const createResponse = (data, status = 200) => {
   });
 };
 
-const log = (message, data = {}) => {
-  console.log(`[Sync API] ${message}`, data);
-};
-
 async function handleSync(request) {
-  log("Received sync request", { method: request.method });
+  console.log("Starting sync process...");
 
-  const authHeader = request.headers['authorization'] || 
-                    request.headers.authorization || 
-                    (request.headers.get && request.headers.get('authorization'));
-
+  const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    log("Missing or invalid authorization header");
     throw new Error('Missing or invalid authorization header');
   }
 
   const token = authHeader.split(' ')[1];
-  log("Authorization token extracted");
+  console.log("Token extracted, verifying...");
 
-  const db = await connectDB();
-  if (!db.readyState) {
-    log("Database connection failed");
-    throw new Error('Database connection failed');
-  }
-  log("Database connected");
-
+  // Verify token first
   const decoded = await clerkClient.verifyToken(token);
   if (!decoded?.sub) {
-    log("Invalid token: missing sub claim", { token });
-    throw new Error('Invalid token: missing sub claim');
+    throw new Error('Invalid token');
   }
-  log("Token verified", { sub: decoded.sub });
+  console.log("Token verified successfully");
 
+  // Connect to database
+  console.log("Connecting to database...");
+  await connectDB();
+  console.log("Database connected successfully");
+
+  // Get user data from Clerk
   const clerkUser = await clerkClient.users.getUser(decoded.sub);
   if (!clerkUser) {
-    log("Failed to fetch Clerk user data", { sub: decoded.sub });
-    throw new Error('Could not fetch Clerk user data');
+    throw new Error('User not found');
   }
-  log("Clerk user data retrieved", { clerkId: decoded.sub });
+  console.log("Clerk user data retrieved");
 
   const primaryEmail = clerkUser.emailAddresses.find(email => 
     email.id === clerkUser.primaryEmailAddressId
   )?.emailAddress || clerkUser.emailAddresses[0]?.emailAddress;
 
   if (!primaryEmail) {
-    log("User has no email address", { clerkId: decoded.sub });
-    throw new Error('User has no email address');
+    throw new Error('No email address found');
   }
 
-  const userData = {
-    clerkId: decoded.sub,
-    email: primaryEmail,
-    firstName: clerkUser.firstName || clerkUser.username?.split(' ')[0] || null,
-    lastName: clerkUser.lastName || clerkUser.username?.split(' ').slice(1).join(' ') || null,
-    lastLoginAt: new Date()
-  };
-  log("Prepared user data for sync", { userData });
-
+  // Update or create user
+  console.log("Updating/creating user in database...");
   const user = await User.findOneAndUpdate(
     { clerkId: decoded.sub },
     {
       $set: {
-        email: userData.email,
-        lastLoginAt: userData.lastLoginAt,
-        ...(userData.firstName && { firstName: userData.firstName }),
-        ...(userData.lastName && { lastName: userData.lastName })
+        email: primaryEmail,
+        firstName: clerkUser.firstName || clerkUser.username?.split(' ')[0] || null,
+        lastName: clerkUser.lastName || clerkUser.username?.split(' ').slice(1).join(' ') || null,
+        lastLoginAt: new Date()
       }
     },
     { 
       upsert: true, 
       new: true,
-      runValidators: true,
-      maxTimeMS: DB_OPERATION_TIMEOUT,
-      setDefaultsOnInsert: true
+      runValidators: true
     }
   );
-  log("User sync operation completed", { user });
 
+  console.log("User sync completed successfully");
   return createResponse({
     success: true,
     user: {
       id: user._id,
       email: user.email,
-      firstName: user.firstName || null,
-      lastName: user.lastName || null,
+      firstName: user.firstName,
+      lastName: user.lastName,
       lastSync: new Date().toISOString()
     }
   });
 }
 
 export default async function handler(request) {
-  const startTime = Date.now();
-  log("Handling sync request", { method: request.method, url: request.url });
+  console.log(`Sync API called: ${request.method}`);
 
   if (request.method === 'OPTIONS') {
     return createResponse(null, 204);
@@ -127,25 +105,25 @@ export default async function handler(request) {
       setTimeout(() => reject(new Error('Operation timed out')), TIMEOUT_MS)
     );
 
-    const result = await Promise.race([handleSync(request), timeoutPromise]);
-
-    const duration = Date.now() - startTime;
-    log("Sync request completed", { duration: `${duration}ms` });
+    const result = await Promise.race([
+      handleSync(request),
+      timeoutPromise
+    ]);
 
     return result;
   } catch (error) {
-    const duration = Date.now() - startTime;
-    log("Sync error", { error: error.message, duration: `${duration}ms` });
-
+    console.error('Sync error:', error);
+    
     const status = error.message.includes('timeout') ? 504 
       : error.message.includes('auth') ? 401 
-      : error.status || 500;
+      : error.message.includes('database') ? 503
+      : 500;
 
     return createResponse({
       success: false,
       error: error.message,
       code: error.code || 'SYNC_ERROR',
-      retryable: status >= 500 || status === 429
+      timestamp: new Date().toISOString()
     }, status);
   }
 }
