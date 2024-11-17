@@ -5,32 +5,32 @@
   "routes": [
     {
       "src": "/api/vercel/health",
-      "dest": "src/api/vercel/health/index.js"
+      "dest": "/api/health/index.js"
     },
     {
       "src": "/api/vercel/user",
       "methods": ["GET", "POST"],
-      "dest": "src/api/vercel/user/index.js"
+      "dest": "/api/user/index.js"
     },
     {
       "src": "/api/vercel/files/upload",
       "methods": ["POST"],
-      "dest": "src/api/vercel/files/upload.js"
+      "dest": "/api/files/upload.js"
     },
     {
       "src": "/api/vercel/files",
       "methods": ["GET", "POST"],
-      "dest": "src/api/vercel/files/index.js"
+      "dest": "/api/files/index.js"
     },
     {
       "src": "/api/vercel/annotations/(?<fileId>[^/]+)",
       "methods": ["GET", "PUT", "DELETE"],
-      "dest": "src/api/vercel/annotations/[fileId].js"
+      "dest": "/api/annotations/[fileId].js"
     },
     {
       "src": "/api/vercel/annotations",
       "methods": ["GET", "POST"],
-      "dest": "src/api/vercel/annotations/index.js"
+      "dest": "/api/annotations/index.js"
     },
     {
       "src": "/assets/(.*)",
@@ -55,7 +55,7 @@
     }
   ],
   "functions": {
-    "src/api/vercel/**/*": {
+    "api/**/*.js": {
       "memory": 1024,
       "maxDuration": 10
     }

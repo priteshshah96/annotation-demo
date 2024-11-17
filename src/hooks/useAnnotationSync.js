@@ -39,7 +39,7 @@ export function useAnnotationSync() {
         controller.abort();
       }, TIMEOUT_MS);
 
-      const response = await fetch('/api/annotations/sync', {
+      const response = await fetch('/api/vercel/annotations/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

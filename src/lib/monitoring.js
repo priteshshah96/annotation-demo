@@ -89,10 +89,10 @@ class MonitoringService {
 
   async checkMongoDB() {
     try {
-      const response = await fetch('/api/health/db');
+      const response = await fetch('/api/vercel/health/db');
       return {
         status: response.ok ? 'healthy' : 'unhealthy',
-        latency: await this.measureLatency('/api/health/db')
+        latency: await this.measureLatency('/api/vercel/health/db')
       };
     } catch (error) {
       return {
@@ -104,10 +104,10 @@ class MonitoringService {
 
   async checkAuth() {
     try {
-      const response = await fetch('/api/health/auth');
+      const response = await fetch('/api/vercel/health/auth');
       return {
         status: response.ok ? 'healthy' : 'unhealthy',
-        latency: await this.measureLatency('/api/health/auth')
+        latency: await this.measureLatency('/api/vercel/health/auth')
       };
     } catch (error) {
       return {
@@ -119,10 +119,10 @@ class MonitoringService {
 
   async checkAPI() {
     try {
-      const response = await fetch('/api/health');
+      const response = await fetch('/api/vercel/health');
       return {
         status: response.ok ? 'healthy' : 'unhealthy',
-        latency: await this.measureLatency('/api/health')
+        latency: await this.measureLatency('/api/vercel/health')
       };
     } catch (error) {
       return {

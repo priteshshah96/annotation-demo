@@ -61,7 +61,7 @@ export function useAuthSync() {
       });
 
       const response = await Promise.race([
-        fetch('/api/vercel/user/sync', {
+        fetch('/api/vercel/v1/user/sync', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,

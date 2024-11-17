@@ -1,4 +1,4 @@
-const BASE_URL = '/api/vercel';
+const BASE_URL = import.meta.env.VITE_API_URL || '/api/vercel';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
