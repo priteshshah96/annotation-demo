@@ -81,8 +81,11 @@ export function AuthProvider({ children }) {
       const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
       try {
-        const { user: userData } = await api.user.sync();
-        setUser(userData);
+        const response = await api.user.sync();
+        if (!response || !response.user) {
+          throw new AuthError('Invalid user data received');
+        }
+        setUser(response.user);
         setRetryCount(0);
         clearError();
       } catch (error) {
@@ -91,7 +94,6 @@ export function AuthProvider({ children }) {
           navigate('/sign-in');
           return;
         }
-
         throw error;
       } finally {
         clearTimeout(timeoutId);
@@ -99,13 +101,9 @@ export function AuthProvider({ children }) {
     } catch (error) {
       handleError(error, 'User sync failed');
 
-      if (error.name === 'AbortError') {
-        error.message = 'Sync request timed out';
-      }
-
       if (retryAttempt < MAX_RETRIES) {
         const delay = RETRY_DELAY * Math.pow(2, retryAttempt);
-        console.log(`[AuthProvider] Retrying user sync in ${delay}ms`, { retryAttempt });
+        console.log(`[AuthProvider] Retrying user sync in ${delay}ms`, error);
         setRetryCount(retryAttempt + 1);
         await new Promise(resolve => setTimeout(resolve, delay));
         return syncUser(retryAttempt + 1);
@@ -139,21 +137,25 @@ export function AuthProvider({ children }) {
     };
 
     initializeAuth();
-  }, [clerkLoaded, isSignedIn, navigate, syncUser, handleError]);
+  }, [clerkLoaded, isSignedIn, syncUser, navigate, handleError]);
 
-  // Expose auth context
-  const value = {
+  // Re-sync user when auth state changes
+  useEffect(() => {
+    if (clerkLoaded && isSignedIn) {
+      syncUser();
+    }
+  }, [clerkLoaded, isSignedIn, syncUser]);
+
+  const contextValue = {
     user,
     isLoading,
     error,
     clearError,
-    syncUser,
-    getToken,
-    isAuthenticated: isSignedIn && !!user
+    syncUser
   };
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
