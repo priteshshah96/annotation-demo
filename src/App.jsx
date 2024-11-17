@@ -1,9 +1,8 @@
 import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { createTheme } from '@mui/material/styles';
 import UserDashboard from './pages/UserDashboard';
-import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
 import { AuthProvider } from './components/providers/AuthProvider';
 
 const theme = createTheme({});
@@ -20,20 +19,14 @@ function App() {
   }
 
   return (
-    <ClerkProvider publishableKey={clerkPubKey}>
-      <BrowserRouter>
+    <BrowserRouter>
+      <ClerkProvider publishableKey={clerkPubKey}>
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <AuthProvider>
             <Routes>
-              <Route 
-                path="/sign-in" 
-                element={<SignIn routing="path" path="/sign-in" />} 
-              />
-              <Route 
-                path="/sign-up" 
-                element={<SignUp routing="path" path="/sign-up" />} 
-              />
+              <Route path="/sign-in" element={<SignIn />} />
+              <Route path="/sign-up" element={<SignUp />} />
               <Route
                 path="/"
                 element={
@@ -47,15 +40,11 @@ function App() {
                   </>
                 }
               />
-              <Route 
-                path="*" 
-                element={<Navigate to="/sign-in" replace />} 
-              />
             </Routes>
           </AuthProvider>
         </ThemeProvider>
-      </BrowserRouter>
-    </ClerkProvider>
+      </ClerkProvider>
+    </BrowserRouter>
   );
 }
 

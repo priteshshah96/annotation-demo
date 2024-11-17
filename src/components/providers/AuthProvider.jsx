@@ -56,7 +56,10 @@ export function AuthProvider({ children }) {
 
   // Sync user with backend
   const syncUser = useCallback(async (retry = 0) => {
-    if (!isSignedIn || !userId) return;
+    if (!isSignedIn || !userId) {
+      setUser(null);
+      return;
+    }
 
     try {
       const controller = new AbortController();
@@ -81,6 +84,11 @@ export function AuthProvider({ children }) {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
+        // Don't throw error for 401/403, just clear user
+        if (response.status === 401 || response.status === 403) {
+          setUser(null);
+          return;
+        }
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
@@ -91,8 +99,8 @@ export function AuthProvider({ children }) {
     } catch (error) {
       if (error.name === 'AbortError') {
         handleError({ ...error, status: 408 }, 'Request timeout');
-      } else if (retry < MAX_RETRIES && (error.status >= 500 || error.status === 429)) {
-        // Retry on server errors or rate limiting
+      } else if (retry < MAX_RETRIES && error.status >= 500) {
+        // Only retry on server errors, not auth errors
         const delay = Math.min(1000 * Math.pow(2, retry), 10000);
         await new Promise(resolve => setTimeout(resolve, delay));
         return syncUser(retry + 1);
@@ -110,8 +118,9 @@ export function AuthProvider({ children }) {
       try {
         setIsLoading(true);
         
-        if (!isSignedIn && !window.location.pathname.match(/\/(sign-in|sign-up)/)) {
-          navigate('/sign-in');
+        // Only redirect if not on auth pages and definitely not signed in
+        if (!isSignedIn && !window.location.pathname.match(/\/(sign-in|sign-up)/) && clerkLoaded) {
+          navigate('/sign-in', { replace: true });
           return;
         }
 
