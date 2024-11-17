@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
-import { api } from '../../lib/api';
 
 const AuthContext = createContext(null);
 
@@ -44,12 +43,6 @@ export function AuthProvider({ children }) {
     if (error.message?.includes('authentication') || error.status === 401) {
       message = 'Please sign in to continue';
       shouldRedirect = true;
-    } else if (error.name === 'AbortError') {
-      message = 'Request timed out. Please try again.';
-      variant = 'warning';
-    } else if (error.status === 429) {
-      message = 'Too many requests. Please try again later.';
-      variant = 'warning';
     }
 
     setError(message);
@@ -78,13 +71,25 @@ export function AuthProvider({ children }) {
         throw new AuthError('No authentication token available', 401);
       }
 
-      const response = await api.user.sync(token);
+      const response = await fetch('/api/vercel/v1/auth/verify', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new AuthError('Failed to sync user data', response.status);
+      }
+
+      const data = await response.json();
       
-      if (!response?.user) {
+      if (!data?.user) {
         throw new AuthError('Invalid user data received from server');
       }
 
-      setUser(response.user);
+      setUser(data.user);
       setRetryCount(0);
       clearError();
     } catch (error) {
@@ -130,13 +135,6 @@ export function AuthProvider({ children }) {
 
     initializeAuth();
   }, [clerkLoaded, isSignedIn, syncUser, navigate, handleError]);
-
-  // Re-sync user when auth state changes
-  useEffect(() => {
-    if (clerkLoaded && isSignedIn) {
-      syncUser();
-    }
-  }, [clerkLoaded, isSignedIn, syncUser]);
 
   const contextValue = {
     user,
