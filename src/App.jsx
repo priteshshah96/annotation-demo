@@ -2,8 +2,13 @@ import { ClerkProvider } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { SignIn, SignUp } from '@clerk/clerk-react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
-import { dark } from '@clerk/themes';
+import { createTheme } from '@mui/material/styles';
 import UserDashboard from './pages/UserDashboard';
+
+// Create Material-UI theme
+const theme = createTheme({
+  // Your theme customization here
+});
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -16,7 +21,10 @@ function App() {
     <ClerkProvider 
       publishableKey={clerkPubKey}
       appearance={{
-        baseTheme: dark,
+        variables: {
+          colorPrimary: '#000000',
+          colorTextOnPrimaryBackground: '#ffffff',
+        },
         elements: {
           formButtonPrimary: {
             fontSize: 14,
