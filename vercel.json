@@ -11,11 +11,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "VITE_CLERK_PUBLISHABLE_KEY": "@vite_clerk_publishable_key",
-    "CLERK_SECRET_KEY": "@clerk_secret_key",
-    "VITE_API_URL": "@vite_api_url",
-    "MONGODB_URI": "@mongodb_uri"
-  }
+  ]
 }
