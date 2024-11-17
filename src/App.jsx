@@ -21,10 +21,10 @@ function App() {
 
   return (
     <ClerkProvider publishableKey={clerkPubKey}>
-      <AuthProvider>
+      <BrowserRouter>
         <ThemeProvider theme={theme}>
           <CssBaseline />
-          <BrowserRouter>
+          <AuthProvider>
             <Routes>
               <Route 
                 path="/sign-in" 
@@ -47,27 +47,14 @@ function App() {
                   </>
                 }
               />
-              <Route
-                path="/annotate/:fileId"
-                element={
-                  <>
-                    <SignedIn>
-                      <UserAnnotationDashboard />
-                    </SignedIn>
-                    <SignedOut>
-                      <RedirectToSignIn />
-                    </SignedOut>
-                  </>
-                }
-              />
               <Route 
                 path="*" 
-                element={<Navigate to="/" replace />} 
+                element={<Navigate to="/sign-in" replace />} 
               />
             </Routes>
-          </BrowserRouter>
+          </AuthProvider>
         </ThemeProvider>
-      </AuthProvider>
+      </BrowserRouter>
     </ClerkProvider>
   );
 }

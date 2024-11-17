@@ -18,6 +18,27 @@ const initSupabase = () => {
   }
 };
 
+export function logError(error, context = {}) {
+  console.error('[Error]', {
+    message: error.message,
+    ...context
+  });
+}
+
+export function logWarning(message, context = {}) {
+  console.warn('[Warning]', {
+    message,
+    ...context
+  });
+}
+
+export function logInfo(message, context = {}) {
+  console.log('[Info]', {
+    message,
+    ...context
+  });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method Not Allowed' });
@@ -33,9 +54,7 @@ export default async function handler(req, res) {
       additionalContext 
     } = req.body;
 
-    // Simple console logging for development
-    console.error('Development Error Log:', {
-      errorMessage: error?.toString() || 'Unknown Error',
+    logError(error, {
       errorDetails: {
         ...errorInfo,
         additionalContext
@@ -49,7 +68,9 @@ export default async function handler(req, res) {
       tracked: true 
     });
   } catch (err) {
-    console.error('Error logging failed:', err);
+    logError(err, { 
+      message: 'Error logging failed' 
+    });
     return res.status(500).json({ 
       message: 'Error logging failed', 
       details: err.message 
