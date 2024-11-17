@@ -131,7 +131,7 @@ export function AuthProvider({ children }) {
       const token = await tokenManager.getToken(getToken);
       
       if (!token) {
-        throw new Error({ code: 'TOKEN_ERROR', message: 'No authentication token available' });
+        throw new Error('No authentication token available');
       }
 
       const response = await fetch('/api/user/sync', {
@@ -144,30 +144,22 @@ export function AuthProvider({ children }) {
 
       if (!response.ok) {
         const error = await response.json();
-        throw error;
+        throw new Error(error.message || 'Failed to sync user');
       }
 
       const data = await response.json();
       setUser(data.user);
-      setLastSync(new Date());
-      setRetryCount(0);
-      clearError();
-      
+      setLastSync(Date.now());
     } catch (error) {
-      console.error('[AuthProvider] Sync error:', error);
-      
+      handleError(error, 'User Sync');
       if (retry && retryCount < MAX_RETRIES) {
-        setRetryCount(prev => prev + 1);
-        setTimeout(() => {
-          syncUser(true);
-        }, RETRY_DELAY * Math.pow(2, retryCount));
-      } else {
-        handleError(error, 'User sync failed');
+        setRetryCount(retryCount + 1);
+        setTimeout(() => syncUser(true), RETRY_DELAY);
       }
     } finally {
       setSyncInProgress(false);
     }
-  }, [isSignedIn, getToken, retryCount, clearError, handleError]);
+  }, [isSignedIn, getToken, handleError, retryCount, syncInProgress]);
 
   // Initial auth check and user sync
   useEffect(() => {
