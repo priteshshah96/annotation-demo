@@ -1,4 +1,4 @@
-import { useUser, useClerk, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
+import { useUser, useClerk, SignedIn, SignedOut, RedirectToSignIn, useAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Container, 
@@ -7,15 +7,43 @@ import {
   Box,
   Avatar,
   Button,
+  CircularProgress,
+  Alert,
   useTheme 
 } from '@mui/material';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
+import { useState, useEffect } from 'react';
+import { api } from '../lib/api';
 
 const UserDashboard = () => {
   const theme = useTheme();
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { getToken } = useAuth();
   const navigate = useNavigate();
+  const [isVerifying, setIsVerifying] = useState(true);
+  const [connectionError, setConnectionError] = useState(null);
+
+  useEffect(() => {
+    const verifyConnection = async () => {
+      try {
+        setIsVerifying(true);
+        // Try to sync the user - this will verify DB connection
+        const response = await api.user.sync();
+        console.log('Sync response:', response);
+        setConnectionError(null);
+      } catch (error) {
+        console.error('Connection verification failed:', error);
+        setConnectionError(error.message);
+      } finally {
+        setIsVerifying(false);
+      }
+    };
+
+    if (user) {
+      verifyConnection();
+    }
+  }, [user]);
 
   const handleSignOut = async () => {
     try {
@@ -23,7 +51,6 @@ const UserDashboard = () => {
       // Let Clerk handle the redirect
     } catch (error) {
       console.error('Sign out error:', error);
-      // Fallback navigation if needed
       navigate('/sign-in');
     }
   };
@@ -32,8 +59,29 @@ const UserDashboard = () => {
     <>
       <SignedIn>
         <Container maxWidth="lg">
-          {/* Your dashboard content */}
           <Box sx={{ py: 4 }}>
+            {isVerifying ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : connectionError ? (
+              <Alert 
+                severity="error" 
+                sx={{ mb: 3 }}
+                action={
+                  <Button 
+                    color="inherit" 
+                    size="small"
+                    onClick={() => window.location.reload()}
+                  >
+                    Retry
+                  </Button>
+                }
+              >
+                {connectionError}
+              </Alert>
+            ) : null}
+
             <Paper 
               elevation={2}
               sx={{ 
@@ -41,7 +89,9 @@ const UserDashboard = () => {
                 mb: 4,
                 display: 'flex',
                 justifyContent: 'space-between',
-                alignItems: 'center'
+                alignItems: 'center',
+                opacity: isVerifying ? 0.7 : 1,
+                transition: 'opacity 0.2s'
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -70,6 +120,7 @@ const UserDashboard = () => {
                 variant="outlined"
                 onClick={handleSignOut}
                 startIcon={<LogoutOutlinedIcon />}
+                disabled={isVerifying}
                 sx={{
                   borderRadius: 2,
                   textTransform: 'none',
@@ -83,6 +134,13 @@ const UserDashboard = () => {
                 Sign Out
               </Button>
             </Paper>
+
+            {/* Display connection status */}
+            <Typography variant="body2" color="text.secondary" align="center">
+              {isVerifying ? 'Verifying connection...' : 
+               connectionError ? 'Connection failed' : 
+               'Connected to database'}
+            </Typography>
           </Box>
         </Container>
       </SignedIn>

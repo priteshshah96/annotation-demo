@@ -1,4 +1,4 @@
-import { ClerkProvider, SignIn, SignUp } from '@clerk/clerk-react';
+import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { createTheme } from '@mui/material/styles';
@@ -14,54 +14,35 @@ function App() {
   }
 
   return (
-    <ClerkProvider 
-      publishableKey={clerkPubKey}
-      navigate={(to) => {
-        // Handle navigation in a way that works with both Clerk and React Router
-        if (window.location.pathname !== to) {
-          window.history.pushState({}, '', to);
-          // Dispatch a popstate event to trigger React Router navigation
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        }
-      }}
-    >
+    <ClerkProvider publishableKey={clerkPubKey}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <BrowserRouter>
           <Routes>
             <Route 
-              path="/sign-in/*" 
+              path="/sign-in" 
+              element={<SignIn routing="path" path="/sign-in" />} 
+            />
+            <Route 
+              path="/sign-up" 
+              element={<SignUp routing="path" path="/sign-up" />} 
+            />
+            <Route
+              path="/"
               element={
-                <SignIn 
-                  routing="path" 
-                  path="/sign-in"
-                  afterSignInUrl="/dashboard"
-                  signUpUrl="/sign-up"
-                />
-              } 
-            />
-            <Route 
-              path="/sign-up/*" 
-              element={
-                <SignUp 
-                  routing="path" 
-                  path="/sign-up"
-                  afterSignUpUrl="/dashboard"
-                  signInUrl="/sign-in"
-                />
-              } 
-            />
-            <Route 
-              path="/dashboard"
-              element={<UserDashboard />}
-            />
-            <Route 
-              path="/" 
-              element={<Navigate to="/dashboard" replace />}
+                <>
+                  <SignedIn>
+                    <UserDashboard />
+                  </SignedIn>
+                  <SignedOut>
+                    <RedirectToSignIn />
+                  </SignedOut>
+                </>
+              }
             />
             <Route 
               path="*" 
-              element={<Navigate to="/dashboard" replace />}
+              element={<Navigate to="/" replace />} 
             />
           </Routes>
         </BrowserRouter>
