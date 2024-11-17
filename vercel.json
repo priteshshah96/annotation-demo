@@ -1,102 +1,21 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
-  "framework": "vite",
-  "builds": [
+  "outputDirectory": "dist",
+  "routes": [
     {
-      "src": "src/api/vercel/**/*.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 10,
-        "memory": 1024,
-        "includeFiles": [
-          "src/lib/**/*.js",
-          "src/models/**/*.js",
-          "src/hooks/**/*.js",
-          "src/services/**/*.js",
-          "package.json"
-        ]
-      }
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
     },
     {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": { 
-        "distDir": "dist",
-        "zeroConfig": true
-      }
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ],
-  "rewrites": [
-    { 
-      "source": "/api/vercel/user/:path*",
-      "destination": "/src/api/vercel/user/:path*.js",
-      "has": [
-        {
-          "type": "header",
-          "key": "Authorization"
-        }
-      ]
-    },
-    { 
-      "source": "/api/vercel/files/:path*",
-      "destination": "/src/api/vercel/files/:path*.js",
-      "has": [
-        {
-          "type": "header",
-          "key": "Authorization"
-        }
-      ]
-    },
-    { 
-      "source": "/api/vercel/annotations/:path*",
-      "destination": "/src/api/vercel/annotations/:path*.js",
-      "has": [
-        {
-          "type": "header",
-          "key": "Authorization"
-        }
-      ]
-    },
-    {
-      "source": "/api/vercel/:path*",
-      "destination": "/src/api/vercel/:path*.js"
-    },
-    { 
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/vercel/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Credentials", "value": "true" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
-        { "key": "Access-Control-Allow-Headers", "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-      ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" }
-      ]
-    },
-    {
-      "source": "/assets/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
-      ]
-    }
-  ]
+  "env": {
+    "VITE_CLERK_PUBLISHABLE_KEY": "@vite_clerk_publishable_key",
+    "CLERK_SECRET_KEY": "@clerk_secret_key",
+    "VITE_API_URL": "@vite_api_url",
+    "MONGODB_URI": "@mongodb_uri"
+  }
 }

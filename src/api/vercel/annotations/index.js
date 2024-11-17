@@ -13,23 +13,6 @@ export const config = {
   }
 };
 
-// Helper to set consistent CORS headers
-const setCorsHeaders = (res) => {
-  const allowedOrigins = [
-    process.env.VERCEL_URL,
-    'http://localhost:5173',
-    process.env.NEXT_PUBLIC_CLERK_FRONTEND_API
-  ].filter(Boolean);
-
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', allowedOrigins.join(', '));
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
-};
-
 // Consistent error handling
 const handleError = (res, error, status = 500) => {
   console.error('Annotation error:', {
@@ -75,10 +58,6 @@ const validateAnnotationData = (data) => {
 };
 
 export default async function handler(req, res) {
-  // Always set CORS headers first
-  setCorsHeaders(res);
-
-  // Handle preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
