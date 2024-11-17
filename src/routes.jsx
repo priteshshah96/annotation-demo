@@ -37,24 +37,47 @@ function AppRoutes() {
   return (
     <ErrorBoundary>
       <Routes>
-        <Route
+      <Route
           path="/sign-in/*"
           element={
             !isSignedIn ? (
-              <SignIn routing="path" path="/sign-in" appearance={{
-                elements: {
-                  formButtonPrimary: {
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    textTransform: 'none',
-                    backgroundColor: 'var(--clerk-primary-color)',
-                    '&:hover': {
+              <SignIn 
+                routing="path" 
+                path="/sign-in" 
+                appearance={{
+                  elements: {
+                    rootBox: {
+                      boxShadow: "none",
+                      background: "white"
+                    },
+                    card: {
+                      border: "1px solid #e5e7eb",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                      borderRadius: "8px"
+                    },
+                    // Remove any duplicate buttons/boxes
+                    socialButtonsIconButton: {
+                      display: "none"  // Hide duplicate social buttons if present
+                    },
+                    formButtonPrimary: {
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      textTransform: 'none',
                       backgroundColor: 'var(--clerk-primary-color)',
-                      opacity: 0.8
+                      '&:hover': {
+                        backgroundColor: 'var(--clerk-primary-color)',
+                        opacity: 0.8
+                      }
                     }
+                  },
+                  layout: {
+                    socialButtonsPlacement: "bottom",
+                    socialButtonsVariant: "auto",
+                    privacyPageUrl: false,    // Remove additional links that might cause spacing issues
+                    termsPageUrl: false
                   }
-                }
-              }} />
+                }}
+              />
             ) : (
               <Navigate to="/dashboard" replace />
             )
