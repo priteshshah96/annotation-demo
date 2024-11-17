@@ -1,5 +1,5 @@
-import { validateAuth } from '../../../src/lib/auth.js';
-import { connectDB } from '../../../src/lib/db.js';
+import { validateAuth } from '../lib/auth';
+import { connectDB } from '../lib/db';
 
 export const config = {
   runtime: 'edge',

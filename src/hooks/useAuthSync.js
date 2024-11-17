@@ -75,11 +75,11 @@ export function useAuthSync() {
       if (!mountedRef.current) return;
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Sync failed');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP error ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       log("Sync successful", { data });
 
       setIsInitialSync(false);

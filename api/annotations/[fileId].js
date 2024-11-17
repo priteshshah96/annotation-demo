@@ -1,226 +1,205 @@
-import { validateAuth, createAuthResponse } from '../middleware/auth';
-import { connectDB } from '../../../lib/db';
-import { Annotation } from '../../../models/Annotation';
-import { File } from '../../../models/File';
+import { validateAuth } from '../lib/auth';
+import { connectDB } from '../lib/db';
 
-// Removed the runtime configuration as per the latest guidelines
 export const config = {
-  // runtime: 'nodejs',
+  runtime: 'edge',
   regions: ['iad1'],
 };
 
-class AnnotationError extends Error {
-  constructor(message, status = 500, code = 'ANNOTATION_ERROR') {
-    super(message);
-    this.name = 'AnnotationError';
-    this.status = status;
-    this.code = code;
-  }
+function handleError(error) {
+  console.error('[Annotation Error]:', error);
+  return new Response(
+    JSON.stringify({ error: 'Internal server error', details: error.message }),
+    { status: 500, headers: { 'Content-Type': 'application/json' } }
+  );
 }
 
-const validateAnnotationData = (data) => {
-  const requiredFields = ['content', 'position'];
-  const missingFields = requiredFields.filter(field => !data[field]);
-  
-  if (missingFields.length > 0) {
-    throw new AnnotationError(
-      `Missing required fields: ${missingFields.join(', ')}`,
-      400,
-      'INVALID_ANNOTATION_DATA'
+function validateAnnotationData(data) {
+  const { content, position } = data;
+  if (!content || !position) {
+    throw new Error('Missing required fields: content, position');
+  }
+  return true;
+}
+
+export default async function handler(req) {
+  const url = new URL(req.url);
+  const fileId = url.pathname.split('/').pop();
+
+  if (!fileId) {
+    return new Response(
+      JSON.stringify({ error: 'File ID is required' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
 
-  if (!data.position.x || !data.position.y) {
-    throw new AnnotationError(
-      'Invalid position data',
-      400,
-      'INVALID_POSITION'
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
     );
   }
-};
-
-export default async function handler(req, res) {
-  const startTime = Date.now();
-  const requestId = `annotation_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-  console.log(`[Annotation API] Starting operation`, { 
-    requestId,
-    method: req.method
-  });
 
   try {
-    // Validate authentication
     const auth = await validateAuth(req);
-    console.log(`[Annotation API] Authentication validated`, { 
-      requestId, 
-      userId: auth.user._id 
-    });
-
-    // Connect to database
-    await connectDB();
-
-    // Get fileId from URL
-    const fileId = req.query.fileId;
-    if (!fileId) {
-      throw new AnnotationError(
-        'File ID is required',
-        400,
-        'MISSING_FILE_ID'
+    if (!auth || !auth.user) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // Check if file exists and user has access
-    const file = await File.findOne({
+    const db = await connectDB();
+
+    // First check if the file exists and user has access
+    const file = await db.findOne('files', { 
       _id: fileId,
-      userId: auth.user._id
+      userId: auth.user.id
     });
 
     if (!file) {
-      throw new AnnotationError(
-        'File not found or access denied',
-        404,
-        'FILE_NOT_FOUND'
+      return new Response(
+        JSON.stringify({ error: 'File not found or access denied' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    switch (req.method) {
-      case 'GET': {
-        // Get all annotations for the file
-        const annotations = await Annotation.find({ fileId });
-        
-        return res.status(200).json({
-          success: true,
-          annotations,
-          count: annotations.length,
-          duration: `${Date.now() - startTime}ms`
-        });
-      }
+    if (req.method === 'GET') {
+      const annotations = await db.find('annotations', { 
+        fileId,
+        userId: auth.user.id
+      });
 
-      case 'POST': {
-        // Create new annotation
-        const annotationData = req.body;
-        validateAnnotationData(annotationData);
-
-        const annotation = new Annotation({
-          fileId,
-          userId: auth.user._id,
-          content: annotationData.content,
-          position: annotationData.position,
-          createdAt: new Date()
-        });
-
-        await annotation.save();
-
-        return res.status(201).json({
-          success: true,
-          annotation,
-          duration: `${Date.now() - startTime}ms`
-        });
-      }
-
-      case 'PUT': {
-        // Update annotation
-        const annotationId = req.query.annotationId;
-        if (!annotationId) {
-          throw new AnnotationError(
-            'Annotation ID is required',
-            400,
-            'MISSING_ANNOTATION_ID'
-          );
-        }
-
-        const annotationData = req.body;
-        validateAnnotationData(annotationData);
-
-        const annotation = await Annotation.findOneAndUpdate(
-          { 
-            _id: annotationId,
-            fileId,
-            userId: auth.user._id
-          },
-          {
-            $set: {
-              content: annotationData.content,
-              position: annotationData.position,
-              updatedAt: new Date()
-            }
-          },
-          { new: true }
-        );
-
-        if (!annotation) {
-          throw new AnnotationError(
-            'Annotation not found or access denied',
-            404,
-            'ANNOTATION_NOT_FOUND'
-          );
-        }
-
-        return res.status(200).json({
-          success: true,
-          annotation,
-          duration: `${Date.now() - startTime}ms`
-        });
-      }
-
-      case 'DELETE': {
-        // Delete annotation
-        const annotationId = req.query.annotationId;
-        if (!annotationId) {
-          throw new AnnotationError(
-            'Annotation ID is required',
-            400,
-            'MISSING_ANNOTATION_ID'
-          );
-        }
-
-        const annotation = await Annotation.findOneAndDelete({
-          _id: annotationId,
-          fileId,
-          userId: auth.user._id
-        });
-
-        if (!annotation) {
-          throw new AnnotationError(
-            'Annotation not found or access denied',
-            404,
-            'ANNOTATION_NOT_FOUND'
-          );
-        }
-
-        return res.status(200).json({
-          success: true,
-          message: 'Annotation deleted successfully',
-          duration: `${Date.now() - startTime}ms`
-        });
-      }
-
-      default:
-        throw new AnnotationError(
-          'Method not allowed',
-          405,
-          'METHOD_NOT_ALLOWED'
-        );
+      return new Response(
+        JSON.stringify({ annotations }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
+    if (req.method === 'POST') {
+      const data = await req.json();
+      validateAnnotationData(data);
+
+      const annotation = {
+        ...data,
+        fileId,
+        userId: auth.user.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const id = await db.insertOne('annotations', annotation);
+
+      // Update file progress
+      const annotations = await db.find('annotations', { 
+        fileId,
+        userId: auth.user.id
+      });
+
+      const progress = Math.min((annotations.length * 100) / file.totalSteps, 100);
+      await db.updateOne(
+        'files',
+        { _id: fileId },
+        { $set: { progress: Math.round(progress * 10) / 10 } }
+      );
+
+      return new Response(
+        JSON.stringify({ 
+          id, 
+          annotation,
+          progress: Math.round(progress * 10) / 10
+        }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (req.method === 'PUT') {
+      const data = await req.json();
+      const { id, ...updates } = data;
+      
+      if (!id) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation ID is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const annotation = await db.findOne('annotations', { 
+        _id: id,
+        fileId,
+        userId: auth.user.id
+      });
+
+      if (!annotation) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation not found' }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      await db.updateOne(
+        'annotations',
+        { _id: id },
+        { 
+          $set: {
+            ...updates,
+            updatedAt: new Date().toISOString()
+          }
+        }
+      );
+
+      return new Response(
+        JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (req.method === 'DELETE') {
+      const id = url.searchParams.get('id');
+      if (!id) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation ID is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const annotation = await db.findOne('annotations', { 
+        _id: id,
+        fileId,
+        userId: auth.user.id
+      });
+
+      if (!annotation) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation not found' }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      await db.deleteOne('annotations', { _id: id });
+
+      // Update file progress
+      const annotations = await db.find('annotations', { 
+        fileId,
+        userId: auth.user.id
+      });
+
+      const progress = Math.min((annotations.length * 100) / file.totalSteps, 100);
+      await db.updateOne(
+        'files',
+        { _id: fileId },
+        { $set: { progress: Math.round(progress * 10) / 10 } }
+      );
+
+      return new Response(
+        JSON.stringify({ 
+          success: true,
+          progress: Math.round(progress * 10) / 10
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
   } catch (error) {
-    console.error(`[Annotation API] Error:`, {
-      requestId,
-      error: error.message,
-      code: error.code
-    });
-
-    if (error instanceof AnnotationError) {
-      const response = createAuthResponse(error);
-      return res.status(error.status).json(response);
-    }
-
-    const defaultError = new AnnotationError(
-      'Operation failed',
-      500,
-      'OPERATION_FAILED'
-    );
-    const response = createAuthResponse(defaultError);
-    return res.status(defaultError.status).json(response);
+    return handleError(error);
   }
 }

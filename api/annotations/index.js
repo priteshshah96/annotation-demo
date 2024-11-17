@@ -1,173 +1,152 @@
-// src/api/annotations/index.js
-import { connectDB } from '../../../lib/db.js';
-import { File } from '../../../models/File.js';
-import { Annotation } from '../../../models/Annotation.js';
-import { validateAuth } from '../../middleware/auth.js';
-import mongoose from 'mongoose';
+import { connectDB } from '../lib/db';
+import { validateAuth } from '../lib/auth';
 
 export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '4mb'
-    }
-  }
+  runtime: 'edge',
+  regions: ['iad1'],
 };
 
-// Consistent error handling
-const handleError = (res, error, status = 500) => {
-  console.error('Annotation error:', {
-    message: error.message,
-    stack: error.stack,
-    name: error.name,
-    code: error.code
-  });
+function handleError(error) {
+  console.error('[Annotation Error]:', error);
+  return new Response(
+    JSON.stringify({ error: 'Internal server error', details: error.message }),
+    { status: 500, headers: { 'Content-Type': 'application/json' } }
+  );
+}
 
-  return res.status(status).json({
-    success: false,
-    error: error.message || 'Failed to save annotation',
-    code: error.code || 'ANNOTATION_ERROR',
-    details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-  });
-};
-
-// Validation helper
-const validateAnnotationData = (data) => {
-  const { fileId, abstractIndex, sentenceIndex, entityIndex, answer } = data;
-
-  if (!mongoose.Types.ObjectId.isValid(fileId)) {
-    throw new Error('Invalid file ID format');
+function validateAnnotationData(data) {
+  const { fileId, content, position } = data;
+  if (!fileId || !content || !position) {
+    throw new Error('Missing required fields: fileId, content, position');
   }
-
-  if (typeof abstractIndex !== 'number' || abstractIndex < 0) {
-    throw new Error('Invalid abstract index');
-  }
-
-  if (typeof sentenceIndex !== 'number' || sentenceIndex < 0) {
-    throw new Error('Invalid sentence index');
-  }
-
-  if (typeof entityIndex !== 'number') {
-    throw new Error('Invalid entity index');
-  }
-
-  if (!answer) {
-    throw new Error('Answer is required');
-  }
-
   return true;
-};
+}
 
-export default async function handler(req, res) {
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+export default async function handler(req) {
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
   }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ 
-      success: false, 
-      error: 'Method not allowed' 
-    });
-  }
-
-  let session = null;
 
   try {
-    await connectDB();
     const auth = await validateAuth(req);
+    if (!auth || !auth.user) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const db = await connectDB();
     
-    if (!auth?.user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        code: 'AUTH_REQUIRED'
-      });
-    }
-
-    // Validate request data
-    const { fileId, abstractIndex, sentenceIndex, entityIndex, answer } = req.body;
-    validateAnnotationData(req.body);
-
-    // Start transaction
-    session = await mongoose.startSession();
-    session.startTransaction();
-
-    // Verify file access
-    const file = await File.findOne({ 
-      _id: fileId, 
-      userId: auth.user._id 
-    }).session(session);
-
-    if (!file) {
-      throw new Error('File not found or access denied');
-    }
-
-    // Validate indices against file structure
-    if (!file.abstracts[abstractIndex]?.sentences[sentenceIndex]) {
-      throw new Error('Invalid abstract or sentence index');
-    }
-
-    if (entityIndex >= 0 && 
-        !file.abstracts[abstractIndex].sentences[sentenceIndex].scientific_entities[entityIndex]) {
-      throw new Error('Invalid entity index');
-    }
-
-    // Save annotation
-    const annotation = await Annotation.findOneAndUpdate(
-      {
-        fileId,
-        userId: auth.user._id,
-        abstractIndex,
-        sentenceIndex,
-        entityIndex
-      },
-      {
-        $set: {
-          answer,
-          timestamp: new Date()
-        }
-      },
-      {
-        new: true,
-        upsert: true,
-        session,
-        runValidators: true
+    if (req.method === 'GET') {
+      const fileId = new URL(req.url).searchParams.get('fileId');
+      if (!fileId) {
+        return new Response(
+          JSON.stringify({ error: 'fileId is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
       }
-    );
 
-    // Update progress
-    const totalAnnotations = await Annotation.countDocuments({
-      fileId,
-      userId: auth.user._id
-    }).session(session);
+      const annotations = await db.find('annotations', { 
+        fileId,
+        userId: auth.user.id
+      });
 
-    const progress = Math.min((totalAnnotations * 100) / file.totalSteps, 100);
-    const roundedProgress = Math.round(progress * 10) / 10;
+      return new Response(
+        JSON.stringify({ annotations }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
-    await File.findByIdAndUpdate(
-      fileId,
-      { $set: { progress: roundedProgress } },
-      { session }
-    );
+    if (req.method === 'POST') {
+      const data = await req.json();
+      validateAnnotationData(data);
 
-    await session.commitTransaction();
+      const annotation = {
+        ...data,
+        userId: auth.user.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-    return res.json({
-      success: true,
-      annotation,
-      progress: roundedProgress,
-      timestamp: new Date(),
-      fileId,
-      totalSteps: file.totalSteps
-    });
+      const id = await db.insertOne('annotations', annotation);
+      return new Response(
+        JSON.stringify({ id, annotation }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
+    if (req.method === 'PUT') {
+      const data = await req.json();
+      const { id, ...updates } = data;
+      
+      if (!id) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation ID is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const annotation = await db.findOne('annotations', { 
+        _id: id,
+        userId: auth.user.id
+      });
+
+      if (!annotation) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation not found' }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      await db.updateOne(
+        'annotations',
+        { _id: id },
+        { 
+          $set: {
+            ...updates,
+            updatedAt: new Date().toISOString()
+          }
+        }
+      );
+
+      return new Response(
+        JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (req.method === 'DELETE') {
+      const id = new URL(req.url).searchParams.get('id');
+      if (!id) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation ID is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const annotation = await db.findOne('annotations', { 
+        _id: id,
+        userId: auth.user.id
+      });
+
+      if (!annotation) {
+        return new Response(
+          JSON.stringify({ error: 'Annotation not found' }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      await db.deleteOne('annotations', { _id: id });
+      return new Response(
+        JSON.stringify({ success: true }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
   } catch (error) {
-    if (session) {
-      await session.abortTransaction();
-    }
-    return handleError(res, error);
-  } finally {
-    if (session) {
-      session.endSession();
-    }
+    return handleError(error);
   }
 }
