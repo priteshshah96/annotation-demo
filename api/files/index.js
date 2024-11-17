@@ -1,8 +1,8 @@
 // src/api/vercel/files/index.js
-import { connectDB } from '../../../lib/db.js';
+import { connectDB } from '../lib/db';
+import { validateAuth } from '../lib/auth';
 import { File } from '../../../models/File.js';
 import { Annotation } from '../../../models/Annotation.js';
-import { validateAuth } from '../middleware/auth.js';
 import mongoose from 'mongoose';
 
 export const config = {

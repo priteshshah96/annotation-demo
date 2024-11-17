@@ -1,5 +1,5 @@
-import { connectDB } from '../../../lib/db';
-import { validateAuth } from '../middleware/auth';
+import { connectDB } from '../lib/db';
+import { validateAuth } from '../lib/auth';
 
 export const config = {
   // Removed the runtime configuration as per the latest guidelines
