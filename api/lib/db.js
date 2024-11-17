@@ -2,43 +2,38 @@
 const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
 
 /**
- * Retries a failed fetch operation with exponential backoff
- * @param {string} url - The URL to fetch
- * @param {Object} options - Fetch options
- * @param {number} retryCount - Current retry attempt
- * @returns {Promise<Object>} Parsed JSON response
+ * Makes a fetch request to the MongoDB API endpoint
+ * @param {Object} body - Request body
+ * @returns {Promise<Object>} Response data
  */
-async function fetchWithRetry(url, options, retryCount = 0) {
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY = 1000;
-
+async function mongoFetch(body) {
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(MONGODB_URI, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body)
+    });
+
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const error = new Error('Database operation failed');
+      error.status = response.status;
+      error.statusText = response.statusText;
+      throw error;
     }
+
     return await response.json();
   } catch (error) {
-    if (retryCount < MAX_RETRIES) {
-      console.log(`[MongoDB] Retrying operation (${retryCount + 1}/${MAX_RETRIES})...`);
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retryCount)));
-      return fetchWithRetry(url, options, retryCount + 1);
-    }
+    console.error('[DB Error]:', error);
     throw error;
   }
 }
 
 /**
- * Edge-compatible MongoDB client using fetch API
+ * Edge-compatible MongoDB operations
  */
-export class MongoDBClient {
-  constructor() {
-    if (!MONGODB_URI) {
-      throw new Error('MongoDB URI is required');
-    }
-    this.baseUrl = MONGODB_URI;
-  }
-
+export const db = {
   /**
    * Find a single document
    * @param {string} collection - Collection name
@@ -46,16 +41,13 @@ export class MongoDBClient {
    * @returns {Promise<Object|null>} Found document or null
    */
   async findOne(collection, query) {
-    return fetchWithRetry(this.baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        collection,
-        action: 'findOne',
-        query
-      })
+    const result = await mongoFetch({
+      collection,
+      action: 'findOne',
+      query
     });
-  }
+    return result || null;
+  },
 
   /**
    * Find multiple documents
@@ -65,17 +57,14 @@ export class MongoDBClient {
    * @returns {Promise<Array>} Array of found documents
    */
   async find(collection, query, options = {}) {
-    return fetchWithRetry(this.baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        collection,
-        action: 'find',
-        query,
-        options
-      })
+    const result = await mongoFetch({
+      collection,
+      action: 'find',
+      query,
+      options
     });
-  }
+    return result || [];
+  },
 
   /**
    * Insert a single document
@@ -84,16 +73,12 @@ export class MongoDBClient {
    * @returns {Promise<Object>} Inserted document
    */
   async insertOne(collection, document) {
-    return fetchWithRetry(this.baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        collection,
-        action: 'insertOne',
-        document
-      })
+    return await mongoFetch({
+      collection,
+      action: 'insertOne',
+      document
     });
-  }
+  },
 
   /**
    * Update a single document
@@ -103,17 +88,13 @@ export class MongoDBClient {
    * @returns {Promise<Object>} Update result
    */
   async updateOne(collection, filter, update) {
-    return fetchWithRetry(this.baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        collection,
-        action: 'updateOne',
-        filter,
-        update
-      })
+    return await mongoFetch({
+      collection,
+      action: 'updateOne',
+      query: filter,
+      update
     });
-  }
+  },
 
   /**
    * Delete a single document
@@ -122,16 +103,12 @@ export class MongoDBClient {
    * @returns {Promise<Object>} Deletion result
    */
   async deleteOne(collection, filter) {
-    return fetchWithRetry(this.baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        collection,
-        action: 'deleteOne',
-        filter
-      })
+    return await mongoFetch({
+      collection,
+      action: 'deleteOne',
+      query: filter
     });
-  }
+  },
 
   /**
    * Count documents in a collection
@@ -140,17 +117,26 @@ export class MongoDBClient {
    * @returns {Promise<number>} Number of matching documents
    */
   async count(collection, query) {
-    return fetchWithRetry(this.baseUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        collection,
-        action: 'count',
-        query
-      })
+    const result = await mongoFetch({
+      collection,
+      action: 'count',
+      query
     });
-  }
-}
+    return result || 0;
+  },
 
-// Export singleton instance
-export const db = new MongoDBClient();
+  /**
+   * Aggregate documents in a collection
+   * @param {string} collection - Collection name
+   * @param {Array} pipeline - Aggregation pipeline
+   * @returns {Promise<Array>} Aggregation results
+   */
+  async aggregate(collection, pipeline) {
+    const result = await mongoFetch({
+      collection,
+      action: 'aggregate',
+      pipeline
+    });
+    return result || [];
+  }
+};

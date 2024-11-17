@@ -1,82 +1,104 @@
 // Edge-compatible error logging handler
-import { createClient } from '@supabase/supabase-js';
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const LOG_API_URL = process.env.LOG_API_URL || process.env.NEXT_PUBLIC_LOG_API_URL;
+const LOG_API_KEY = process.env.LOG_API_KEY;
 
 export const config = {
   runtime: 'edge',
   regions: ['iad1'],
 };
 
-async function logToSupabase(level, message, context = {}) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) {
-    console.warn('Supabase configuration is missing. Error logging is disabled.');
+async function logError(level, message, context = {}) {
+  if (!LOG_API_URL) {
+    console.warn('Log API configuration is missing. Error logging is disabled.');
     return null;
   }
 
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    const { data, error } = await supabase
-      .from('logs')
-      .insert([{
+    const response = await fetch(LOG_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${LOG_API_KEY}`,
+      },
+      body: JSON.stringify({
         level,
-        message: typeof message === 'string' ? message : JSON.stringify(message),
-        context: context,
-        timestamp: new Date().toISOString()
-      }]);
+        message,
+        context,
+        timestamp: new Date().toISOString(),
+        environment: process.env.VERCEL_ENV || 'development'
+      })
+    });
 
-    if (error) throw error;
-    return data;
+    if (!response.ok) {
+      console.error('Failed to log error:', await response.text());
+      return null;
+    }
+
+    return await response.json();
   } catch (error) {
-    console.error('Failed to log to Supabase:', error);
+    console.error('Error logging failed:', error);
     return null;
   }
 }
 
 export default async function handler(req) {
-  if (req.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
   try {
-    const body = await req.json();
-    const { level = 'error', message, context = {} } = body;
+    if (req.method !== 'POST') {
+      return new Response(
+        JSON.stringify({ error: 'Method not allowed' }),
+        { 
+          status: 405,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store'
+          }
+        }
+      );
+    }
+
+    const data = await req.json();
+    const { level = 'error', message, context } = data;
 
     if (!message) {
       return new Response(
         JSON.stringify({ error: 'Message is required' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        { 
+          status: 400,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store'
+          }
+        }
       );
     }
 
-    // Add request metadata to context
-    const enrichedContext = {
-      ...context,
-      url: req.url,
-      userAgent: req.headers.get('user-agent'),
-      timestamp: new Date().toISOString()
-    };
-
-    // Log to Supabase
-    await logToSupabase(level, message, enrichedContext);
-
-    // Also log to console for development/debugging
-    console[level](`[${level.toUpperCase()}]`, message, enrichedContext);
+    const result = await logError(level, message, context);
 
     return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: true, data: result }),
+      { 
+        status: 200,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store'
+        }
+      }
     );
 
   } catch (error) {
-    console.error('[Error Logger] Failed:', error);
+    console.error('Error handler failed:', error);
     return new Response(
-      JSON.stringify({ error: 'Failed to log error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ 
+        error: 'Internal server error',
+        message: error.message
+      }),
+      { 
+        status: 500,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store'
+        }
+      }
     );
   }
 }

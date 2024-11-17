@@ -1,6 +1,4 @@
-import { connectDB } from '../src/lib/db';
-
-// Edge-compatible API utilities
+// Edge-compatible API handler
 const CLERK_API_URL = 'https://api.clerk.dev/v1';
 const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
 
@@ -39,71 +37,93 @@ export const config = {
 };
 
 export default async function handler(req) {
-  if (req.method !== 'GET') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
   try {
     const auth = await validateAuth(req);
     if (!auth) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
+        { 
+          status: 401,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store'
+          }
+        }
       );
     }
 
-    // Get user's files
-    const filesResponse = await fetch(`${MONGODB_URI}/api/data`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        collection: 'files',
-        action: 'find',
-        query: { userId: auth.user }
-      })
-    });
+    if (req.method === 'GET') {
+      // Fetch user's files and annotations
+      const filesResponse = await fetch(`${MONGODB_URI}/api/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          collection: 'files',
+          action: 'find',
+          query: { userId: auth.user },
+          options: { sort: { createdAt: -1 } }
+        })
+      });
 
-    if (!filesResponse.ok) {
-      throw new Error('Failed to fetch files');
-    }
+      if (!filesResponse.ok) {
+        throw new Error('Failed to fetch files');
+      }
 
-    const files = await filesResponse.json();
+      const files = await filesResponse.json();
 
-    // Get annotations for each file
-    const annotationsPromises = files.map(file => 
-      fetch(`${MONGODB_URI}/api/data`, {
+      // Get annotation counts for each file
+      const annotationsResponse = await fetch(`${MONGODB_URI}/api/data`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           collection: 'annotations',
-          action: 'count',
-          query: { fileId: file._id }
+          action: 'aggregate',
+          pipeline: [
+            { $match: { userId: auth.user } },
+            { $group: { _id: '$fileId', count: { $sum: 1 } } }
+          ]
         })
-      }).then(res => res.json())
-    );
+      });
 
-    const annotationCounts = await Promise.all(annotationsPromises);
+      if (!annotationsResponse.ok) {
+        throw new Error('Failed to fetch annotation counts');
+      }
 
-    // Combine files with their annotation counts
-    const filesWithProgress = files.map((file, index) => ({
-      ...file,
-      progress: Math.min((annotationCounts[index] * 100) / file.totalSteps, 100)
-    }));
+      const annotationCounts = await annotationsResponse.json();
+      const countsMap = Object.fromEntries(
+        annotationCounts.map(item => [item._id, item.count])
+      );
+
+      // Calculate progress for each file
+      const filesWithProgress = files.map(file => ({
+        ...file,
+        annotationCount: countsMap[file._id] || 0,
+        progress: Math.min(
+          Math.round((countsMap[file._id] || 0) * 1000 / (file.totalSteps || 1)) / 10,
+          100
+        )
+      }));
+
+      return new Response(
+        JSON.stringify({ files: filesWithProgress }),
+        { 
+          status: 200,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store'
+          }
+        }
+      );
+    }
 
     return new Response(
-      JSON.stringify({
-        files: filesWithProgress,
-        user: auth.user
-      }),
+      JSON.stringify({ error: 'Method not allowed' }),
       { 
-        status: 200,
+        status: 405,
         headers: { 
           'Content-Type': 'application/json',
           'Cache-Control': 'no-store'
@@ -112,10 +132,19 @@ export default async function handler(req) {
     );
 
   } catch (error) {
-    console.error('[API] Error:', error);
+    console.error('[API Error]:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ 
+        error: 'Internal server error',
+        message: error.message
+      }),
+      { 
+        status: 500,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store'
+        }
+      }
     );
   }
 }
