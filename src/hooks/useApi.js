@@ -31,6 +31,9 @@ export function useApi() {
     if (error.status === 401) {
       message = 'Please sign in to continue';
       navigate('/sign-in');
+    } else if (error.status === 405) {
+      message = 'API endpoint not available. Please try again later.';
+      variant = 'error';
     } else if (error.status === 408) {
       message = 'Request timed out. Please try again.';
       variant = 'warning';
@@ -102,8 +105,8 @@ export function useApi() {
   const api = {
     user: {
       sync: async () => {
-        return fetchWithTimeout('/api/vercel/v1/auth/sync', {
-          method: 'POST'
+        return fetchWithTimeout('/api/vercel/v1/auth/verify', {
+          method: 'GET'
         });
       }
     },
