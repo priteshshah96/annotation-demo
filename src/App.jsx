@@ -1,3 +1,4 @@
+
 import { ClerkProvider } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import React, { Suspense } from 'react';
@@ -22,7 +23,12 @@ const LoadingFallback = () => (
 function App() {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
+  const log = (message, data = {}) => {
+    console.log(`[App] ${message}`, data);
+  };
+
   if (!publishableKey) {
+    log("Missing Clerk Publishable Key");
     return (
       <Box sx={{ p: 4, color: 'error.main' }}>
         <Typography>Missing Clerk Publishable Key</Typography>
@@ -30,6 +36,7 @@ function App() {
     );
   }
 
+  log("Rendering App with ClerkProvider");
   return (
     <ClerkProvider 
       publishableKey={publishableKey}
@@ -79,7 +86,6 @@ function App() {
                   />
                 } 
               />
-              
               <Route path="/" element={<UserDashboard />} />
               <Route path="*" element={<Navigate to="/sign-in" replace />} />
             </Routes>

@@ -21,9 +21,13 @@ export function useApi() {
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
 
+  const log = (message, data = {}) => {
+    console.log(`[useApi] ${message}`, data);
+  };
+
   const fetchWithAuth = useCallback(async (url, options = {}) => {
-    // Cleanup any existing request
     if (abortControllerRef.current) {
+      log("Aborting previous request");
       abortControllerRef.current.abort();
     }
 
@@ -31,23 +35,26 @@ export function useApi() {
       setIsLoading(true);
       setError(null);
 
-      // Create new abort controller
       abortControllerRef.current = new AbortController();
-      
+
       const token = await getToken();
       if (!token) {
+        log("Token missing, redirecting to sign-in");
         throw new ApiError('Authentication required', 401);
       }
+      log("Token retrieved", { token });
 
-      // Setup timeout
       const timeoutId = setTimeout(() => {
         if (abortControllerRef.current) {
+          log("Request timeout triggered");
           abortControllerRef.current.abort();
         }
       }, REQUEST_TIMEOUT);
 
       const baseUrl = '/api/vercel';
       const fullUrl = `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
+
+      log("Making API request", { url: fullUrl, options });
 
       const response = await fetch(fullUrl, {
         ...options,
@@ -64,7 +71,7 @@ export function useApi() {
       const data = await response.json();
 
       if (!response.ok) {
-        // Handle specific error cases
+        log("API response error", { status: response.status, data });
         switch (response.status) {
           case 401:
           case 403:
@@ -79,12 +86,15 @@ export function useApi() {
         }
       }
 
+      log("API request successful", { data });
       return data;
 
     } catch (error) {
       if (error.name === 'AbortError') {
+        log("Request aborted", { error });
         throw new ApiError('Request timeout', 408);
       }
+      log("Error during API request", { error });
       throw error;
     } finally {
       setIsLoading(false);
@@ -92,7 +102,6 @@ export function useApi() {
     }
   }, [getToken, navigate]);
 
-  // API endpoints with simplified error handling
   const api = {
     files: {
       getAll: (options = {}) => fetchWithAuth('/files', options),
@@ -129,6 +138,7 @@ export function useApi() {
     clearError: () => setError(null),
     abortRequests: () => {
       if (abortControllerRef.current) {
+        log("Aborting all pending requests");
         abortControllerRef.current.abort();
       }
     }

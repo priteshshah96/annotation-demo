@@ -14,7 +14,12 @@ export function useAuthSync() {
   const abortControllerRef = useRef(null);
   const mountedRef = useRef(true);
 
+  const log = (message, data = {}) => {
+    console.log(`[useAuthSync] ${message}`, data);
+  };
+
   const cleanup = useCallback(() => {
+    log("Cleanup triggered");
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -22,10 +27,13 @@ export function useAuthSync() {
   }, []);
 
   const syncUser = useCallback(async () => {
-    // Prevent sync if conditions not met
-    if (!user?.id || isSyncing || !mountedRef.current) return;
+    log("Starting user sync process", { userId: user?.id, isSyncing });
+    
+    if (!user?.id || isSyncing || !mountedRef.current) {
+      log("Sync aborted: Missing user ID, already syncing, or component unmounted");
+      return;
+    }
 
-    // Clean up any existing request
     cleanup();
 
     try {
@@ -36,11 +44,10 @@ export function useAuthSync() {
       if (!token) {
         throw new Error('Authentication required');
       }
+      log("Token retrieved", { token });
 
-      // Create new abort controller
       abortControllerRef.current = new AbortController();
 
-      // Set timeout
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
           if (abortControllerRef.current) {
@@ -50,7 +57,6 @@ export function useAuthSync() {
         }, REQUEST_TIMEOUT);
       });
 
-      // Make request with race against timeout
       const response = await Promise.race([
         fetch('/api/vercel/user/sync', {
           method: 'POST',
@@ -71,18 +77,18 @@ export function useAuthSync() {
       }
 
       const data = await response.json();
+      log("Sync successful", { data });
+
       setIsInitialSync(false);
       return data;
 
     } catch (error) {
       if (!mountedRef.current) return;
 
-      // Only set error for non-abort errors
       if (error.name !== 'AbortError') {
-        console.error('Sync error:', error);
+        log("Sync error occurred", { error: error.message });
         setError(error.message);
 
-        // Handle auth errors
         if (error.message.includes('authentication')) {
           navigate('/sign-in');
         }
@@ -91,22 +97,23 @@ export function useAuthSync() {
       if (mountedRef.current) {
         setIsSyncing(false);
         abortControllerRef.current = null;
+        log("Sync process finalized");
       }
     }
   }, [user?.id, isSyncing, getToken, navigate, cleanup]);
 
-  // Clean up on unmount
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       cleanup();
+      log("Component unmounted");
     };
   }, [cleanup]);
 
-  // Initial sync
   useEffect(() => {
     if (isInitialSync && user?.id) {
+      log("Triggering initial sync", { userId: user?.id });
       syncUser();
     }
   }, [isInitialSync, user?.id, syncUser]);

@@ -24,63 +24,64 @@ const createResponse = (data, status = 200) => {
   });
 };
 
+const log = (message, data = {}) => {
+  console.log(`[Sync API] ${message}`, data);
+};
+
 async function handleSync(request) {
-  // Auth check
+  log("Received sync request", { method: request.method });
+
   const authHeader = request.headers['authorization'] || 
                     request.headers.authorization || 
                     (request.headers.get && request.headers.get('authorization'));
 
   if (!authHeader?.startsWith('Bearer ')) {
+    log("Missing or invalid authorization header");
     throw new Error('Missing or invalid authorization header');
   }
 
   const token = authHeader.split(' ')[1];
-  
-  // Connect to DB
+  log("Authorization token extracted");
+
   const db = await connectDB();
   if (!db.readyState) {
+    log("Database connection failed");
     throw new Error('Database connection failed');
   }
+  log("Database connected");
 
-  // Verify token first
   const decoded = await clerkClient.verifyToken(token);
   if (!decoded?.sub) {
+    log("Invalid token: missing sub claim", { token });
     throw new Error('Invalid token: missing sub claim');
   }
+  log("Token verified", { sub: decoded.sub });
 
-  // Then get user data
   const clerkUser = await clerkClient.users.getUser(decoded.sub);
   if (!clerkUser) {
+    log("Failed to fetch Clerk user data", { sub: decoded.sub });
     throw new Error('Could not fetch Clerk user data');
   }
+  log("Clerk user data retrieved", { clerkId: decoded.sub });
 
-  // Get primary email with fallback
   const primaryEmail = clerkUser.emailAddresses.find(email => 
     email.id === clerkUser.primaryEmailAddressId
   )?.emailAddress || clerkUser.emailAddresses[0]?.emailAddress;
 
   if (!primaryEmail) {
+    log("User has no email address", { clerkId: decoded.sub });
     throw new Error('User has no email address');
   }
 
-  // Get user data with fallbacks
   const userData = {
     clerkId: decoded.sub,
     email: primaryEmail,
-    // Use username if first/last name not available
     firstName: clerkUser.firstName || clerkUser.username?.split(' ')[0] || null,
     lastName: clerkUser.lastName || clerkUser.username?.split(' ').slice(1).join(' ') || null,
     lastLoginAt: new Date()
   };
+  log("Prepared user data for sync", { userData });
 
-  console.log('Processing user data:', {
-    clerkId: userData.clerkId,
-    email: userData.email,
-    hasFirstName: !!userData.firstName,
-    hasLastName: !!userData.lastName
-  });
-
-  // Update/Create user with timeout and handle missing fields
   const user = await User.findOneAndUpdate(
     { clerkId: decoded.sub },
     {
@@ -99,6 +100,7 @@ async function handleSync(request) {
       setDefaultsOnInsert: true
     }
   );
+  log("User sync operation completed", { user });
 
   return createResponse({
     success: true,
@@ -114,11 +116,7 @@ async function handleSync(request) {
 
 export default async function handler(request) {
   const startTime = Date.now();
-  console.log('Sync request started:', {
-    method: request.method,
-    url: request.url,
-    timestamp: new Date().toISOString()
-  });
+  log("Handling sync request", { method: request.method, url: request.url });
 
   if (request.method === 'OPTIONS') {
     return createResponse(null, 204);
@@ -135,21 +133,12 @@ export default async function handler(request) {
     ]);
 
     const duration = Date.now() - startTime;
-    console.log('Sync completed:', {
-      duration: `${duration}ms`,
-      timestamp: new Date().toISOString()
-    });
+    log("Sync request completed", { duration: `${duration}ms` });
 
     return result;
   } catch (error) {
-    console.error('Sync error:', {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      stack: error.stack,
-      duration: `${Date.now() - startTime}ms`,
-      timestamp: new Date().toISOString()
-    });
+    const duration = Date.now() - startTime;
+    log("Sync error", { error: error.message, duration: `${duration}ms` });
 
     const status = error.message.includes('timeout') ? 504 
       : error.message.includes('auth') ? 401 
