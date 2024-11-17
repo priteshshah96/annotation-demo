@@ -1,4 +1,4 @@
-import { useUser, useClerk } from '@clerk/clerk-react';
+import { useUser, useClerk, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Container, 
@@ -10,7 +10,6 @@ import {
   useTheme 
 } from '@mui/material';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
-import { RedirectToSignIn, SignedIn, SignedOut } from '@clerk/clerk-react';
 
 const UserDashboard = () => {
   const theme = useTheme();
@@ -19,14 +18,21 @@ const UserDashboard = () => {
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/sign-in');
+    try {
+      await signOut();
+      // Let Clerk handle the redirect
+    } catch (error) {
+      console.error('Sign out error:', error);
+      // Fallback navigation if needed
+      navigate('/sign-in');
+    }
   };
 
   return (
     <>
       <SignedIn>
         <Container maxWidth="lg">
+          {/* Your dashboard content */}
           <Box sx={{ py: 4 }}>
             <Paper 
               elevation={2}
@@ -62,7 +68,6 @@ const UserDashboard = () => {
 
               <Button
                 variant="outlined"
-                color="primary"
                 onClick={handleSignOut}
                 startIcon={<LogoutOutlinedIcon />}
                 sx={{
@@ -77,25 +82,6 @@ const UserDashboard = () => {
               >
                 Sign Out
               </Button>
-            </Paper>
-
-            <Paper 
-              elevation={1}
-              sx={{ 
-                p: 3,
-                minHeight: '400px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <Typography variant="h6" gutterBottom>
-                Dashboard Content
-              </Typography>
-              <Typography color="text.secondary">
-                Your dashboard content will appear here
-              </Typography>
             </Paper>
           </Box>
         </Container>

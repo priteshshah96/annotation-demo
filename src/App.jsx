@@ -1,6 +1,5 @@
-import { ClerkProvider } from '@clerk/clerk-react';
+import { ClerkProvider, SignIn, SignUp } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { SignIn, SignUp } from '@clerk/clerk-react';
 import { ThemeProvider, CssBaseline } from '@mui/material';
 import { createTheme } from '@mui/material/styles';
 import UserDashboard from './pages/UserDashboard';
@@ -17,17 +16,12 @@ function App() {
   return (
     <ClerkProvider 
       publishableKey={clerkPubKey}
-      appearance={{
-        elements: {
-          formButtonPrimary: {
-            fontSize: 14,
-            textTransform: 'none',
-            borderRadius: 6,
-          },
-          card: {
-            borderRadius: 8,
-            boxShadow: '0 2px 12px rgba(0, 0, 0, 0.1)'
-          }
+      navigate={(to) => {
+        // Handle navigation in a way that works with both Clerk and React Router
+        if (window.location.pathname !== to) {
+          window.history.pushState({}, '', to);
+          // Dispatch a popstate event to trigger React Router navigation
+          window.dispatchEvent(new PopStateEvent('popstate'));
         }
       }}
     >
@@ -63,6 +57,10 @@ function App() {
             />
             <Route 
               path="/" 
+              element={<Navigate to="/dashboard" replace />}
+            />
+            <Route 
+              path="*" 
               element={<Navigate to="/dashboard" replace />}
             />
           </Routes>
