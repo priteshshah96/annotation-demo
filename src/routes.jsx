@@ -29,7 +29,7 @@ function AppRoutes() {
         alignItems: 'center', 
         height: '100vh'
       }}>
-        <div>Loading authentication... Please wait</div>
+        <div>Loading...</div>
       </div>
     );
   }
@@ -45,50 +45,26 @@ function AppRoutes() {
       </div>
     }>
       <Routes>
-        <Route 
-          path="/sign-in" 
-          element={
-            !isSignedIn ? (
-              <SignIn 
-                routing="path"
-                path="/sign-in"
-                redirectUrl="/"
-                appearance={{
-                  layout: {
-                    socialButtonsVariant: "iconButton",
-                    socialButtonsPlacement: "bottom"
-                  }
-                }}
-              />
-            ) : (
-              <Navigate to="/" replace />
-            )
-          }
+        <Route
+          path="/sign-in/*"
+          element={<SignIn routing="path" path="/sign-in" />}
         />
-        
-        <Route 
-          path="/sign-up" 
-          element={
-            !isSignedIn ? (
-              <SignUp 
-                routing="path"
-                redirectUrl="/"
-                appearance={{
-                  layout: {
-                    socialButtonsVariant: "iconButton",
-                    socialButtonsPlacement: "bottom"
-                  }
-                }}
-              />
-            ) : (
-              <Navigate to="/" replace />
-            )
-          }
+        <Route
+          path="/sign-up/*"
+          element={<SignUp routing="path" path="/sign-up" />}
         />
-        
-        {/* Protected Routes */}
         <Route
           path="/"
+          element={
+            isSignedIn ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Navigate to="/sign-in" replace />
+            )
+          }
+        />
+        <Route
+          path="/dashboard/*"
           element={
             isSignedIn ? (
               <UserDashboard />
@@ -98,7 +74,7 @@ function AppRoutes() {
           }
         />
         <Route
-          path="/annotations"
+          path="/annotation/*"
           element={
             isSignedIn ? (
               <UserAnnotationDashboard />
@@ -106,18 +82,6 @@ function AppRoutes() {
               <Navigate to="/sign-in" replace />
             )
           }
-        />
-        
-        {/* Catch-all route for unmatched paths */}
-        <Route 
-          path="*" 
-          element={
-            isSignedIn ? (
-              <Navigate to="/" replace />
-            ) : (
-              <Navigate to="/sign-in" replace />
-            )
-          } 
         />
       </Routes>
     </ErrorBoundary>

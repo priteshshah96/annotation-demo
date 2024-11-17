@@ -29,8 +29,8 @@ function App() {
           colorPrimary: '#0070f3',
         },
       }}
-      signInUrl="/sign-in"
-      signUpUrl="/sign-up"
+      navigate={(to) => window.location.href = to}
+      fallbackRedirectUrl="/sign-in"
     >
       <BrowserRouter>
         <SnackbarProvider maxSnack={3}>
