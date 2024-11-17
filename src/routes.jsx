@@ -1,14 +1,13 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { SignIn, RedirectToSignIn } from '@clerk/clerk-react';
-import { useAuth } from './components/providers/AuthProvider';
+import { SignIn, SignUp, useAuth as useClerkAuth } from '@clerk/clerk-react';
 import ErrorBoundary from './ErrorBoundary';
 import UserDashboard from './pages/UserDashboard';
 import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
 
 function AppRoutes() {
-  const { user, isLoading } = useAuth();
+  const { isLoaded, isSignedIn } = useClerkAuth();
 
-  if (isLoading) {
+  if (!isLoaded) {
     return null; // or a loading spinner
   }
 
@@ -18,33 +17,63 @@ function AppRoutes() {
         <Route 
           path="/sign-in" 
           element={
-            <SignIn 
-              path="/sign-in"
-              routing="path"
-              redirectUrl="/"
-              signUpUrl="/sign-up"
-            />
-          } 
+            !isSignedIn ? (
+              <SignIn 
+                routing="path"
+                redirectUrl="/"
+                appearance={{
+                  layout: {
+                    socialButtonsVariant: "iconButton",
+                    socialButtonsPlacement: "bottom"
+                  }
+                }}
+              />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
+        
         <Route 
           path="/sign-up" 
           element={
-            <SignIn 
-              path="/sign-up"
-              routing="path"
-              redirectUrl="/"
-            />
-          } 
+            !isSignedIn ? (
+              <SignUp 
+                routing="path"
+                redirectUrl="/"
+                appearance={{
+                  layout: {
+                    socialButtonsVariant: "iconButton",
+                    socialButtonsPlacement: "bottom"
+                  }
+                }}
+              />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
         
         {/* Protected Routes */}
         <Route
           path="/"
-          element={user ? <UserDashboard /> : <RedirectToSignIn redirectUrl="/sign-in" />}
+          element={
+            isSignedIn ? (
+              <UserDashboard />
+            ) : (
+              <Navigate to="/sign-in" replace />
+            )
+          }
         />
         <Route
           path="/annotations"
-          element={user ? <UserAnnotationDashboard /> : <RedirectToSignIn redirectUrl="/sign-in" />}
+          element={
+            isSignedIn ? (
+              <UserAnnotationDashboard />
+            ) : (
+              <Navigate to="/sign-in" replace />
+            )
+          }
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

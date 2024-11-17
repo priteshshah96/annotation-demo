@@ -2,7 +2,6 @@ import { BrowserRouter } from 'react-router-dom';
 import { ClerkProvider } from '@clerk/clerk-react';
 import { SnackbarProvider } from 'notistack';
 import AppRoutes from './routes';
-import { AuthProvider } from './components/providers/AuthProvider';
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -12,17 +11,13 @@ if (!clerkPubKey) {
 
 function App() {
   return (
-    <BrowserRouter>
-      <ClerkProvider 
-        publishableKey={clerkPubKey}
-      >
+    <ClerkProvider publishableKey={clerkPubKey}>
+      <BrowserRouter>
         <SnackbarProvider maxSnack={3}>
-          <AuthProvider>
-            <AppRoutes />
-          </AuthProvider>
+          <AppRoutes />
         </SnackbarProvider>
-      </ClerkProvider>
-    </BrowserRouter>
+      </BrowserRouter>
+    </ClerkProvider>
   );
 }
 
