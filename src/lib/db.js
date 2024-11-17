@@ -1,85 +1,111 @@
-import mongoose from 'mongoose';
-
-let cachedConnection = null;
+// Edge-compatible MongoDB client
+const MONGODB_URI = process.env.MONGODB_URI;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-const mongoOptions = {
-  maxPoolSize: 1,
-  minPoolSize: 0,
-  maxIdleTimeMS: 10000, // 10 seconds
-  serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 15000,
-  connectTimeoutMS: 15000,
-  retryWrites: true,
-  w: 'majority',
-  keepAlive: true,
-  keepAliveInitialDelay: 300000 // 5 minutes
-};
-
-// Connection monitoring
-mongoose.connection.on('disconnected', () => {
-  console.error('[MongoDB] Disconnected');
-  cachedConnection = null;
-});
-
-mongoose.connection.on('error', (error) => {
-  console.error('[MongoDB] Connection error:', error);
-  cachedConnection = null;
-});
-
-// Safe write operation wrapper
-export const safeWrite = async (operation) => {
+async function fetchWithRetry(url, options, retryCount = 0) {
   try {
-    return await operation;
-  } catch (error) {
-    if (error.code === 11000) {
-      throw new Error('Duplicate entry detected');
+    const response = await fetch(url, options);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
-    if (error.name === 'ValidationError') {
-      throw new Error(`Validation error: ${error.message}`);
-    }
-    console.error('[MongoDB] Write operation failed:', error);
-    throw error;
-  }
-};
-
-async function attemptConnection(retryCount = 0) {
-  try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, mongoOptions);
-    console.log('[MongoDB] Connected successfully');
-    return conn;
+    return await response.json();
   } catch (error) {
-    console.error(`[MongoDB] Connection attempt ${retryCount + 1} failed:`, error);
-    
     if (retryCount < MAX_RETRIES) {
-      console.log(`[MongoDB] Retrying connection in ${RETRY_DELAY}ms...`);
+      console.log(`[MongoDB] Retrying operation (${retryCount + 1}/${MAX_RETRIES})...`);
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * Math.pow(2, retryCount)));
-      return attemptConnection(retryCount + 1);
+      return fetchWithRetry(url, options, retryCount + 1);
     }
-    
-    throw new Error(`Failed to connect to database after ${MAX_RETRIES} attempts: ${error.message}`);
+    throw error;
   }
 }
 
+class MongoDBClient {
+  constructor(uri) {
+    const url = new URL(uri);
+    const [username, password] = url.username ? [url.username, url.password] : [];
+    const database = url.pathname.substring(1);
+    
+    this.baseUrl = `https://${url.host}/api/v1/databases/${database}/collections`;
+    this.auth = username ? { username, password } : null;
+  }
+
+  async _fetch(path, options = {}) {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(this.auth && {
+        'Authorization': 'Basic ' + Buffer.from(`${this.auth.username}:${this.auth.password}`).toString('base64')
+      }),
+      ...options.headers
+    };
+
+    return fetchWithRetry(`${this.baseUrl}${path}`, {
+      ...options,
+      headers
+    });
+  }
+
+  async findOne(collection, query) {
+    const result = await this._fetch(`/${collection}/findOne`, {
+      method: 'POST',
+      body: JSON.stringify({ filter: query })
+    });
+    return result.document;
+  }
+
+  async find(collection, query, options = {}) {
+    const result = await this._fetch(`/${collection}/find`, {
+      method: 'POST',
+      body: JSON.stringify({
+        filter: query,
+        ...options
+      })
+    });
+    return result.documents;
+  }
+
+  async insertOne(collection, document) {
+    const result = await this._fetch(`/${collection}/insertOne`, {
+      method: 'POST',
+      body: JSON.stringify({ document })
+    });
+    return result.insertedId;
+  }
+
+  async updateOne(collection, filter, update, options = {}) {
+    const result = await this._fetch(`/${collection}/updateOne`, {
+      method: 'POST',
+      body: JSON.stringify({
+        filter,
+        update,
+        ...options
+      })
+    });
+    return result.modifiedCount;
+  }
+
+  async deleteOne(collection, filter) {
+    const result = await this._fetch(`/${collection}/deleteOne`, {
+      method: 'POST',
+      body: JSON.stringify({ filter })
+    });
+    return result.deletedCount;
+  }
+}
+
+let client = null;
+
 export async function connectDB() {
-  if (cachedConnection) {
-    if (mongoose.connection.readyState === 1) {
-      return cachedConnection;
-    }
-    cachedConnection = null;
+  if (!client) {
+    client = new MongoDBClient(MONGODB_URI);
+    console.log('[MongoDB] Connected successfully');
   }
+  return client;
+}
 
-  if (!process.env.MONGODB_URI) {
-    throw new Error('MONGODB_URI environment variable is not defined');
+export async function getDB() {
+  if (!client) {
+    await connectDB();
   }
-
-  try {
-    const conn = await attemptConnection();
-    cachedConnection = conn;
-    return conn;
-  } catch (error) {
-    console.error('[MongoDB] Connection failed:', error);
-    throw error;
-  }
+  return client;
 }

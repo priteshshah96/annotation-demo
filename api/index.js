@@ -18,7 +18,7 @@ export default async function handler(req) {
   }
 
   try {
-    await connectDB();
+    const db = await connectDB();
     const auth = await validateAuth(req);
     
     if (!auth?.user) {
@@ -35,16 +35,39 @@ export default async function handler(req) {
       );
     }
 
+    // Handle the request based on the path
+    const url = new URL(req.url);
+    const path = url.pathname.replace('/api/vercel', '');
+
+    if (path === '/health') {
+      const dbHealth = await db.findOne('health', { type: 'system' });
+      return new Response(JSON.stringify({ status: 'healthy', db: dbHealth }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Example: Get user data
+    const userData = await db.findOne('users', { userId: auth.user.id });
+
     return new Response(
       JSON.stringify({ 
         success: true,
-        user: auth.user 
+        user: userData
       }),
       { 
         status: 200,
         headers: { 'Content-Type': 'application/json' }
       }
     );
+
+    // Add other route handlers here...
+
+    return new Response(JSON.stringify({ error: 'Not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
   } catch (error) {
     console.error('API Error:', error);
     return new Response(
