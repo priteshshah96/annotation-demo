@@ -65,7 +65,7 @@ export function AuthProvider({ children }) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-      const token = await getToken();
+      const token = await getToken({template: 'session'});
       if (!token) {
         throw new Error('No authentication token available');
       }

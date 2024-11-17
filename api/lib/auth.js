@@ -14,11 +14,16 @@ export async function validateAuth(req) {
       throw new Error('Server configuration error');
     }
 
-    const response = await fetch(`${CLERK_API_URL}/sessions/${token}`, {
+    // Use the proper session verification endpoint
+    const response = await fetch(`${CLERK_API_URL}/tokens/verify`, {
+      method: 'POST',
       headers: {
         'Authorization': `Bearer ${CLERK_SECRET_KEY}`,
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        token: token,
+      })
     });
 
     if (!response.ok) {
@@ -33,16 +38,16 @@ export async function validateAuth(req) {
       throw new Error('Session validation failed');
     }
 
-    const session = await response.json();
-    if (!session?.userId) {
-      console.warn('[Auth] Invalid session data:', session);
+    const verification = await response.json();
+    if (!verification?.sub) {
+      console.warn('[Auth] Invalid token data:', verification);
       return null;
     }
 
     return {
       user: {
-        id: session.userId,
-        sessionId: session.id
+        id: verification.sub,
+        sessionId: verification.sid
       }
     };
   } catch (error) {
