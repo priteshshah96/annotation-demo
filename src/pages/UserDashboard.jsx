@@ -13,22 +13,37 @@ import {
 } from '@mui/material';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useState, useEffect } from 'react';
-import { api } from '../lib/api';
+import { useApi } from '../hooks/useApi';
+import FileList from '../components/dashboard/FileList';
+import FileUploader from '../components/dashboard/FileUploader';
+import StatsPanel from '../components/dashboard/StatsPanel';
+import DashboardHeader from '../components/dashboard/DashboardHeader';
 
 const UserDashboard = () => {
   const theme = useTheme();
   const { user } = useUser();
   const { signOut } = useClerk();
-  const { getToken } = useAuth();
   const navigate = useNavigate();
+  const { api, isLoading: isApiLoading, error: apiError } = useApi();
+  
   const [isVerifying, setIsVerifying] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [stats, setStats] = useState({
+    totalAnnotations: 0,
+    completedFiles: 0,
+    totalFiles: 0,
+    totalSentences: 0,
+    totalEntities: 0,
+    targetAnnotations: 0,
+    annotatedEntities: 0
+  });
 
+  // Verify connection and sync user
   useEffect(() => {
     const verifyConnection = async () => {
       try {
         setIsVerifying(true);
-        // Try to sync the user - this will verify DB connection
         const response = await api.user.sync();
         console.log('Sync response:', response);
         setConnectionError(null);
@@ -43,111 +58,138 @@ const UserDashboard = () => {
     if (user) {
       verifyConnection();
     }
-  }, [user]);
+  }, [user, api.user]);
+
+  // Fetch files and stats
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Only fetch if user is synced
+        if (!isVerifying && !connectionError) {
+          const [filesResponse, statsResponse] = await Promise.all([
+            api.files.getAll(),
+            api.files.getUserStats()
+          ]);
+
+          if (filesResponse.success) {
+            setFiles(filesResponse.files);
+          }
+          if (statsResponse) {
+            setStats(statsResponse);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        setConnectionError(error.message);
+      }
+    };
+
+    fetchData();
+  }, [isVerifying, connectionError, api.files]);
 
   const handleSignOut = async () => {
     try {
       await signOut();
-      // Let Clerk handle the redirect
     } catch (error) {
       console.error('Sign out error:', error);
       navigate('/sign-in');
     }
   };
 
+  const handleFileUpload = async (file) => {
+    try {
+      const response = await api.files.upload(file);
+      if (response.success) {
+        // Refresh files list
+        const filesResponse = await api.files.getAll();
+        if (filesResponse.success) {
+          setFiles(filesResponse.files);
+        }
+      }
+    } catch (error) {
+      console.error('File upload error:', error);
+      setConnectionError(error.message);
+    }
+  };
+
+  const handleFileAction = async (fileId, action) => {
+    try {
+      switch (action) {
+        case 'delete':
+          await api.files.delete(fileId);
+          setFiles(files.filter(f => f._id !== fileId));
+          break;
+        case 'navigate':
+          navigate(`/annotate/${fileId}`);
+          break;
+        // Add other actions as needed
+      }
+    } catch (error) {
+      console.error('File action error:', error);
+      setConnectionError(error.message);
+    }
+  };
+
   return (
-    <>
-      <SignedIn>
-        <Container maxWidth="lg">
-          <Box sx={{ py: 4 }}>
-            {isVerifying ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress />
-              </Box>
-            ) : connectionError ? (
-              <Alert 
-                severity="error" 
-                sx={{ mb: 3 }}
-                action={
-                  <Button 
-                    color="inherit" 
-                    size="small"
-                    onClick={() => window.location.reload()}
-                  >
-                    Retry
-                  </Button>
-                }
-              >
-                {connectionError}
-              </Alert>
-            ) : null}
+    <SignedIn>
+      <Container maxWidth="lg">
+        <Box sx={{ py: 4 }}>
+          {/* Header */}
+          <DashboardHeader
+            userName={user?.firstName || user?.username}
+            userEmail={user?.primaryEmailAddress?.emailAddress}
+            avatarUrl={user?.imageUrl}
+            onSignOut={handleSignOut}
+          />
 
-            <Paper 
-              elevation={2}
-              sx={{ 
-                p: 3, 
-                mb: 4,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                opacity: isVerifying ? 0.7 : 1,
-                transition: 'opacity 0.2s'
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar 
-                  src={user?.imageUrl}
-                  alt={user?.firstName || user?.username}
-                  sx={{ 
-                    width: 48, 
-                    height: 48,
-                    border: `2px solid ${theme.palette.primary.main}`
-                  }}
+          {/* Loading State */}
+          {(isVerifying || isApiLoading) && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          )}
+
+          {/* Error State */}
+          {(connectionError || apiError) && (
+            <Alert 
+              severity="error" 
+              sx={{ mb: 3 }}
+              action={
+                <Button 
+                  color="inherit" 
+                  size="small"
+                  onClick={() => window.location.reload()}
                 >
-                  {user?.firstName?.charAt(0) || user?.username?.charAt(0)}
-                </Avatar>
-                <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 500 }}>
-                    Welcome, {user?.firstName || user?.username}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {user?.primaryEmailAddress?.emailAddress}
-                  </Typography>
-                </Box>
-              </Box>
+                  Retry
+                </Button>
+              }
+            >
+              {connectionError || apiError}
+            </Alert>
+          )}
 
-              <Button
-                variant="outlined"
-                onClick={handleSignOut}
-                startIcon={<LogoutOutlinedIcon />}
-                disabled={isVerifying}
-                sx={{
-                  borderRadius: 2,
-                  textTransform: 'none',
-                  '&:hover': {
-                    bgcolor: theme.palette.error.lighter,
-                    borderColor: theme.palette.error.main,
-                    color: theme.palette.error.main
-                  }
-                }}
-              >
-                Sign Out
-              </Button>
-            </Paper>
+          {/* Dashboard Content */}
+          {!isVerifying && !connectionError && (
+            <>
+              {/* Stats Panel */}
+              <StatsPanel stats={stats} loading={isApiLoading} />
 
-            {/* Display connection status */}
-            <Typography variant="body2" color="text.secondary" align="center">
-              {isVerifying ? 'Verifying connection...' : 
-               connectionError ? 'Connection failed' : 
-               'Connected to database'}
-            </Typography>
-          </Box>
-        </Container>
-      </SignedIn>
-      <SignedOut>
-        <RedirectToSignIn />
-      </SignedOut>
-    </>
+              {/* File Uploader */}
+              <FileUploader onUpload={handleFileUpload} />
+
+              {/* Files List */}
+              <FileList
+                files={files}
+                onNavigate={(fileId) => handleFileAction(fileId, 'navigate')}
+                onDelete={(fileId) => handleFileAction(fileId, 'delete')}
+                loading={isApiLoading}
+                error={apiError}
+              />
+            </>
+          )}
+        </Box>
+      </Container>
+    </SignedIn>
   );
 };
 
