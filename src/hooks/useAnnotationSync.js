@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useUser, useAuth } from '@clerk/clerk-react';
 
+const TIMEOUT_MS = 10000;
 const MAX_RETRIES = 3;
-const TIMEOUT_MS = 8000;
 const BASE_DELAY_MS = 1000;
 
 export function useAnnotationSync() {
@@ -39,17 +39,23 @@ export function useAnnotationSync() {
         controller.abort();
       }, TIMEOUT_MS);
 
-      const response = await fetch('/api/vercel/annotations/sync', {
+      const response = await fetch('/api/vercel/v1/annotations/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
-        signal: controller.signal
+        signal: controller.signal,
+        body: JSON.stringify({
+          userId: user.id,
+          timestamp: new Date().toISOString()
+        })
       });
 
       if (!response.ok) {
-        throw new Error(`Sync failed with status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Sync failed with status: ${response.status}`);
       }
 
       clearTimeout(timeoutId);
@@ -82,6 +88,7 @@ export function useAnnotationSync() {
     }
   }, [user?.id, getToken]);
 
+  // Initial sync on mount or user change
   useEffect(() => {
     if (isInitialSync && user?.id) {
       log("Triggering initial annotation sync", { userId: user?.id });
@@ -89,6 +96,7 @@ export function useAnnotationSync() {
     }
   }, [isInitialSync, user?.id, syncAnnotations]);
 
+  // Reset retry count on user change
   useEffect(() => {
     setRetryCount(0);
   }, [user?.id]);

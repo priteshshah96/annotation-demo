@@ -1,7 +1,8 @@
-const BASE_URL = import.meta.env.VITE_API_URL || '/api/vercel';
+const BASE_URL = import.meta.env.VITE_API_URL || '/api/vercel/v1';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const REQUEST_TIMEOUT = 10000; // 10 seconds
 
 class ApiError extends Error {
   constructor(message, status = 500, details = null) {
@@ -30,7 +31,7 @@ class ApiClient {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), options.timeout || 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), options.timeout || REQUEST_TIMEOUT);
 
       const token = await window.Clerk?.session?.getToken();
       if (!token) {
@@ -87,57 +88,56 @@ class ApiClient {
     }
   }
 
-  // User endpoints
+  // API endpoints
   user = {
     sync: async () => {
-      return this.request('/user/sync', { method: 'POST' });
-    }
-  };
-
-  // Files endpoints
-  files = {
-    getAll: async () => {
-      return this.request('/files', { cache: true });
-    },
-    get: async (fileId) => {
-      return this.request(`/files/${fileId}`, { cache: true });
-    },
-    upload: async (data) => {
-      return this.request('/files/upload', {
+      return this.request('/auth/sync', { 
         method: 'POST',
-        body: JSON.stringify(data)
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
-    },
-    delete: async (fileId) => {
-      return this.request(`/files/${fileId}`, {
-        method: 'DELETE'
-      });
-    },
-    getUserStats: async () => {
-      return this.request('/files/stats', { cache: true });
     }
   };
 
-  // Annotations endpoints
   annotations = {
     get: async (fileId) => {
       return this.request(`/annotations/${fileId}`, { cache: true });
     },
+    
     save: async (data) => {
-      return this.request('/annotations', {
+      return this.request(`/annotations/${data.fileId}`, {
         method: 'POST',
         body: JSON.stringify(data)
       });
     },
+    
     sync: async (fileId, data) => {
       return this.request(`/annotations/${fileId}/sync`, {
         method: 'POST',
         body: JSON.stringify(data)
       });
     },
+    
     reset: async (fileId) => {
       return this.request(`/annotations/${fileId}/reset`, {
         method: 'POST'
+      });
+    }
+  };
+
+  files = {
+    getAll: async () => {
+      return this.request('/files', { cache: true });
+    },
+    
+    get: async (fileId) => {
+      return this.request(`/files/${fileId}`, { cache: true });
+    },
+    
+    delete: async (fileId) => {
+      return this.request(`/files/${fileId}`, {
+        method: 'DELETE'
       });
     }
   };

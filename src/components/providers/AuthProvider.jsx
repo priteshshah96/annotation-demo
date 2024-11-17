@@ -2,11 +2,22 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
+import { api } from '../../lib/api';
 
 const AuthContext = createContext(null);
 
-const API_URL = import.meta.env.VITE_API_URL || '/api/vercel';
-const REQUEST_TIMEOUT = 8000;
+const REQUEST_TIMEOUT = 10000;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
+
+class AuthError extends Error {
+  constructor(message, status = 500, details = null) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+    this.details = details;
+  }
+}
 
 export function AuthProvider({ children }) {
   const { isLoaded: clerkLoaded, isSignedIn, userId } = useClerkAuth();
@@ -18,7 +29,6 @@ export function AuthProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
-  const MAX_RETRIES = 3;
 
   const clearError = useCallback(() => {
     setError(null);
@@ -27,7 +37,7 @@ export function AuthProvider({ children }) {
   const handleError = useCallback((error, context = '') => {
     console.error(`[AuthProvider] ${context}:`, error);
     
-    let message = 'An unexpected error occurred';
+    let message = error.message || 'An unexpected error occurred';
     let shouldRedirect = false;
     let variant = 'error';
     
@@ -55,7 +65,7 @@ export function AuthProvider({ children }) {
   }, [navigate, enqueueSnackbar]);
 
   // Sync user with backend
-  const syncUser = useCallback(async () => {
+  const syncUser = useCallback(async (retryAttempt = 0) => {
     if (!isSignedIn || !userId) {
       setUser(null);
       return;
@@ -64,35 +74,44 @@ export function AuthProvider({ children }) {
     try {
       const token = await getToken();
       if (!token) {
-        throw new Error('No authentication token available');
+        throw new AuthError('No authentication token available', 401);
       }
 
-      const response = await fetch(`${API_URL}/user/sync`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({ userId })
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
+      try {
+        const { user: userData } = await api.user.sync();
+        setUser(userData);
+        setRetryCount(0);
+        clearError();
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) {
           setUser(null);
+          navigate('/sign-in');
           return;
         }
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
 
-      const data = await response.json();
-      setUser(data.user);
-      setRetryCount(0);
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (error) {
       handleError(error, 'User sync failed');
+
+      if (error.name === 'AbortError') {
+        error.message = 'Sync request timed out';
+      }
+
+      if (retryAttempt < MAX_RETRIES) {
+        const delay = RETRY_DELAY * Math.pow(2, retryAttempt);
+        console.log(`[AuthProvider] Retrying user sync in ${delay}ms`, { retryAttempt });
+        setRetryCount(retryAttempt + 1);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return syncUser(retryAttempt + 1);
+      }
     }
-  }, [isSignedIn, userId, getToken, handleError]);
+  }, [isSignedIn, userId, getToken, handleError, navigate, clearError]);
 
   // Initial auth check and user sync
   useEffect(() => {
@@ -122,13 +141,15 @@ export function AuthProvider({ children }) {
     initializeAuth();
   }, [clerkLoaded, isSignedIn, navigate, syncUser, handleError]);
 
+  // Expose auth context
   const value = {
     user,
     isLoading,
     error,
     clearError,
     syncUser,
-    getToken
+    getToken,
+    isAuthenticated: isSignedIn && !!user
   };
 
   return (
@@ -145,3 +166,5 @@ export function useAuth() {
   }
   return context;
 }
+
+export default AuthProvider;

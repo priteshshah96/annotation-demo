@@ -61,12 +61,18 @@ export function useAuthSync() {
       });
 
       const response = await Promise.race([
-        fetch('/api/vercel/v1/user/sync', {
+        fetch('/api/vercel/v1/auth/sync', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
+          body: JSON.stringify({
+            userId: user.id,
+            metadata: {
+              lastSync: new Date().toISOString()
+            }
+          }),
           signal: abortControllerRef.current.signal
         }),
         timeoutPromise

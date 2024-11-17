@@ -1,8 +1,9 @@
 import { BrowserRouter } from 'react-router-dom';
-import { ClerkProvider, useAuth } from '@clerk/clerk-react';
+import { ClerkProvider } from '@clerk/clerk-react';
 import { SnackbarProvider } from 'notistack';
+import { ThemeProvider, createTheme } from '@mui/material';
 import AppRoutes from './routes';
-import { useEffect } from 'react';
+import AuthProvider from './components/providers/AuthProvider';
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -10,34 +11,62 @@ if (!clerkPubKey) {
   throw new Error('Missing Clerk Publishable Key');
 }
 
-function AppContent() {
-  const { isSignedIn, isLoaded } = useAuth();
-
-  useEffect(() => {
-    console.log('App Content Auth State:', { isSignedIn, isLoaded });
-  }, [isSignedIn, isLoaded]);
-
-  return <AppRoutes />;
-}
+// Create theme with clerk primary color
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#0070f3', // Clerk's primary color
+    },
+  },
+  components: {
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none',
+          fontWeight: 600,
+        },
+      },
+    },
+  },
+});
 
 function App() {
   return (
-    <ClerkProvider 
-      publishableKey={clerkPubKey}
-      appearance={{
-        variables: {
-          colorPrimary: '#0070f3',
-        },
-      }}
-      navigate={(to) => window.location.href = to}
-      fallbackRedirectUrl="/sign-in"
-    >
-      <BrowserRouter>
-        <SnackbarProvider maxSnack={3}>
-          <AppContent />
-        </SnackbarProvider>
-      </BrowserRouter>
-    </ClerkProvider>
+    <ThemeProvider theme={theme}>
+      <SnackbarProvider 
+        maxSnack={3}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+      >
+        <ClerkProvider
+          publishableKey={clerkPubKey}
+          navigate={(to) => window.location.href = to}
+          appearance={{
+            baseTheme: theme,
+            elements: {
+              formButtonPrimary: {
+                fontSize: '14px',
+                fontWeight: 600,
+                textTransform: 'none',
+                backgroundColor: 'var(--clerk-primary-color)',
+                '&:hover': {
+                  backgroundColor: 'var(--clerk-primary-color)',
+                  opacity: 0.8
+                }
+              }
+            }
+          }}
+        >
+          <BrowserRouter>
+            <AuthProvider>
+              <AppRoutes />
+            </AuthProvider>
+          </BrowserRouter>
+        </ClerkProvider>
+      </SnackbarProvider>
+    </ThemeProvider>
   );
 }
 

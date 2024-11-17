@@ -35,23 +35,53 @@ function AppRoutes() {
   }
 
   return (
-    <ErrorBoundary fallback={
-      <div>
-        <h1>Routing Error</h1>
-        <p>Something went wrong with navigation. Please try again.</p>
-        <button onClick={() => window.location.reload()}>
-          Reload Page
-        </button>
-      </div>
-    }>
+    <ErrorBoundary>
       <Routes>
         <Route
           path="/sign-in/*"
-          element={<SignIn routing="path" path="/sign-in" />}
+          element={
+            !isSignedIn ? (
+              <SignIn routing="path" path="/sign-in" appearance={{
+                elements: {
+                  formButtonPrimary: {
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    textTransform: 'none',
+                    backgroundColor: 'var(--clerk-primary-color)',
+                    '&:hover': {
+                      backgroundColor: 'var(--clerk-primary-color)',
+                      opacity: 0.8
+                    }
+                  }
+                }
+              }} />
+            ) : (
+              <Navigate to="/dashboard" replace />
+            )
+          }
         />
         <Route
           path="/sign-up/*"
-          element={<SignUp routing="path" path="/sign-up" />}
+          element={
+            !isSignedIn ? (
+              <SignUp routing="path" path="/sign-up" appearance={{
+                elements: {
+                  formButtonPrimary: {
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    textTransform: 'none',
+                    backgroundColor: 'var(--clerk-primary-color)',
+                    '&:hover': {
+                      backgroundColor: 'var(--clerk-primary-color)',
+                      opacity: 0.8
+                    }
+                  }
+                }
+              }} />
+            ) : (
+              <Navigate to="/dashboard" replace />
+            )
+          }
         />
         <Route
           path="/"
@@ -81,6 +111,12 @@ function AppRoutes() {
             ) : (
               <Navigate to="/sign-in" replace />
             )
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <Navigate to={isSignedIn ? "/dashboard" : "/sign-in"} replace />
           }
         />
       </Routes>

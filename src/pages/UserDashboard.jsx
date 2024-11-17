@@ -14,6 +14,7 @@ import {
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useState, useEffect } from 'react';
 import { useApi } from '../hooks/useApi';
+import { enqueueSnackbar } from '../hooks/useSnackbar';
 
 const UserDashboard = () => {
   const theme = useTheme();
@@ -54,9 +55,13 @@ const UserDashboard = () => {
   const handleSignOut = async () => {
     try {
       await signOut();
-      navigate('/sign-in');
+      // Let ClerkProvider handle the navigation
     } catch (error) {
       console.error('Sign out error:', error);
+      enqueueSnackbar('Error signing out. Please try again.', { 
+        variant: 'error',
+        autoHideDuration: 3000
+      });
     }
   };
 
