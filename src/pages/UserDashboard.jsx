@@ -7,10 +7,9 @@ import {
   Box,
   Avatar,
   Button,
-  IconButton,
   useTheme
 } from '@mui/material';
-import { LogoutOutlined as LogoutIcon } from '@mui/icons-material';
+import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 
 const UserDashboard = () => {
   const theme = useTheme();
@@ -65,7 +64,7 @@ const UserDashboard = () => {
             variant="outlined"
             color="primary"
             onClick={handleSignOut}
-            startIcon={<LogoutIcon />}
+            startIcon={<LogoutOutlinedIcon />}
             sx={{
               borderRadius: 2,
               textTransform: 'none',

@@ -1,9 +1,14 @@
 import { ClerkProvider } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SignIn, SignUp, SignedIn, SignedOut } from '@clerk/clerk-react';
-import { ThemeProvider, CssBaseline } from '@mui/material';
-import AuthProvider from './providers/AuthProvider';
+import { ThemeProvider, CssBaseline, Box, createTheme } from '@mui/material';
+import AuthProvider from './components/providers/AuthProvider';
 import UserDashboard from './pages/UserDashboard';
+
+// Create theme instance
+const theme = createTheme({
+  // You can customize the theme here
+});
 
 function App() {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
