@@ -15,7 +15,6 @@ function App() {
     <BrowserRouter>
       <ClerkProvider 
         publishableKey={clerkPubKey}
-        navigate={(to) => window.location.href = to}
       >
         <SnackbarProvider maxSnack={3}>
           <AuthProvider>
