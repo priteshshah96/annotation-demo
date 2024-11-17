@@ -1,33 +1,31 @@
 # Annotation Demo Web Application
 
-## Error Logging Setup
+## Error Logging
 
-### Supabase Configuration
-
-This project uses Supabase for centralized error logging in production environments. To set this up:
-
-1. Create a Supabase project
-2. Set up an `error_logs` table with the following schema:
-   ```sql
-   CREATE TABLE error_logs (
-     id SERIAL PRIMARY KEY,
-     error_message TEXT,
-     error_details JSONB,
-     location TEXT,
-     timestamp TIMESTAMPTZ,
-     environment TEXT
-   );
-   ```
-
-3. Set the following environment variables:
-   - `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase project URL
-   - `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role key
-
-### Error Tracking Mechanism
-
-- Errors are automatically logged in production via the `/api/vercel/error/log` endpoint
+### Approach
+- Errors are automatically logged via the `/api/vercel/error/log` endpoint
 - Captured details include error message, stack trace, and page location
-- Logs are stored in Supabase for monitoring and analysis
+- Logs are tracked in Vercel console and application logs
+
+### Logging Mechanism
+- Console-based error tracking for internal tool
+- Minimal external dependencies
+- Lightweight error reporting
+
+## Environment Variables
+
+### Required Environment Variables
+
+Create a `.env.local` file in the project root with the following variables:
+
+```
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+CLERK_SECRET_KEY=your_clerk_secret_key
+```
+
+### Notes
+- Ensure you keep your service role key confidential
 
 ## Development Setup
 
