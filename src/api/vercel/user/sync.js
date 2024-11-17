@@ -1,120 +1,46 @@
-import { validateAuth, createAuthResponse } from '../middleware/auth';
-import { connectDB } from '../../../lib/db';
-import { User } from '../../../models/User';
+import { validateAuth, createAuthResponse } from '../middleware/auth.js';
+import { connectDB } from '../../../lib/db.js';
+import { User } from '../../../models/User.js';
 
 export const config = {
-  // Removed the runtime configuration as per the latest guidelines
-  // runtime: 'nodejs',
   regions: ['iad1'],
 };
 
 class SyncError extends Error {
-  constructor(message, status = 500, code = 'SYNC_ERROR') {
+  constructor(message, status = 500) {
     super(message);
-    this.name = 'SyncError';
     this.status = status;
-    this.code = code;
   }
 }
 
-const validateUserData = (userData) => {
-  const requiredFields = ['email', 'clerkId'];
-  const missingFields = requiredFields.filter(field => !userData[field]);
-  
-  if (missingFields.length > 0) {
-    throw new SyncError(
-      `Missing required fields: ${missingFields.join(', ')}`,
-      400,
-      'INVALID_USER_DATA'
-    );
-  }
-
-  if (!userData.email.includes('@')) {
-    throw new SyncError(
-      'Invalid email format',
-      400,
-      'INVALID_EMAIL'
-    );
-  }
-};
-
 export default async function handler(req, res) {
-  const startTime = Date.now();
-  const requestId = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-  console.log(`[User Sync] Starting sync operation`, { requestId });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
   try {
-    // Only allow POST method
-    if (req.method !== 'POST') {
-      throw new SyncError('Method not allowed', 405, 'METHOD_NOT_ALLOWED');
+    const { user } = await validateAuth(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Validate authentication
-    const auth = await validateAuth(req);
-    console.log(`[User Sync] Authentication validated`, { 
-      requestId, 
-      userId: auth.user._id 
-    });
-
-    // Get request body
-    const userData = req.body;
-    validateUserData(userData);
-
-    // Connect to database
     await connectDB();
-
-    // Update user data
-    const user = await User.findOneAndUpdate(
-      { clerkId: auth.user.clerkId },
-      { 
-        $set: {
-          email: userData.email,
-          lastSync: new Date(),
-          lastActive: new Date()
-        }
-      },
+    const updatedUser = await User.findOneAndUpdate(
+      { clerkId: user.clerkId },
+      { lastSync: new Date() },
       { new: true }
     );
 
-    if (!user) {
-      throw new SyncError('User not found', 404, 'USER_NOT_FOUND');
-    }
-
-    console.log(`[User Sync] User data updated`, { 
-      requestId, 
-      userId: user._id 
-    });
-
-    const duration = Date.now() - startTime;
     return res.status(200).json({
       success: true,
       user: {
-        id: user._id,
-        email: user.email,
-        lastSync: user.lastSync
-      },
-      duration: `${duration}ms`
+        id: updatedUser._id,
+        email: updatedUser.email,
+        lastSync: updatedUser.lastSync
+      }
     });
-
   } catch (error) {
-    console.error(`[User Sync] Error:`, { 
-      requestId,
-      error: error.message,
-      code: error.code
-    });
-
-    if (error instanceof SyncError) {
-      const response = createAuthResponse(error);
-      return res.status(error.status).json(response);
-    }
-
-    const defaultError = new SyncError(
-      'Sync operation failed',
-      500,
-      'SYNC_FAILED'
-    );
-    const response = createAuthResponse(defaultError);
-    return res.status(defaultError.status).json(response);
+    console.error('[Sync Error]:', error);
+    return createAuthResponse(error);
   }
 }
