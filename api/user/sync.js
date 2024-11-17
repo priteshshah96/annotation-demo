@@ -24,10 +24,40 @@ async function validateAuth(req) {
     }
 
     const data = await response.json();
-    return { user: data.sub };
+    return { userId: data.sub };
   } catch (error) {
     console.error('[Auth] Error:', error);
     return null;
+  }
+}
+
+async function getClerkUser(userId) {
+  try {
+    const response = await fetch(`${CLERK_API_URL}/users/${userId}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch user data from Clerk');
+    }
+
+    const data = await response.json();
+    return {
+      userId: data.id,
+      email: data.email_addresses?.[0]?.email_address,
+      firstName: data.first_name,
+      lastName: data.last_name,
+      imageUrl: data.image_url,
+      lastSignInAt: data.last_sign_in_at,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at
+    };
+  } catch (error) {
+    console.error('[Clerk] Error fetching user:', error);
+    throw error;
   }
 }
 
@@ -53,9 +83,12 @@ export default async function handler(req) {
       );
     }
 
+    // Get user data from Clerk
+    const clerkUser = await getClerkUser(auth.userId);
+    
     // Sync user data with database
     const userData = {
-      userId: auth.user,
+      ...clerkUser,
       lastSyncedAt: new Date().toISOString()
     };
 
@@ -67,7 +100,7 @@ export default async function handler(req) {
       body: JSON.stringify({
         collection: 'users',
         action: 'upsert',
-        query: { userId: auth.user },
+        query: { userId: auth.userId },
         update: {
           $set: userData,
           $setOnInsert: {
@@ -78,18 +111,56 @@ export default async function handler(req) {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to sync user data');
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Failed to sync user data');
     }
 
+    // Get the updated user data from database
+    const userResponse = await fetch(`${MONGODB_URI}/api/data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection: 'users',
+        action: 'findOne',
+        query: { userId: auth.userId }
+      })
+    });
+
+    if (!userResponse.ok) {
+      throw new Error('Failed to fetch user data');
+    }
+
+    const { data: user } = await userResponse.json();
+
     return new Response(
-      JSON.stringify({ success: true, user: userData }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ 
+        success: true, 
+        user: {
+          ...user,
+          isNew: user.createdAt === user.lastSyncedAt
+        }
+      }),
+      { 
+        status: 200, 
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        } 
+      }
     );
   } catch (error) {
     console.error('[User Sync] Error:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: error.message || 'Internal server error' }),
+      { 
+        status: error.status || 500, 
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store'
+        } 
+      }
     );
   }
 }
