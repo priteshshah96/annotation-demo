@@ -21,6 +21,7 @@
     "@emotion/styled": "^11.13.0",
     "@mui/icons-material": "^6.1.1",
     "@mui/material": "^6.1.1",
+    "@supabase/supabase-js": "^2.39.3",
     "concurrently": "^8.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
@@ -43,4 +44,3 @@
     "vite": "^5.4.10"
   }
 }
-
