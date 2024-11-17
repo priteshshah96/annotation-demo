@@ -1,7 +1,9 @@
 // src/api/vercel/middleware/auth.js
-import { clerkClient } from '@clerk/clerk-sdk-node';
+import { Clerk } from '@clerk/clerk-sdk-node';
 import { connectDB } from '../../../lib/db';
 import { User } from '../../../models/User';
+
+const clerk = new Clerk({ secretKey: process.env.CLERK_SECRET_KEY });
 
 export class AuthError extends Error {
   constructor(message, status = 401) {
@@ -14,23 +16,13 @@ const log = (message) => {
   console.log(`[Auth] ${message}`);
 };
 
-async function validateToken(token) {
-  try {
-    const session = await clerkClient.sessions.verifySession(token);
-    return session.userId;
-  } catch (error) {
-    log(`Invalid token: ${error.message}`);
-    throw new AuthError('Invalid authentication token');
-  }
-}
-
 async function getOrCreateUser(clerkId) {
   try {
     await connectDB();
     let user = await User.findOne({ clerkId });
     
     if (!user) {
-      const clerkUser = await clerkClient.users.getUser(clerkId);
+      const clerkUser = await clerk.users.getUser(clerkId);
       user = await User.create({
         clerkId,
         email: clerkUser.emailAddresses[0].emailAddress,
@@ -47,16 +39,44 @@ async function getOrCreateUser(clerkId) {
 }
 
 export async function validateAuth(req) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
-  if (!token) {
-    throw new AuthError('No authentication token provided');
-  }
+  try {
+    // Get the session token from the Authorization header
+    const sessionToken = req.headers.get('authorization')?.replace('Bearer ', '');
+    
+    if (!sessionToken) {
+      console.warn('[Auth] No token provided');
+      return null;
+    }
 
-  const clerkId = await validateToken(token);
-  const user = await getOrCreateUser(clerkId);
-  
-  return { user, clerkId };
+    // Verify the session using Clerk SDK
+    const session = await clerk.sessions.verifySession(sessionToken);
+    if (!session) {
+      console.warn('[Auth] Invalid session');
+      return null;
+    }
+
+    // Get the user from Clerk
+    const user = await clerk.users.getUser(session.userId);
+    if (!user) {
+      console.warn('[Auth] User not found');
+      return null;
+    }
+
+    return {
+      user: {
+        id: user.id,
+        email: user.emailAddresses[0]?.emailAddress,
+        firstName: user.firstName,
+        lastName: user.lastName
+      },
+      session: {
+        id: session.id
+      }
+    };
+  } catch (error) {
+    console.error('[Auth] Validation error:', error);
+    return null;
+  }
 }
 
 export function createAuthResponse(error) {

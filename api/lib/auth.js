@@ -1,4 +1,4 @@
-const CLERK_API_URL = 'https://api.clerk.com/v1';
+const CLERK_API_URL = 'https://api.clerk.dev/v1';
 const CLERK_SECRET_KEY = process.env.CLERK_SECRET_KEY;
 
 export async function validateAuth(req) {
@@ -14,15 +14,15 @@ export async function validateAuth(req) {
       throw new Error('Server configuration error');
     }
 
-    // Use the proper session verification endpoint
-    const response = await fetch(`${CLERK_API_URL}/tokens/verify`, {
+    // Use the JWT verify endpoint
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${CLERK_SECRET_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        token: token,
+        jwt: token,
       })
     });
 

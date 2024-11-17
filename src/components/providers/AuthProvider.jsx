@@ -55,17 +55,14 @@ export function AuthProvider({ children }) {
   }, [navigate, enqueueSnackbar]);
 
   // Sync user with backend
-  const syncUser = useCallback(async (retry = 0) => {
+  const syncUser = useCallback(async () => {
     if (!isSignedIn || !userId) {
       setUser(null);
       return;
     }
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
-
-      const token = await getToken({template: 'session'});
+      const token = await getToken();
       if (!token) {
         throw new Error('No authentication token available');
       }
@@ -77,14 +74,10 @@ export function AuthProvider({ children }) {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({ userId }),
-        signal: controller.signal
+        body: JSON.stringify({ userId })
       });
 
-      clearTimeout(timeoutId);
-
       if (!response.ok) {
-        // Don't throw error for 401/403, just clear user
         if (response.status === 401 || response.status === 403) {
           setUser(null);
           return;
@@ -93,22 +86,13 @@ export function AuthProvider({ children }) {
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json().catch(() => ({}));
-      setUser(data);
-      setRetryCount(0); // Reset retry count on success
+      const data = await response.json();
+      setUser(data.user);
+      setRetryCount(0);
     } catch (error) {
-      if (error.name === 'AbortError') {
-        handleError({ ...error, status: 408 }, 'Request timeout');
-      } else if (retry < MAX_RETRIES && error.status >= 500) {
-        // Only retry on server errors, not auth errors
-        const delay = Math.min(1000 * Math.pow(2, retry), 10000);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return syncUser(retry + 1);
-      } else {
-        handleError(error, 'User sync failed');
-      }
+      handleError(error, 'User sync failed');
     }
-  }, [isSignedIn, userId, getToken, handleError, MAX_RETRIES]);
+  }, [isSignedIn, userId, getToken, handleError]);
 
   // Initial auth check and user sync
   useEffect(() => {
@@ -118,9 +102,8 @@ export function AuthProvider({ children }) {
       try {
         setIsLoading(true);
         
-        // Only redirect if not on auth pages and definitely not signed in
-        if (!isSignedIn && !window.location.pathname.match(/\/(sign-in|sign-up)/) && clerkLoaded) {
-          navigate('/sign-in', { replace: true });
+        if (!isSignedIn && !window.location.pathname.match(/\/(sign-in|sign-up)/)) {
+          navigate('/sign-in');
           return;
         }
 
@@ -144,7 +127,8 @@ export function AuthProvider({ children }) {
     isLoading,
     error,
     clearError,
-    syncUser
+    syncUser,
+    getToken
   };
 
   return (
