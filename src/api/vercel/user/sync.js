@@ -127,10 +127,7 @@ export default async function handler(request) {
       setTimeout(() => reject(new Error('Operation timed out')), TIMEOUT_MS)
     );
 
-    const result = await Promise.race([
-      handleSync(request),
-      timeoutPromise
-    ]);
+    const result = await Promise.race([handleSync(request), timeoutPromise]);
 
     const duration = Date.now() - startTime;
     log("Sync request completed", { duration: `${duration}ms` });

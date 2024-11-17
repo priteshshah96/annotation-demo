@@ -3,6 +3,8 @@ import { useUser, useAuth } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
 
 const REQUEST_TIMEOUT = 8000;
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000;
 
 export function useAuthSync() {
   const { user } = useUser();
@@ -11,6 +13,7 @@ export function useAuthSync() {
   const [isInitialSync, setIsInitialSync] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const abortControllerRef = useRef(null);
   const mountedRef = useRef(true);
 
@@ -26,9 +29,9 @@ export function useAuthSync() {
     }
   }, []);
 
-  const syncUser = useCallback(async () => {
-    log("Starting user sync process", { userId: user?.id, isSyncing });
-    
+  const syncUser = useCallback(async (retryAttempt = 0) => {
+    log("Starting user sync process", { userId: user?.id, isSyncing, retryAttempt });
+
     if (!user?.id || isSyncing || !mountedRef.current) {
       log("Sync aborted: Missing user ID, already syncing, or component unmounted");
       return;
@@ -80,6 +83,7 @@ export function useAuthSync() {
       log("Sync successful", { data });
 
       setIsInitialSync(false);
+      setRetryCount(0); // Reset retries on success
       return data;
 
     } catch (error) {
@@ -88,6 +92,13 @@ export function useAuthSync() {
       if (error.name !== 'AbortError') {
         log("Sync error occurred", { error: error.message });
         setError(error.message);
+
+        if (retryAttempt < MAX_RETRIES) {
+          const delay = BASE_DELAY_MS * Math.pow(2, retryAttempt); // Exponential backoff
+          log(`Retrying sync in ${delay}ms`, { retryAttempt });
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return syncUser(retryAttempt + 1);
+        }
 
         if (error.message.includes('authentication')) {
           navigate('/sign-in');
@@ -126,5 +137,3 @@ export function useAuthSync() {
     cancelSync: cleanup
   };
 }
-
-export default useAuthSync;

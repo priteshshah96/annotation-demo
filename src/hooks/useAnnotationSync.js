@@ -5,7 +5,7 @@ const MAX_RETRIES = 3;
 const TIMEOUT_MS = 8000;
 const BASE_DELAY_MS = 1000;
 
-export function useAuthSync() {
+export function useAnnotationSync() {
   const { user } = useUser();
   const { getToken } = useAuth();
   const [isInitialSync, setIsInitialSync] = useState(true);
@@ -13,8 +13,15 @@ export function useAuthSync() {
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
 
-  const syncUser = useCallback(async (retryAttempt = 0) => {
-    if (!user?.id) return;
+  const log = (message, data = {}) => {
+    console.log(`[useAnnotationSync] ${message}`, data);
+  };
+
+  const syncAnnotations = useCallback(async (retryAttempt = 0) => {
+    if (!user?.id) {
+      log("User is not logged in. Sync aborted.");
+      return;
+    }
     
     let timeoutId;
     const controller = new AbortController();
@@ -28,12 +35,11 @@ export function useAuthSync() {
         throw new Error('No authentication token available');
       }
 
-      // Set timeout
       timeoutId = setTimeout(() => {
         controller.abort();
       }, TIMEOUT_MS);
 
-      const response = await fetch('/api/vercel/user/sync', {
+      const response = await fetch('/api/annotations/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -46,51 +52,43 @@ export function useAuthSync() {
         throw new Error(`Sync failed with status: ${response.status}`);
       }
 
-      // Success case
       clearTimeout(timeoutId);
+      log("Annotations synced successfully.");
       setIsInitialSync(false);
       setRetryCount(0);
-      return true;
 
     } catch (error) {
       clearTimeout(timeoutId);
-      console.error('Sync error:', {
-        attempt: retryAttempt,
-        error: error.message
-      });
+      log("Error during annotation sync", { error: error.message });
 
-      // Handle abort/timeout
       if (error.name === 'AbortError') {
         error.message = 'Sync request timed out';
       }
 
       setError(error.message);
 
-      // Retry logic
       if (retryAttempt < MAX_RETRIES) {
         const delay = BASE_DELAY_MS * Math.pow(2, retryAttempt);
+        log(`Retrying annotation sync in ${delay}ms`, { retryAttempt });
         setRetryCount(retryAttempt + 1);
-        
         await new Promise(resolve => setTimeout(resolve, delay));
-        return syncUser(retryAttempt + 1);
+        return syncAnnotations(retryAttempt + 1);
       } else {
-        // Max retries reached
-        setIsInitialSync(false);
-        return false;
+        log("Max retries reached. Sync failed.", { retryAttempt });
       }
+
     } finally {
       setIsSyncing(false);
     }
   }, [user?.id, getToken]);
 
-  // Initial sync
   useEffect(() => {
     if (isInitialSync && user?.id) {
-      syncUser();
+      log("Triggering initial annotation sync", { userId: user?.id });
+      syncAnnotations();
     }
-  }, [isInitialSync, user?.id, syncUser]);
+  }, [isInitialSync, user?.id, syncAnnotations]);
 
-  // Reset retry count on user change
   useEffect(() => {
     setRetryCount(0);
   }, [user?.id]);
@@ -100,9 +98,9 @@ export function useAuthSync() {
     isSyncing,
     error,
     retryCount,
-    syncUser,
+    syncAnnotations,
     clearError: () => setError(null)
   };
 }
 
-export default useAuthSync;
+export default useAnnotationSync;

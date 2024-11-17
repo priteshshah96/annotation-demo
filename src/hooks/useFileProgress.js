@@ -2,16 +2,20 @@ import { useState, useEffect, useCallback } from 'react';
 
 export function useFileProgress(fileId) {
   const [progress, setProgress] = useState(0);
-  
+
+  const log = (message, data = {}) => {
+    console.log(`[useFileProgress] ${message}`, data);
+  };
+
   const calculateProgress = useCallback(() => {
     try {
       let totalSteps = 0;
       let completedSteps = 0;
-      
+
       // Get total steps from file data
       const fileDataKey = `file-data-${fileId}`;
       const fileData = localStorage.getItem(fileDataKey);
-      
+
       if (fileData) {
         const data = JSON.parse(fileData);
         // Calculate total possible steps from file structure
@@ -35,9 +39,10 @@ export function useFileProgress(fileId) {
 
       // Calculate and return progress percentage
       const progressValue = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
+      log("Progress calculated", { totalSteps, completedSteps, progressValue });
       return Math.min(100, Math.max(0, progressValue)); // Ensure between 0-100
     } catch (error) {
-      console.error('Error calculating progress:', error);
+      log("Error calculating progress", { error: error.message });
       return 0;
     }
   }, [fileId]);
@@ -49,6 +54,7 @@ export function useFileProgress(fileId) {
 
   // Initial calculation
   useEffect(() => {
+    log("Initial progress calculation triggered");
     updateProgress();
   }, [updateProgress]);
 
@@ -57,6 +63,7 @@ export function useFileProgress(fileId) {
     const handleStorageChange = (e) => {
       if (e.key?.startsWith(`annotation-${fileId}`) || 
           e.key === `file-data-${fileId}`) {
+        log("LocalStorage change detected, updating progress", { key: e.key });
         updateProgress();
       }
     };
