@@ -25,9 +25,12 @@ import { useSnackbar } from '../hooks/useSnackbar';
 import { useAuthSync } from '../hooks/useAuthSync';
 
 const UserDashboard = () => {
+  console.log('UserDashboard initializing...'); // Debug log
+
   // Refs for cleanup
   const mountedRef = useRef(true);
   const abortControllerRef = useRef(null);
+  const initializeRef = useRef(false);
 
   // Auth & Navigation
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
@@ -36,8 +39,12 @@ const UserDashboard = () => {
   const navigate = useNavigate();
   const { isInitialSync, isSyncing, error: syncError, syncUser } = useAuthSync();
 
-  // State Management
-  const [files, setFiles] = useState([]);
+  // State Management with debug logs
+  const [files, setFiles] = useState(() => {
+    console.log('Initializing files state');
+    return [];
+  });
+  
   const [stats, setStats] = useState({
     totalAnnotations: 0,
     completedFiles: 0,
@@ -47,6 +54,7 @@ const UserDashboard = () => {
     totalFiles: 0,
     annotatedEntities: 0
   });
+  
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState(null);
@@ -59,6 +67,7 @@ const UserDashboard = () => {
   // Cleanup helper
   const cleanup = useCallback(() => {
     if (abortControllerRef.current) {
+      console.log('Cleaning up pending requests');
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
@@ -71,21 +80,27 @@ const UserDashboard = () => {
     }
   }, [navigate]);
 
-  // Sign Out Handler
+  // Sign Out Handler with enhanced error handling
   const handleSignOut = useCallback(async () => {
     try {
       cleanup();
+      console.log('Initiating sign out...');
       await signOut();
     } catch (error) {
       console.error('Sign out error:', error);
-      signOut(); // Force sign out on error
+      // Force sign out on error
+      signOut();
     }
   }, [signOut, cleanup]);
 
-  // Data Fetching
+  // Enhanced Data Fetching
   const fetchDashboardData = useCallback(async () => {
-    if (isSyncing || !mountedRef.current) return;
+    if (isSyncing || !mountedRef.current) {
+      console.log('Skipping fetch - syncing or unmounted');
+      return;
+    }
 
+    console.log('Fetching dashboard data...');
     cleanup();
     abortControllerRef.current = new AbortController();
 
@@ -99,6 +114,10 @@ const UserDashboard = () => {
       ]);
 
       if (mountedRef.current) {
+        console.log('Dashboard data received:', { 
+          filesCount: filesData.files?.length, 
+          statsReceived: !!statsData 
+        });
         setFiles(filesData.files || []);
         setStats(statsData);
       }
@@ -117,9 +136,12 @@ const UserDashboard = () => {
     }
   }, [isSyncing, cleanup]);
 
-  // File Upload Handler
+  // Enhanced Upload Handler
   const handleUpload = useCallback(async (file) => {
-    if (isSyncing || isUploading) return;
+    if (isSyncing || isUploading) {
+      console.log('Skipping upload - already in progress');
+      return;
+    }
 
     cleanup();
     abortControllerRef.current = new AbortController();
@@ -128,6 +150,7 @@ const UserDashboard = () => {
       setIsUploading(true);
       setError(null);
 
+      console.log('Starting file upload:', { fileName: file.name });
       await fileApi.uploadFile({
         name: file.name,
         content: JSON.parse(await file.text())
@@ -141,6 +164,7 @@ const UserDashboard = () => {
       if (!mountedRef.current) return;
 
       if (error.name !== 'AbortError') {
+        console.error('Upload error:', error);
         showSnackbar(error.message || 'Error uploading file', 'error');
       }
     } finally {
@@ -165,7 +189,7 @@ const UserDashboard = () => {
     setSelectedFileId(null);
   }, []);
 
-  // File Actions
+  // Enhanced File Actions
   const handleDeleteFile = useCallback(async () => {
     if (isSyncing) return;
 
@@ -173,6 +197,7 @@ const UserDashboard = () => {
     abortControllerRef.current = new AbortController();
 
     try {
+      console.log('Deleting file:', selectedFileId);
       await fileApi.deleteFile(selectedFileId, { 
         signal: abortControllerRef.current.signal 
       });
@@ -185,6 +210,7 @@ const UserDashboard = () => {
       if (!mountedRef.current) return;
       
       if (error.name !== 'AbortError') {
+        console.error('Delete error:', error);
         showSnackbar('Error deleting file', 'error');
       }
     } finally {
@@ -197,6 +223,7 @@ const UserDashboard = () => {
 
   const handleExportFile = useCallback(async () => {
     try {
+      console.log('Exporting file:', selectedFileId);
       const data = await fileApi.exportFile(selectedFileId);
       const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -214,28 +241,35 @@ const UserDashboard = () => {
     }
   }, [selectedFileId, handleMenuClose, showSnackbar]);
 
-  // Effects
+  // Enhanced Effects
   useEffect(() => {
+    console.log('Auth state changed:', { isUserLoaded, isSignedIn });
     if (isUserLoaded && !isSignedIn) {
       navigate('/sign-in');
     }
   }, [isUserLoaded, isSignedIn, navigate]);
 
   useEffect(() => {
-    if (isUserLoaded && isSignedIn && !isInitialSync && !isSyncing) {
+    if (!initializeRef.current && isUserLoaded && isSignedIn && !isInitialSync && !isSyncing) {
+      console.log('Initial data fetch triggered');
+      initializeRef.current = true;
       fetchDashboardData();
     }
   }, [isUserLoaded, isSignedIn, isInitialSync, isSyncing, fetchDashboardData]);
 
   useEffect(() => {
+    console.log('Component mounted');
     mountedRef.current = true;
     return () => {
+      console.log('Component unmounting - cleanup');
       mountedRef.current = false;
       cleanup();
     };
   }, [cleanup]);
 
+  // Enhanced Loading State
   if (!isUserLoaded || isInitialSync) {
+    console.log('Showing loading state:', { isUserLoaded, isInitialSync });
     return (
       <Container sx={{ 
         display: 'flex', 
@@ -248,7 +282,9 @@ const UserDashboard = () => {
     );
   }
 
+  // Enhanced Error State
   if (syncError) {
+    console.log('Showing sync error:', syncError);
     return (
       <Container maxWidth="lg">
         <Box sx={{ mt: 4 }}>
@@ -267,6 +303,7 @@ const UserDashboard = () => {
     );
   }
 
+  // Main Render
   return (
     <Container maxWidth="lg">
       <DashboardHeader

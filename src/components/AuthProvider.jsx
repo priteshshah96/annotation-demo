@@ -1,12 +1,9 @@
-// src/components/providers/AuthProvider.jsx
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useUser, useAuth } from '@clerk/clerk-react';
+import { useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
-import { CircularProgress, Box } from '@mui/material';
+import { CircularProgress, Box, Typography } from '@mui/material';
 
 const AuthContext = createContext(null);
-const TIMEOUT_MS = 8000;
-const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 export const useAuthContext = () => {
   const context = useContext(AuthContext);
@@ -20,16 +17,27 @@ export const AuthProvider = ({ children }) => {
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
   const { getToken } = useAuth();
   const navigate = useNavigate();
+  
   const [isInitializing, setIsInitializing] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState(null);
-  const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [authState, setAuthState] = useState({
+    isAuthenticated: false,
+    isLoading: true,
+    user: null
+  });
+
+  console.log('Auth Provider State:', {
+    isUserLoaded,
+    isSignedIn,
+    isInitializing,
+    isSyncing,
+    error,
+    user: user?.id
+  });
 
   const syncUser = useCallback(async (force = false) => {
     if ((!isSignedIn || isSyncing) && !force) return;
-
-    let timeoutId;
-    const controller = new AbortController();
 
     try {
       setIsSyncing(true);
@@ -37,30 +45,28 @@ export const AuthProvider = ({ children }) => {
 
       const token = await getToken();
       if (!token) {
-        throw new Error('Authentication required');
+        throw new Error('No authentication token available');
       }
 
-      // Set timeout
-      timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
+      // Make API call to sync user
       const response = await fetch('/api/vercel/user/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        },
-        signal: controller.signal
+        }
       });
-
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Sync failed');
       }
 
-      const data = await response.json();
-      setLastSyncTime(new Date().toISOString());
+      setAuthState({
+        isAuthenticated: true,
+        isLoading: false,
+        user
+      });
 
     } catch (error) {
       console.error('Auth sync error:', error);
@@ -73,46 +79,61 @@ export const AuthProvider = ({ children }) => {
       setIsSyncing(false);
       setIsInitializing(false);
     }
-  }, [isSignedIn, isSyncing, getToken, navigate]);
+  }, [isSignedIn, isSyncing, getToken, navigate, user]);
 
   // Initial auth check
   useEffect(() => {
+    console.log('Auth initialization effect running:', {
+      isUserLoaded,
+      isSignedIn
+    });
+
     if (isUserLoaded) {
       if (!isSignedIn) {
+        console.log('User not signed in, redirecting to sign-in');
         navigate('/sign-in', { replace: true });
         setIsInitializing(false);
       } else {
+        console.log('User signed in, syncing user data');
         syncUser(true);
       }
     }
   }, [isUserLoaded, isSignedIn, navigate, syncUser]);
 
-  // Periodic sync
-  useEffect(() => {
-    let syncInterval;
-    
-    if (isSignedIn && !isInitializing) {
-      syncInterval = setInterval(() => {
-        syncUser();
-      }, SYNC_INTERVAL_MS);
-    }
-
-    return () => {
-      if (syncInterval) {
-        clearInterval(syncInterval);
-      }
-    };
-  }, [isSignedIn, isInitializing, syncUser]);
-
-  if (isInitializing) {
+  // Loading state
+  if (isInitializing || !isUserLoaded) {
     return (
       <Box sx={{ 
         display: 'flex', 
+        flexDirection: 'column',
         justifyContent: 'center', 
         alignItems: 'center', 
-        height: '100vh' 
+        height: '100vh',
+        gap: 2
       }}>
         <CircularProgress />
+        <Typography variant="body2" color="text.secondary">
+          Initializing...
+        </Typography>
+      </Box>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column',
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        gap: 2,
+        p: 3
+      }}>
+        <Typography color="error" align="center">
+          {error}
+        </Typography>
       </Box>
     );
   }
@@ -124,7 +145,6 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated: isSignedIn,
         isSyncing,
         error,
-        lastSyncTime,
         syncUser,
         clearError: () => setError(null)
       }}

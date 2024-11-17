@@ -4,6 +4,7 @@ import React, { Suspense } from 'react';
 import { CircularProgress, Box } from '@mui/material';
 import { SignIn, SignUp, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
 import UserDashboard from './pages/UserDashboard';
+import AuthProvider from './components/providers/AuthProvider';
 
 const LoadingFallback = () => (
   <Box sx={{ 
@@ -39,51 +40,53 @@ function App() {
       }}
     >
       <BrowserRouter>
-        <Suspense fallback={<LoadingFallback />}>
-          <Routes>
-            {/* Auth Routes */}
-            <Route 
-              path="/sign-in" 
-              element={
-                <SignIn 
-                  appearance={{ layout: { socialButtonsPlacement: "bottom" }}}
-                  redirectUrl="/"
-                  routing="path"
-                />
-              } 
-            />
-            <Route 
-              path="/sign-up" 
-              element={
-                <SignUp 
-                  appearance={{ layout: { socialButtonsPlacement: "bottom" }}}
-                  redirectUrl="/"
-                  routing="path"
-                />
-              } 
-            />
-            
-            {/* Protected Route */}
-            <Route 
-              path="/"
-              element={
-                <SignedIn>
-                  <UserDashboard />
-                </SignedIn>
-              }
-            />
+        <AuthProvider>
+          <Suspense fallback={<LoadingFallback />}>
+            <Routes>
+              {/* Auth Routes */}
+              <Route 
+                path="/sign-in" 
+                element={
+                  <SignIn 
+                    appearance={{ layout: { socialButtonsPlacement: "bottom" }}}
+                    redirectUrl="/"
+                    routing="path"
+                  />
+                } 
+              />
+              <Route 
+                path="/sign-up" 
+                element={
+                  <SignUp 
+                    appearance={{ layout: { socialButtonsPlacement: "bottom" }}}
+                    redirectUrl="/"
+                    routing="path"
+                  />
+                } 
+              />
+              
+              {/* Protected Route */}
+              <Route 
+                path="/"
+                element={
+                  <SignedIn>
+                    <UserDashboard />
+                  </SignedIn>
+                }
+              />
 
-            {/* Redirect unsigned users */}
-            <Route
-              path="*"
-              element={
-                <SignedOut>
-                  <RedirectToSignIn />
-                </SignedOut>
-              }
-            />
-          </Routes>
-        </Suspense>
+              {/* Redirect unsigned users */}
+              <Route
+                path="*"
+                element={
+                  <SignedOut>
+                    <RedirectToSignIn />
+                  </SignedOut>
+                }
+              />
+            </Routes>
+          </Suspense>
+        </AuthProvider>
       </BrowserRouter>
     </ClerkProvider>
   );
