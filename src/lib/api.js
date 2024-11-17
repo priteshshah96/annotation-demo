@@ -63,6 +63,54 @@ class ApiClient {
       return this.request('/user/sync', { method: 'POST' });
     }
   };
+
+  // Files endpoints
+  files = {
+    getAll: async () => {
+      return this.request('/files');
+    },
+    get: async (fileId) => {
+      return this.request(`/files/${fileId}`);
+    },
+    upload: async (data) => {
+      return this.request('/files/upload', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    },
+    delete: async (fileId) => {
+      return this.request(`/files/${fileId}`, {
+        method: 'DELETE'
+      });
+    },
+    getUserStats: async () => {
+      return this.request('/files/stats');
+    }
+  };
+
+  // Annotations endpoints
+  annotations = {
+    get: async (fileId) => {
+      return this.request(`/annotations/${fileId}`);
+    },
+    save: async (data) => {
+      return this.request('/annotations', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    },
+    sync: async (fileId, data) => {
+      return this.request(`/annotations/${fileId}/sync`, {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    },
+    reset: async (fileId) => {
+      return this.request(`/annotations/${fileId}/reset`, {
+        method: 'POST'
+      });
+    }
+  };
 }
 
 export const api = new ApiClient();
