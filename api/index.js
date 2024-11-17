@@ -1,5 +1,37 @@
 import { connectDB } from '../src/lib/db';
-import { validateAuth } from '../src/lib/auth';
+
+// Edge-compatible API utilities
+const CLERK_API_URL = 'https://api.clerk.dev/v1';
+const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
+
+async function validateAuth(req) {
+  try {
+    const token = req.headers.get('authorization')?.split(' ')[1];
+    if (!token) {
+      console.warn('[Auth] No token provided');
+      return null;
+    }
+
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jwt: token })
+    });
+
+    if (!response.ok) {
+      throw new Error('Authentication failed');
+    }
+
+    const data = await response.json();
+    return { user: data.sub };
+  } catch (error) {
+    console.error('[Auth] Error:', error);
+    return null;
+  }
+}
 
 export const config = {
   runtime: 'edge',
@@ -7,78 +39,83 @@ export const config = {
 };
 
 export default async function handler(req) {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      },
-    });
+  if (req.method !== 'GET') {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 
   try {
-    const db = await connectDB();
     const auth = await validateAuth(req);
-    
-    if (!auth?.user) {
+    if (!auth) {
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Unauthorized',
-          code: 'AUTH_REQUIRED' 
-        }),
-        { 
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        }
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // Handle the request based on the path
-    const url = new URL(req.url);
-    const path = url.pathname.replace('/api/vercel', '');
+    // Get user's files
+    const filesResponse = await fetch(`${MONGODB_URI}/api/data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection: 'files',
+        action: 'find',
+        query: { userId: auth.user }
+      })
+    });
 
-    if (path === '/health') {
-      const dbHealth = await db.findOne('health', { type: 'system' });
-      return new Response(JSON.stringify({ status: 'healthy', db: dbHealth }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (!filesResponse.ok) {
+      throw new Error('Failed to fetch files');
     }
 
-    // Example: Get user data
-    const userData = await db.findOne('users', { userId: auth.user.id });
+    const files = await filesResponse.json();
+
+    // Get annotations for each file
+    const annotationsPromises = files.map(file => 
+      fetch(`${MONGODB_URI}/api/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          collection: 'annotations',
+          action: 'count',
+          query: { fileId: file._id }
+        })
+      }).then(res => res.json())
+    );
+
+    const annotationCounts = await Promise.all(annotationsPromises);
+
+    // Combine files with their annotation counts
+    const filesWithProgress = files.map((file, index) => ({
+      ...file,
+      progress: Math.min((annotationCounts[index] * 100) / file.totalSteps, 100)
+    }));
 
     return new Response(
-      JSON.stringify({ 
-        success: true,
-        user: userData
+      JSON.stringify({
+        files: filesWithProgress,
+        user: auth.user
       }),
       { 
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store'
+        }
       }
     );
 
-    // Add other route handlers here...
-
-    return new Response(JSON.stringify({ error: 'Not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
-
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('[API] Error:', error);
     return new Response(
-      JSON.stringify({ 
-        success: false,
-        error: error.message 
-      }),
-      { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

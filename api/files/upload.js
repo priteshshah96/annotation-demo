@@ -1,166 +1,138 @@
 // src/api/files/upload.js
-import { connectDB } from '../lib/db';
-import { validateAuth } from '../lib/auth';
-import { File } from '../../models/File.js';
+// Edge-compatible file upload handler
+const CLERK_API_URL = 'https://api.clerk.dev/v1';
+const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
+
+async function validateAuth(req) {
+  try {
+    const token = req.headers.get('authorization')?.split(' ')[1];
+    if (!token) {
+      console.warn('[Auth] No token provided');
+      return null;
+    }
+
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jwt: token })
+    });
+
+    if (!response.ok) {
+      throw new Error('Authentication failed');
+    }
+
+    const data = await response.json();
+    return { user: data.sub };
+  } catch (error) {
+    console.error('[Auth] Error:', error);
+    return null;
+  }
+}
 
 export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb'
-    }
-  }
+  runtime: 'edge',
+  regions: ['iad1'],
 };
 
-const handleError = (error, req, res) => {
-  console.error('File upload error details:', {
-    name: error.name,
-    message: error.message,
-    stack: error.stack,
-    code: error.code,
-    requestBody: {
-      name: req.body?.name,
-      contentLength: req.body?.content?.length
-    }
-  });
-
-  // Handle known error types
-  if (error.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      error: 'Validation failed',
-      details: Object.values(error.errors).map(err => err.message)
-    });
+export default async function handler(req) {
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
   }
-
-  if (error.name === 'MongoError' || error.name === 'MongoServerError') {
-    return res.status(503).json({
-      success: false,
-      error: 'Database error',
-      details: error.message
-    });
-  }
-
-  if (error.name === 'AuthError') {
-    return res.status(401).json({
-      success: false,
-      error: 'Authentication failed',
-      details: error.message
-    });
-  }
-
-  // Default error response
-  return res.status(500).json({
-    success: false,
-    error: 'Internal server error',
-    details: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred'
-  });
-};
-
-export default async function handler(req, res) {
-  console.log('Starting file upload handler:', {
-    method: req.method,
-    headers: req.headers,
-    bodySize: JSON.stringify(req.body).length
-  });
-
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
 
   try {
-    // Handle preflight
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-
-    // Validate method
-    if (req.method !== 'POST') {
-      return res.status(405).json({
-        success: false,
-        error: 'Method not allowed',
-        details: 'Only POST requests are allowed'
-      });
-    }
-
-    console.log('Connecting to database...');
-    await connectDB();
-    console.log('Database connected successfully');
-
-    console.log('Validating authentication...');
     const auth = await validateAuth(req);
-    if (!auth?.user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        details: 'User authentication failed'
-      });
-    }
-    console.log('Authentication validated for user:', auth.user._id);
-
-    const { name, content } = req.body;
-
-    // Validate request data
-    if (!name || !content) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid request',
-        details: 'Name and content are required'
-      });
+    if (!auth) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    if (!Array.isArray(content)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid format',
-        details: 'Content must be an array'
-      });
+    const formData = await req.formData();
+    const file = formData.get('file');
+    const name = formData.get('name');
+    const type = formData.get('type');
+    const size = formData.get('size');
+
+    if (!file || !name || !type || !size) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log('Calculating total steps...');
-    // Calculate total steps
-    const totalSteps = content.reduce((total, abstract) => {
-      if (!abstract.sentences || !Array.isArray(abstract.sentences)) {
-        return total;
-      }
-      return total + abstract.sentences.reduce((sentTotal, sentence) => {
-        const entityCount = sentence.scientific_entities?.length || 0;
-        return sentTotal + entityCount + 1;
-      }, 0);
-    }, 0);
-    console.log('Total steps calculated:', totalSteps);
-
-    console.log('Creating file document...');
-    // Create and save file
-    const file = new File({
-      userId: auth.user._id,
+    // Create file record in database
+    const fileDoc = {
       name,
-      abstracts: content,
-      totalSteps,
+      type,
+      size: parseInt(size),
+      userId: auth.user,
+      status: 'processing',
       progress: 0,
-      uploadDate: new Date()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const response = await fetch(`${MONGODB_URI}/api/data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection: 'files',
+        action: 'insertOne',
+        document: fileDoc
+      })
     });
 
-    console.log('Saving file to database...');
-    const savedFile = await file.save();
-    console.log('File saved successfully:', savedFile._id);
+    if (!response.ok) {
+      throw new Error('Failed to create file record');
+    }
 
-    return res.status(201).json({
-      success: true,
-      file: {
-        _id: savedFile._id,
-        name: savedFile.name,
-        totalSteps: savedFile.totalSteps,
-        progress: savedFile.progress,
-        uploadDate: savedFile.uploadDate
-      }
+    const result = await response.json();
+    const fileId = result.insertedId;
+
+    // Upload file to storage (you'll need to implement this part)
+    // const uploadUrl = await uploadToStorage(file, fileId);
+
+    // Update file record with upload URL
+    await fetch(`${MONGODB_URI}/api/data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection: 'files',
+        action: 'updateOne',
+        query: { _id: fileId },
+        update: {
+          $set: {
+            status: 'ready',
+            // url: uploadUrl
+          }
+        }
+      })
     });
 
+    return new Response(
+      JSON.stringify({
+        success: true,
+        fileId,
+        message: 'File uploaded successfully'
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
-    return handleError(error, req, res);
+    console.error('File upload error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }

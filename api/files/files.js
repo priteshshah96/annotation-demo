@@ -1,184 +1,170 @@
-import { connectDB } from '../../../lib/db';
-import { File } from '../../../models/File';
-import { Annotation } from '../../../models/Annotation';
-import { validateAuth, createAuthResponse } from '../middleware/auth';
+// Edge-compatible files handler
+const CLERK_API_URL = 'https://api.clerk.dev/v1';
+const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
+
+async function validateAuth(req) {
+  try {
+    const token = req.headers.get('authorization')?.split(' ')[1];
+    if (!token) {
+      console.warn('[Auth] No token provided');
+      return null;
+    }
+
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jwt: token })
+    });
+
+    if (!response.ok) {
+      throw new Error('Authentication failed');
+    }
+
+    const data = await response.json();
+    return { user: data.sub };
+  } catch (error) {
+    console.error('[Auth] Error:', error);
+    return null;
+  }
+}
 
 export const config = {
-  // Removed the runtime configuration as per the latest guidelines
-  // runtime: 'nodejs',
+  runtime: 'edge',
   regions: ['iad1'],
 };
 
-class FileError extends Error {
-  constructor(message, status = 500, code = 'FILE_ERROR') {
-    super(message);
-    this.name = 'FileError';
-    this.status = status;
-    this.code = code;
-  }
-}
+async function handleListFiles(auth) {
+  const response = await fetch(`${MONGODB_URI}/api/data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      collection: 'files',
+      action: 'find',
+      query: { userId: auth.user }
+    })
+  });
 
-// Set CORS headers
-const setCorsHeaders = (res) => {
-  const allowedOrigins = [
-    process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
-    'http://localhost:5173',
-    process.env.NEXT_PUBLIC_CLERK_FRONTEND_API
-  ].filter(Boolean);
-
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', allowedOrigins.join(', '));
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
-};
-
-async function handleUpload(req, res, auth) {
-  const formData = await req.formData();
-  const file = formData.get('file');
-  
-  if (!file) {
-    throw new FileError('No file uploaded', 400, 'NO_FILE');
+  if (!response.ok) {
+    throw new Error('Failed to fetch files');
   }
 
-  const fileData = new File({
-    userId: auth.user._id,
-    name: file.name,
-    type: file.type,
-    size: file.size,
-    content: await file.arrayBuffer(),
-    uploadedAt: new Date()
-  });
-
-  await fileData.save();
-  
-  return res.status(200).json({
-    success: true,
-    file: {
-      id: fileData._id,
-      name: fileData.name,
-      type: fileData.type,
-      size: fileData.size,
-      uploadedAt: fileData.uploadedAt
-    }
-  });
+  const files = await response.json();
+  return files;
 }
 
-async function handleGetFile(fileId, res, auth) {
-  const file = await File.findOne({ 
-    _id: fileId,
-    userId: auth.user._id 
+async function handleGetFile(fileId, auth) {
+  const response = await fetch(`${MONGODB_URI}/api/data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      collection: 'files',
+      action: 'findOne',
+      query: { _id: fileId, userId: auth.user }
+    })
   });
 
-  if (!file) {
-    throw new FileError('File not found', 404, 'FILE_NOT_FOUND');
+  if (!response.ok) {
+    throw new Error('Failed to fetch file');
   }
 
-  return res.status(200).json({
-    success: true,
-    file: {
-      id: file._id,
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      content: file.content,
-      uploadedAt: file.uploadedAt
-    }
-  });
-}
-
-async function handleListFiles(res, auth) {
-  const files = await File.find({ userId: auth.user._id })
-    .select('-content')
-    .sort({ uploadedAt: -1 });
-
-  return res.status(200).json({
-    success: true,
-    files: files.map(file => ({
-      id: file._id,
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      uploadedAt: file.uploadedAt
-    }))
-  });
-}
-
-async function handleDeleteFile(fileId, res, auth) {
-  const file = await File.findOneAndDelete({ 
-    _id: fileId,
-    userId: auth.user._id 
-  });
-
+  const file = await response.json();
   if (!file) {
-    throw new FileError('File not found', 404, 'FILE_NOT_FOUND');
+    throw new Error('File not found');
+  }
+
+  return file;
+}
+
+async function handleDeleteFile(fileId, auth) {
+  // First check if file exists and belongs to user
+  const file = await handleGetFile(fileId, auth);
+
+  // Delete file
+  const deleteResponse = await fetch(`${MONGODB_URI}/api/data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      collection: 'files',
+      action: 'deleteOne',
+      query: { _id: fileId, userId: auth.user }
+    })
+  });
+
+  if (!deleteResponse.ok) {
+    throw new Error('Failed to delete file');
   }
 
   // Delete associated annotations
-  await Annotation.deleteMany({ fileId });
-
-  return res.status(200).json({
-    success: true,
-    message: 'File deleted successfully'
+  await fetch(`${MONGODB_URI}/api/data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      collection: 'annotations',
+      action: 'deleteMany',
+      query: { fileId }
+    })
   });
+
+  return { success: true };
 }
 
-export default async function handler(req, res) {
-  // Set CORS headers
-  setCorsHeaders(res);
-
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
+export default async function handler(req) {
   try {
-    // Validate authentication for all requests
     const auth = await validateAuth(req);
-
-    // Connect to database
-    await connectDB();
-
-    // Extract file ID from URL if present
-    const fileId = req.query.fileId;
-
-    // Route to appropriate handler
-    switch (req.method) {
-      case 'POST':
-        return await handleUpload(req, res, auth);
-      
-      case 'GET':
-        if (!fileId) {
-          return await handleListFiles(res, auth);
-        }
-        return await handleGetFile(fileId, res, auth);
-      
-      case 'DELETE':
-        if (!fileId) {
-          throw new FileError('File ID is required', 400, 'MISSING_FILE_ID');
-        }
-        return await handleDeleteFile(fileId, res, auth);
-      
-      default:
-        throw new FileError('Method not allowed', 405, 'METHOD_NOT_ALLOWED');
+    if (!auth) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-  } catch (error) {
-    console.error('[Files API] Error:', error);
-    
-    if (error instanceof FileError) {
-      const response = createAuthResponse(error);
-      return res.status(error.status).json(response);
+    const url = new URL(req.url);
+    const fileId = url.searchParams.get('fileId');
+
+    if (req.method === 'GET') {
+      if (fileId) {
+        const file = await handleGetFile(fileId, auth);
+        return new Response(
+          JSON.stringify(file),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      } else {
+        const files = await handleListFiles(auth);
+        return new Response(
+          JSON.stringify(files),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
-    const defaultError = new FileError(
-      'File operation failed',
-      500,
-      'FILE_OPERATION_FAILED'
+    if (req.method === 'DELETE' && fileId) {
+      const result = await handleDeleteFile(fileId, auth);
+      return new Response(
+        JSON.stringify(result),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
     );
-    const response = createAuthResponse(defaultError);
-    return res.status(defaultError.status).json(response);
+  } catch (error) {
+    console.error('[Files] Error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }

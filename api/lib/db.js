@@ -1,9 +1,17 @@
-// Edge-compatible MongoDB client
+// Edge-compatible database utilities
 const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
 
+/**
+ * Retries a failed fetch operation with exponential backoff
+ * @param {string} url - The URL to fetch
+ * @param {Object} options - Fetch options
+ * @param {number} retryCount - Current retry attempt
+ * @returns {Promise<Object>} Parsed JSON response
+ */
 async function fetchWithRetry(url, options, retryCount = 0) {
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000;
+
   try {
     const response = await fetch(url, options);
     if (!response.ok) {
@@ -20,92 +28,129 @@ async function fetchWithRetry(url, options, retryCount = 0) {
   }
 }
 
-class MongoDBClient {
-  constructor(uri) {
-    if (!uri) {
+/**
+ * Edge-compatible MongoDB client using fetch API
+ */
+export class MongoDBClient {
+  constructor() {
+    if (!MONGODB_URI) {
       throw new Error('MongoDB URI is required');
     }
-    const url = new URL(uri);
-    const [username, password] = url.username ? [url.username, url.password] : [];
-    const database = url.pathname.substring(1);
-    
-    this.baseUrl = `https://${url.host}/api/v1/databases/${database}/collections`;
-    this.auth = username ? { username, password } : null;
+    this.baseUrl = MONGODB_URI;
   }
 
-  async _fetch(path, options = {}) {
-    const url = `${this.baseUrl}${path}`;
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(this.auth && {
-        'Authorization': `Basic ${Buffer.from(`${this.auth.username}:${this.auth.password}`).toString('base64')}`
-      }),
-      ...options.headers
-    };
-
-    return fetchWithRetry(url, {
-      ...options,
-      headers
-    });
-  }
-
+  /**
+   * Find a single document
+   * @param {string} collection - Collection name
+   * @param {Object} query - Query filter
+   * @returns {Promise<Object|null>} Found document or null
+   */
   async findOne(collection, query) {
-    const result = await this._fetch(`/${collection}/findOne`, {
+    return fetchWithRetry(this.baseUrl, {
       method: 'POST',
-      body: JSON.stringify({ filter: query })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        collection,
+        action: 'findOne',
+        query
+      })
     });
-    return result.document;
   }
 
+  /**
+   * Find multiple documents
+   * @param {string} collection - Collection name
+   * @param {Object} query - Query filter
+   * @param {Object} options - Query options (sort, limit, etc.)
+   * @returns {Promise<Array>} Array of found documents
+   */
   async find(collection, query, options = {}) {
-    const result = await this._fetch(`/${collection}/find`, {
+    return fetchWithRetry(this.baseUrl, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        filter: query,
-        ...options
+        collection,
+        action: 'find',
+        query,
+        options
       })
     });
-    return result.documents;
   }
 
+  /**
+   * Insert a single document
+   * @param {string} collection - Collection name
+   * @param {Object} document - Document to insert
+   * @returns {Promise<Object>} Inserted document
+   */
   async insertOne(collection, document) {
-    const result = await this._fetch(`/${collection}/insertOne`, {
+    return fetchWithRetry(this.baseUrl, {
       method: 'POST',
-      body: JSON.stringify({ document })
-    });
-    return result.insertedId;
-  }
-
-  async updateOne(collection, filter, update, options = {}) {
-    const result = await this._fetch(`/${collection}/updateOne`, {
-      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        filter,
-        update,
-        ...options
+        collection,
+        action: 'insertOne',
+        document
       })
     });
-    return result.modifiedCount;
   }
 
-  async deleteOne(collection, filter) {
-    const result = await this._fetch(`/${collection}/deleteOne`, {
+  /**
+   * Update a single document
+   * @param {string} collection - Collection name
+   * @param {Object} filter - Query filter
+   * @param {Object} update - Update operations
+   * @returns {Promise<Object>} Update result
+   */
+  async updateOne(collection, filter, update) {
+    return fetchWithRetry(this.baseUrl, {
       method: 'POST',
-      body: JSON.stringify({ filter })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        collection,
+        action: 'updateOne',
+        filter,
+        update
+      })
     });
-    return result.deletedCount;
+  }
+
+  /**
+   * Delete a single document
+   * @param {string} collection - Collection name
+   * @param {Object} filter - Query filter
+   * @returns {Promise<Object>} Deletion result
+   */
+  async deleteOne(collection, filter) {
+    return fetchWithRetry(this.baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        collection,
+        action: 'deleteOne',
+        filter
+      })
+    });
+  }
+
+  /**
+   * Count documents in a collection
+   * @param {string} collection - Collection name
+   * @param {Object} query - Query filter
+   * @returns {Promise<number>} Number of matching documents
+   */
+  async count(collection, query) {
+    return fetchWithRetry(this.baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        collection,
+        action: 'count',
+        query
+      })
+    });
   }
 }
 
-let client = null;
-
-export async function connectDB() {
-  if (!client) {
-    if (!MONGODB_URI) {
-      throw new Error('MONGODB_URI is not defined');
-    }
-    client = new MongoDBClient(MONGODB_URI);
-    console.log('[MongoDB] Connected successfully');
-  }
-  return client;
-}
+// Export singleton instance
+export const db = new MongoDBClient();

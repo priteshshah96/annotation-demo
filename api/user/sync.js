@@ -1,5 +1,35 @@
-import { validateAuth } from '../lib/auth';
-import { connectDB } from '../lib/db';
+// Edge-compatible user sync handler
+const CLERK_API_URL = 'https://api.clerk.dev/v1';
+const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
+
+async function validateAuth(req) {
+  try {
+    const token = req.headers.get('authorization')?.split(' ')[1];
+    if (!token) {
+      console.warn('[Auth] No token provided');
+      return null;
+    }
+
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jwt: token })
+    });
+
+    if (!response.ok) {
+      throw new Error('Authentication failed');
+    }
+
+    const data = await response.json();
+    return { user: data.sub };
+  } catch (error) {
+    console.error('[Auth] Error:', error);
+    return null;
+  }
+}
 
 export const config = {
   runtime: 'edge',
@@ -16,45 +46,49 @@ export default async function handler(req) {
 
   try {
     const auth = await validateAuth(req);
-    if (!auth || !auth.user) {
+    if (!auth) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }), 
         { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    const db = await connectDB();
-    const user = await db.findOne('users', { userId: auth.user.id });
-    
-    if (!user) {
-      // Create new user if doesn't exist
-      await db.insertOne('users', {
-        userId: auth.user.id,
-        lastSync: new Date().toISOString()
-      });
-    } else {
-      // Update existing user
-      await db.updateOne(
-        'users',
-        { userId: auth.user.id },
-        { $set: { lastSync: new Date().toISOString() } }
-      );
+    // Sync user data with database
+    const userData = {
+      userId: auth.user,
+      lastSyncedAt: new Date().toISOString()
+    };
+
+    const response = await fetch(`${MONGODB_URI}/api/data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection: 'users',
+        action: 'upsert',
+        query: { userId: auth.user },
+        update: {
+          $set: userData,
+          $setOnInsert: {
+            createdAt: new Date().toISOString()
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to sync user data');
     }
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        user: {
-          id: auth.user.id,
-          lastSync: new Date().toISOString()
-        }
-      }),
+      JSON.stringify({ success: true, user: userData }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('[Sync Error]:', error);
+    console.error('[User Sync] Error:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      JSON.stringify({ error: error.message }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

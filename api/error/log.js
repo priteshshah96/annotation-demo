@@ -1,85 +1,82 @@
+// Edge-compatible error logging handler
 import { createClient } from '@supabase/supabase-js';
 
-// Safely initialize Supabase client with fallback
-const initSupabase = () => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    console.warn('Supabase configuration is missing. Error logging will be disabled.');
-    return null;
-  }
-
-  try {
-    return createClient(supabaseUrl, supabaseServiceRoleKey);
-  } catch (error) {
-    console.error('Failed to initialize Supabase client:', error);
-    return null;
-  }
-};
-
-export function logError(error, context = {}) {
-  console.error('[Error]', {
-    message: error.message,
-    ...context
-  });
-}
-
-export function logWarning(message, context = {}) {
-  console.warn('[Warning]', {
-    message,
-    ...context
-  });
-}
-
-export function logInfo(message, context = {}) {
-  console.log('[Info]', {
-    message,
-    ...context
-  });
-}
-
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method Not Allowed' });
-  }
-
-  try {
-    const { 
-      error, 
-      errorInfo, 
-      location, 
-      userAgent, 
-      timestamp,
-      additionalContext 
-    } = req.body;
-
-    logError(error, {
-      errorDetails: {
-        ...errorInfo,
-        additionalContext
-      },
-      location,
-      timestamp: timestamp || new Date().toISOString()
-    });
-
-    return res.status(200).json({ 
-      message: 'Error logged successfully',
-      tracked: true 
-    });
-  } catch (err) {
-    logError(err, { 
-      message: 'Error logging failed' 
-    });
-    return res.status(500).json({ 
-      message: 'Error logging failed', 
-      details: err.message 
-    });
-  }
-}
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export const config = {
-  api: {
-    bodyParser: true,
-  },
+  runtime: 'edge',
+  regions: ['iad1'],
 };
+
+async function logToSupabase(level, message, context = {}) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.warn('Supabase configuration is missing. Error logging is disabled.');
+    return null;
+  }
+
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    const { data, error } = await supabase
+      .from('logs')
+      .insert([{
+        level,
+        message: typeof message === 'string' ? message : JSON.stringify(message),
+        context: context,
+        timestamp: new Date().toISOString()
+      }]);
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Failed to log to Supabase:', error);
+    return null;
+  }
+}
+
+export default async function handler(req) {
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  try {
+    const body = await req.json();
+    const { level = 'error', message, context = {} } = body;
+
+    if (!message) {
+      return new Response(
+        JSON.stringify({ error: 'Message is required' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Add request metadata to context
+    const enrichedContext = {
+      ...context,
+      url: req.url,
+      userAgent: req.headers.get('user-agent'),
+      timestamp: new Date().toISOString()
+    };
+
+    // Log to Supabase
+    await logToSupabase(level, message, enrichedContext);
+
+    // Also log to console for development/debugging
+    console[level](`[${level.toUpperCase()}]`, message, enrichedContext);
+
+    return new Response(
+      JSON.stringify({ success: true }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('[Error Logger] Failed:', error);
+    return new Response(
+      JSON.stringify({ error: 'Failed to log error' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+}

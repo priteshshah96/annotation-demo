@@ -1,63 +1,74 @@
-import { connectDB } from '../lib/db';
-import { validateAuth } from '../lib/auth';
+// Edge-compatible annotations handler
+const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
+const CLERK_API_URL = 'https://api.clerk.dev/v1';
 
 export const config = {
   runtime: 'edge',
   regions: ['iad1'],
 };
 
+async function validateAuth(req) {
+  try {
+    const token = req.headers.get('authorization')?.split(' ')[1];
+    if (!token) {
+      console.warn('[Auth] No token provided');
+      return null;
+    }
+
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jwt: token })
+    });
+
+    if (!response.ok) {
+      throw new Error('Authentication failed');
+    }
+
+    const data = await response.json();
+    return { user: data.sub };
+  } catch (error) {
+    console.error('[Auth] Error:', error);
+    return null;
+  }
+}
+
 function handleError(error) {
   console.error('[Annotation Error]:', error);
   return new Response(
-    JSON.stringify({ error: 'Internal server error', details: error.message }),
-    { status: 500, headers: { 'Content-Type': 'application/json' } }
+    JSON.stringify({ 
+      error: error.message || 'Internal server error',
+      timestamp: new Date().toISOString()
+    }),
+    { 
+      status: error.status || 500,
+      headers: { 
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store'
+      }
+    }
   );
 }
 
 function validateAnnotationData(data) {
   const { fileId, content, position } = data;
   if (!fileId || !content || !position) {
-    throw new Error('Missing required fields: fileId, content, position');
+    const error = new Error('Missing required fields: fileId, content, position');
+    error.status = 400;
+    throw error;
   }
-  return true;
 }
 
 export default async function handler(req) {
-  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
   try {
     const auth = await validateAuth(req);
-    if (!auth || !auth.user) {
+    if (!auth) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const db = await connectDB();
-    
-    if (req.method === 'GET') {
-      const fileId = new URL(req.url).searchParams.get('fileId');
-      if (!fileId) {
-        return new Response(
-          JSON.stringify({ error: 'fileId is required' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-
-      const annotations = await db.find('annotations', { 
-        fileId,
-        userId: auth.user.id
-      });
-
-      return new Response(
-        JSON.stringify({ annotations }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -65,87 +76,87 @@ export default async function handler(req) {
       const data = await req.json();
       validateAnnotationData(data);
 
-      const annotation = {
-        ...data,
-        userId: auth.user.id,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      const id = await db.insertOne('annotations', annotation);
-      return new Response(
-        JSON.stringify({ id, annotation }),
-        { status: 201, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (req.method === 'PUT') {
-      const data = await req.json();
-      const { id, ...updates } = data;
-      
-      if (!id) {
-        return new Response(
-          JSON.stringify({ error: 'Annotation ID is required' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-
-      const annotation = await db.findOne('annotations', { 
-        _id: id,
-        userId: auth.user.id
+      // Create annotation
+      const response = await fetch(`${MONGODB_URI}/api/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          collection: 'annotations',
+          action: 'insertOne',
+          document: {
+            ...data,
+            userId: auth.user,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        })
       });
 
-      if (!annotation) {
-        return new Response(
-          JSON.stringify({ error: 'Annotation not found' }),
-          { status: 404, headers: { 'Content-Type': 'application/json' } }
-        );
+      if (!response.ok) {
+        throw new Error('Failed to create annotation');
       }
 
-      await db.updateOne(
-        'annotations',
-        { _id: id },
+      const result = await response.json();
+      return new Response(
+        JSON.stringify(result),
         { 
-          $set: {
-            ...updates,
-            updatedAt: new Date().toISOString()
+          status: 201,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store'
           }
         }
       );
-
-      return new Response(
-        JSON.stringify({ success: true }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      );
     }
 
-    if (req.method === 'DELETE') {
-      const id = new URL(req.url).searchParams.get('id');
-      if (!id) {
-        return new Response(
-          JSON.stringify({ error: 'Annotation ID is required' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
+    if (req.method === 'GET') {
+      const url = new URL(req.url);
+      const fileId = url.searchParams.get('fileId');
+
+      if (!fileId) {
+        const error = new Error('fileId is required');
+        error.status = 400;
+        throw error;
       }
 
-      const annotation = await db.findOne('annotations', { 
-        _id: id,
-        userId: auth.user.id
+      // Get annotations for file
+      const response = await fetch(`${MONGODB_URI}/api/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          collection: 'annotations',
+          action: 'find',
+          query: { fileId, userId: auth.user },
+          options: { sort: { createdAt: -1 } }
+        })
       });
 
-      if (!annotation) {
-        return new Response(
-          JSON.stringify({ error: 'Annotation not found' }),
-          { status: 404, headers: { 'Content-Type': 'application/json' } }
-        );
+      if (!response.ok) {
+        throw new Error('Failed to fetch annotations');
       }
 
-      await db.deleteOne('annotations', { _id: id });
+      const annotations = await response.json();
       return new Response(
-        JSON.stringify({ success: true }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+        JSON.stringify(annotations),
+        { 
+          status: 200,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store'
+          }
+        }
       );
     }
+
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }),
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
+
   } catch (error) {
     return handleError(error);
   }

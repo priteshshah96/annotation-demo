@@ -1,86 +1,131 @@
-import { connectDB } from '../lib/db';
-import { validateAuth } from '../lib/auth';
+// Edge-compatible health check handler
+const CLERK_API_URL = 'https://api.clerk.dev/v1';
+const MONGODB_URI = process.env.MONGODB_URI || process.env.NEXT_PUBLIC_MONGODB_URI;
 
 export const config = {
-  // Removed the runtime configuration as per the latest guidelines
-  // runtime: 'nodejs',
+  runtime: 'edge',
   regions: ['iad1'],
 };
 
-class HealthError extends Error {
-  constructor(message, status = 500) {
-    super(message);
-    this.name = 'HealthError';
-    this.status = status;
+async function validateAuth(req) {
+  try {
+    const token = req.headers.get('authorization')?.split(' ')[1];
+    if (!token) {
+      console.warn('[Auth] No token provided');
+      return null;
+    }
+
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jwt: token })
+    });
+
+    if (!response.ok) {
+      throw new Error('Authentication failed');
+    }
+
+    const data = await response.json();
+    return { user: data.sub };
+  } catch (error) {
+    console.error('[Auth] Error:', error);
+    return null;
   }
 }
 
 async function checkMongoDB() {
   try {
-    const startTime = Date.now();
-    await connectDB();
-    return {
-      status: 'healthy',
-      latency: Date.now() - startTime
-    };
-  } catch (error) {
-    console.error('[Health] MongoDB check failed:', error);
-    return {
-      status: 'unhealthy',
-      error: error.message
-    };
-  }
-}
+    const response = await fetch(`${MONGODB_URI}/api/data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        collection: 'health',
+        action: 'ping'
+      })
+    });
 
-async function checkAuth(req) {
-  try {
-    const startTime = Date.now();
-    await validateAuth(req);
-    return {
-      status: 'healthy',
-      latency: Date.now() - startTime
-    };
-  } catch (error) {
-    console.error('[Health] Auth check failed:', error);
-    return {
-      status: 'unhealthy',
-      error: error.message
-    };
-  }
-}
-
-export default async function handler(req, res) {
-  const startTime = Date.now();
-
-  try {
-    if (req.method !== 'GET') {
-      throw new HealthError('Method not allowed', 405);
+    if (!response.ok) {
+      throw new Error('Database health check failed');
     }
 
-    const checks = {
-      mongodb: await checkMongoDB(),
-      auth: req.headers.authorization ? await checkAuth(req) : { status: 'skipped' }
-    };
-
-    const isHealthy = Object.values(checks).every(
-      check => check.status === 'healthy' || check.status === 'skipped'
-    );
-
-    const response = {
-      status: isHealthy ? 'healthy' : 'unhealthy',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      checks,
-      latency: Date.now() - startTime
-    };
-
-    res.status(isHealthy ? 200 : 503).json(response);
+    return true;
   } catch (error) {
-    console.error('[Health] Check failed:', error);
-    res.status(error.status || 500).json({
-      status: 'error',
-      error: error.message,
-      timestamp: new Date().toISOString()
+    console.error('[Health] MongoDB Error:', error);
+    return false;
+  }
+}
+
+async function checkAuth() {
+  try {
+    const response = await fetch(`${CLERK_API_URL}/jwt/verify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ jwt: 'test' })
     });
+
+    // We expect this to fail with 401, but the service should be responsive
+    return response.status === 401;
+  } catch (error) {
+    console.error('[Health] Auth Error:', error);
+    return false;
+  }
+}
+
+export default async function handler(req) {
+  try {
+    if (req.method !== 'GET') {
+      throw new Error('Method not allowed', 405);
+    }
+
+    const [dbHealth, authHealth] = await Promise.all([
+      checkMongoDB(),
+      checkAuth()
+    ]);
+
+    const status = dbHealth && authHealth ? 200 : 503;
+    const health = {
+      status: status === 200 ? 'healthy' : 'unhealthy',
+      timestamp: new Date().toISOString(),
+      services: {
+        database: {
+          status: dbHealth ? 'up' : 'down'
+        },
+        auth: {
+          status: authHealth ? 'up' : 'down'
+        }
+      }
+    };
+
+    return new Response(
+      JSON.stringify(health),
+      { 
+        status,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store, must-revalidate'
+        }
+      }
+    );
+  } catch (error) {
+    console.error('[Health] Error:', error);
+    return new Response(
+      JSON.stringify({
+        status: 'error',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      }),
+      { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
   }
 }
