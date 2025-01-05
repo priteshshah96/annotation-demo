@@ -1,6 +1,3 @@
-// src/components/dashboard/StatsPanel.jsx
-import React from 'react';
-import PropTypes from 'prop-types';
 import { 
   Box,
   Tooltip,
@@ -11,32 +8,32 @@ import {
   useTheme 
 } from '@mui/material';
 import {
-  TrendingUp,
-  Description,
-  FormatQuote,
-  Science,
-  CheckCircle
+  FormatListBulleted as EventsIcon,
+  Assignment as FieldsIcon,
+  CheckCircle as CompletedIcon,
+  TrendingUp as ProgressIcon
 } from '@mui/icons-material';
 
+// StatsCard component remains the same
 const StatsCard = ({ 
   title, 
   value, 
   icon: Icon, 
   tooltip = '', 
   trend = null, 
-  color = '#666666' 
+  color = 'primary.main'
 }) => {
   const theme = useTheme();
-
+  
   return (
     <Card 
       elevation={0}
       sx={{ 
         flexGrow: 1, 
         minWidth: { xs: '100%', sm: '200px' },
-        backgroundColor: `${color}15`,
+        backgroundColor: `${theme.palette.background.paper}`,
         border: 1,
-        borderColor: `${color}30`,
+        borderColor: theme.palette.divider,
         transition: 'transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out',
         '&:hover': {
           transform: 'translateY(-2px)',
@@ -62,7 +59,7 @@ const StatsCard = ({
               </Typography>
             </Box>
           </Tooltip>
-          <Icon sx={{ color: color, opacity: 0.8 }} />
+          <Icon sx={{ color: color }} />
         </Box>
 
         <Typography 
@@ -100,9 +97,9 @@ const StatsCard = ({
               sx={{
                 height: 4,
                 borderRadius: 2,
-                bgcolor: `${color}20`,
+                bgcolor: theme.palette.grey[100],
                 '& .MuiLinearProgress-bar': {
-                  bgcolor: color,
+                  bgcolor: color
                 }
               }}
             />
@@ -113,51 +110,73 @@ const StatsCard = ({
   );
 };
 
-StatsCard.propTypes = {
-  title: PropTypes.string.isRequired,
-  value: PropTypes.oneOfType([PropTypes.number, PropTypes.string]).isRequired,
-  icon: PropTypes.elementType.isRequired,
-  tooltip: PropTypes.string,
-  trend: PropTypes.number,
-  color: PropTypes.string
+const calculateStats = (files = []) => {
+  return files.reduce((stats, file) => {
+    // Count total events
+    const totalEventsInFile = file.abstracts?.reduce((sum, abstract) => 
+      sum + (abstract.events?.length || 0), 0) || 0;
+
+    // Count fields per event
+    const fieldsPerEvent = 14; // Main Action + Arguments fields (12) + Text + Type
+    const totalFieldsInFile = totalEventsInFile * fieldsPerEvent;
+
+    // Calculate annotated fields based on progress
+    const annotatedFieldsInFile = Math.floor((file.progress || 0) * totalFieldsInFile / 100);
+
+    return {
+      totalEvents: stats.totalEvents + totalEventsInFile,
+      totalFields: stats.totalFields + totalFieldsInFile,
+      annotatedFields: stats.annotatedFields + annotatedFieldsInFile,
+      completedFiles: stats.completedFiles + (file.progress === 100 ? 1 : 0),
+      totalFiles: stats.totalFiles + 1,
+      totalAnnotations: stats.totalAnnotations + annotatedFieldsInFile,
+      targetAnnotations: stats.targetAnnotations + totalFieldsInFile
+    };
+  }, {
+    totalEvents: 0,
+    totalFields: 0,
+    annotatedFields: 0,
+    completedFiles: 0,
+    totalFiles: 0,
+    totalAnnotations: 0,
+    targetAnnotations: 0
+  });
 };
 
-const StatsPanel = ({ 
-  stats, 
-  loading = false 
-}) => {
+const StatsPanel = ({ files = [], loading = false }) => {
   const theme = useTheme();
+  const stats = calculateStats(files);
 
   const statsConfig = [
     {
-      title: 'Total Annotations',
-      value: stats.totalAnnotations,
-      icon: Description,
-      tooltip: 'Total number of annotations made across all files',
-      trend: (stats.totalAnnotations / stats.targetAnnotations) * 100,
+      title: 'Total Events',
+      value: stats.totalEvents,
+      icon: EventsIcon,
+      tooltip: 'Total number of events across all files',
       color: theme.palette.primary.main
+    },
+    {
+      title: 'Annotation Fields',
+      value: stats.totalFields,
+      icon: FieldsIcon,
+      tooltip: 'Total number of fields to be annotated',
+      trend: stats.totalFields > 0 ? Math.round((stats.annotatedFields / stats.totalFields) * 100) : 0,
+      color: theme.palette.info.main
     },
     {
       title: 'Completed Files',
       value: stats.completedFiles,
-      icon: CheckCircle,
-      tooltip: 'Number of files with all annotations completed',
-      trend: stats.totalFiles > 0 ? (stats.completedFiles / stats.totalFiles) * 100 : 0,
+      icon: CompletedIcon,
+      tooltip: 'Files with all annotations completed',
+      trend: stats.totalFiles > 0 ? Math.round((stats.completedFiles / stats.totalFiles) * 100) : 0,
       color: theme.palette.success.main
     },
     {
-      title: 'Total Sentences',
-      value: stats.totalSentences,
-      icon: FormatQuote,
-      tooltip: 'Total number of sentences across all files',
-      color: theme.palette.info.main
-    },
-    {
-      title: 'Scientific Entities',
-      value: stats.totalEntities,
-      icon: Science,
-      tooltip: 'Total number of scientific entities identified',
-      trend: (stats.annotatedEntities / stats.totalEntities) * 100,
+      title: 'Overall Progress',
+      value: `${stats.totalAnnotations} / ${stats.targetAnnotations}`,
+      icon: ProgressIcon,
+      tooltip: 'Total annotation progress across all files',
+      trend: stats.targetAnnotations > 0 ? Math.round((stats.totalAnnotations / stats.targetAnnotations) * 100) : 0,
       color: theme.palette.warning.main
     }
   ];
@@ -186,19 +205,6 @@ const StatsPanel = ({
       ))}
     </Box>
   );
-};
-
-StatsPanel.propTypes = {
-  stats: PropTypes.shape({
-    totalAnnotations: PropTypes.number.isRequired,
-    completedFiles: PropTypes.number.isRequired,
-    totalSentences: PropTypes.number.isRequired,
-    totalEntities: PropTypes.number.isRequired,
-    targetAnnotations: PropTypes.number.isRequired,
-    totalFiles: PropTypes.number.isRequired,
-    annotatedEntities: PropTypes.number.isRequired,
-  }).isRequired,
-  loading: PropTypes.bool
 };
 
 export default StatsPanel;

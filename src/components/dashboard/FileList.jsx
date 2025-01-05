@@ -32,15 +32,6 @@ const FileListItem = ({
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
 
-  // Format file size
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-  };
-
   // Format date
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-US', {
@@ -58,6 +49,14 @@ const FileListItem = ({
     return theme.palette.grey[500];
   };
 
+  // Calculate counts
+  const abstractCount = file.abstracts?.length || 0;
+  const eventCount = file.abstracts?.reduce((total, abstract) => {
+    // Count events within each abstract
+    const eventsInAbstract = abstract.events?.length || 0;
+    return total + eventsInAbstract;
+  }, 0) || 0;
+
   return (
     <Paper
       elevation={isHovered ? 2 : 0}
@@ -74,6 +73,7 @@ const FileListItem = ({
     >
       <ListItem sx={{ px: 2, py: 1.5 }}>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          {/* File Header */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
               {file.name}
@@ -86,15 +86,24 @@ const FileListItem = ({
             />
           </Box>
           
+          {/* File Stats */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, color: 'text.secondary' }}>
-            <Typography variant="caption">
-              {formatFileSize(file.size || 0)}
-            </Typography>
+            {abstractCount > 0 && (
+              <Typography variant="caption">
+                {`${abstractCount} Abstract${abstractCount !== 1 ? 's' : ''}`}
+              </Typography>
+            )}
+            {eventCount > 0 && (
+              <Typography variant="caption">
+                {`${eventCount} Event${eventCount !== 1 ? 's' : ''}`}
+              </Typography>
+            )}
             <Typography variant="caption">
               Uploaded: {formatDate(file.uploadDate)}
             </Typography>
           </Box>
 
+          {/* Progress Bar */}
           {showProgress && (
             <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
               <Box sx={{ flexGrow: 1, maxWidth: '300px' }}>
@@ -118,6 +127,7 @@ const FileListItem = ({
           )}
         </Box>
 
+        {/* Action Buttons */}
         <Fade in={isHovered || isSelected}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title={file.progress === 100 ? "View Annotations" : "Continue Annotating"}>
@@ -226,9 +236,10 @@ FileList.propTypes = {
   files: PropTypes.arrayOf(PropTypes.shape({
     _id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
-    size: PropTypes.number,
+    abstracts: PropTypes.arrayOf(PropTypes.shape({
+      events: PropTypes.array
+    })),
     uploadDate: PropTypes.string.isRequired,
-    lastModified: PropTypes.string,
     progress: PropTypes.number.isRequired,
   })).isRequired,
   onNavigate: PropTypes.func.isRequired,

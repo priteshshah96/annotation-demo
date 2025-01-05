@@ -310,6 +310,8 @@ app.delete('/api/files/:fileId', authenticateAndSync, async (req, res) => {
   }
 });
 
+// file upload endpoint
+
 app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
   try {
     const { name, content } = req.body;
@@ -323,21 +325,39 @@ app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
       });
     }
 
-    if (!Array.isArray(content)) {
+    // Validate file structure
+    try {
+      validateFileStructure(content);
+    } catch (error) {
       return res.status(400).json({
         success: false,
         error: 'Invalid file format',
-        details: 'Content must be an array of abstracts'
+        details: error.message,
+        path: error.path
       });
     }
 
+    // Calculate total steps based on the new structure
     const totalSteps = content.reduce((total, abstract) => {
-      if (!abstract.sentences || !Array.isArray(abstract.sentences)) {
-        return total;
-      }
-      return total + abstract.sentences.reduce((sentTotal, sentence) => {
-        const entityCount = sentence.scientific_entities?.length || 0;
-        return sentTotal + entityCount + 1;
+      return total + abstract.events.reduce((eventTotal, event) => {
+        // Count Main Action if present
+        let steps = event.Main_Action ? 1 : 0;
+        
+        // Count Arguments
+        if (event.Arguments) {
+          Object.entries(event.Arguments).forEach(([key, value]) => {
+            if (key === 'Object') {
+              // Count Object sub-fields
+              if (value && typeof value === 'object') {
+                steps += Object.values(value).filter(v => v && v.trim()).length;
+              }
+            } else if (value && value.trim()) {
+              steps += 1;
+            }
+          });
+        }
+        
+        return eventTotal + steps;
       }, 0);
     }, 0);
 
@@ -354,7 +374,13 @@ app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      file: savedFile,
+      file: {
+        _id: savedFile._id,
+        name: savedFile.name,
+        totalSteps: savedFile.totalSteps,
+        progress: savedFile.progress,
+        uploadDate: savedFile.uploadDate
+      },
       message: 'File uploaded successfully'
     });
   } catch (error) {
@@ -373,6 +399,7 @@ app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
   }
 });
 
+// Get annotations for a file
 app.get('/api/annotations/:fileId', authenticateAndSync, async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -388,8 +415,8 @@ app.get('/api/annotations/:fileId', authenticateAndSync, async (req, res) => {
       success: true,
       annotations: annotations.map(ann => ({
         abstractIndex: ann.abstractIndex,
-        sentenceIndex: ann.sentenceIndex,
-        entityIndex: ann.entityIndex,
+        eventIndex: ann.eventIndex,
+        fieldPath: ann.fieldPath,
         answer: ann.answer,
         timestamp: ann.timestamp
       }))
@@ -404,20 +431,20 @@ app.get('/api/annotations/:fileId', authenticateAndSync, async (req, res) => {
   }
 });
 
-// Add route to save annotations
+// Save annotation
 app.post('/api/annotations', authenticateAndSync, async (req, res) => {
   try {
-    const { fileId, abstractIndex, sentenceIndex, entityIndex, answer } = req.body;
+    const { fileId, abstractIndex, eventIndex, fieldPath, answer } = req.body;
     const mongoUserId = req.user._id;
 
-    // Upsert the annotation
+    // Save the annotation
     const annotation = await Annotation.findOneAndUpdate(
       {
         fileId,
         userId: mongoUserId,
         abstractIndex,
-        sentenceIndex,
-        entityIndex
+        eventIndex,
+        fieldPath
       },
       {
         $set: {
@@ -431,13 +458,17 @@ app.post('/api/annotations', authenticateAndSync, async (req, res) => {
       }
     );
 
-    // Calculate new progress
+    // Calculate total steps and current progress
+    const file = await File.findById(fileId);
+    if (!file) {
+      throw new Error('File not found');
+    }
+
     const totalAnnotations = await Annotation.countDocuments({
       fileId,
       userId: mongoUserId
     });
 
-    const file = await File.findById(fileId);
     const progress = Math.min((totalAnnotations * 100) / file.totalSteps, 100);
 
     // Update file progress
@@ -548,45 +579,27 @@ app.post('/api/annotations/:fileId/reset', authenticateAndSync, async (req, res)
   }
 });
 
-// Add route to sync annotations
+// Sync annotations
 app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) => {
   try {
     const { fileId } = req.params;
-    const { annotations = [], reset = false } = req.body;
+    const { annotations = [] } = req.body;
     const mongoUserId = req.user._id;
 
-    // Handle reset request
-    if (reset || annotations.length === 0) {
-      await Annotation.deleteMany({
-        fileId,
-        userId: mongoUserId
-      });
-
-      await File.findByIdAndUpdate(fileId, {
-        $set: { progress: 0 }
-      });
-
-      return res.json({
-        success: true,
-        progress: 0,
-        message: 'Annotations reset successfully'
-      });
-    }
-
-    // Handle normal sync
+    // Handle batch update
     const operations = annotations.map(ann => ({
       updateOne: {
         filter: {
           fileId,
           userId: mongoUserId,
           abstractIndex: ann.abstractIndex,
-          sentenceIndex: ann.sentenceIndex,
-          entityIndex: ann.entityIndex
+          eventIndex: ann.eventIndex,
+          fieldPath: ann.fieldPath
         },
         update: {
           $set: {
             answer: ann.answer,
-            timestamp: new Date(ann.timestamp)
+            timestamp: new Date(ann.timestamp || Date.now())
           }
         },
         upsert: true
@@ -596,12 +609,11 @@ app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) 
     await Annotation.bulkWrite(operations);
 
     // Update progress
-    const totalAnnotations = await Annotation.countDocuments({
-      fileId,
-      userId: mongoUserId
-    });
+    const [totalAnnotations, file] = await Promise.all([
+      Annotation.countDocuments({ fileId, userId: mongoUserId }),
+      File.findById(fileId)
+    ]);
 
-    const file = await File.findById(fileId);
     const progress = Math.min((totalAnnotations * 100) / file.totalSteps, 100);
 
     await File.findByIdAndUpdate(fileId, {
@@ -623,7 +635,8 @@ app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) 
   }
 });
 
-// Add this before the general error handler
+
+// before general error handler
 app.use('/api/annotations', (err, req, res, next) => {
   console.error('Annotation API Error:', err);
   if (err.name === 'ValidationError') {

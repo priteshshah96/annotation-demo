@@ -1,30 +1,36 @@
 // src/services/fileApi.js
 import { api } from '../lib/api';
 
-const formatExportData = (file, annotations) => {
+const formatExportData = (file) => {
   return {
     file_name: file.name,
     export_date: new Date().toISOString(),
-    abstracts: file.abstracts.map((abstract, abstractIndex) => ({
+    abstracts: file.abstracts.map(abstract => ({
       paper_code: abstract.paper_code,
       abstract: abstract.abstract,
-      sentences: abstract.sentences.map((sentence, sentenceIndex) => {
-        const sentenceKey = `${abstractIndex}-${sentenceIndex}--1`;
-        
-        return {
-          sentence_code: sentence.sentence_code,
-          text: sentence.text,
-          sentence_type: annotations[sentenceKey] || null,
-          scientific_entities: sentence.scientific_entities.map((entity, entityIndex) => {
-            const entityKey = `${abstractIndex}-${sentenceIndex}-${entityIndex}`;
-            
-            return {
-              entity: entity.entity,
-              type: annotations[entityKey] || null
-            };
-          })
-        };
-      })
+      events: abstract.events.map(event => ({
+        type: event.type,
+        Text: event.Text,
+        Main_Action: event.Main_Action || '',
+        Arguments: {
+          Agent: event.Arguments.Agent || '',
+          Object: {
+            Base_Object: event.Arguments.Object?.Base_Object || '',
+            Base_Modifier: event.Arguments.Object?.Base_Modifier || '',
+            Attached_Object: event.Arguments.Object?.Attached_Object || '',
+            Attached_Modifier: event.Arguments.Object?.Attached_Modifier || ''
+          },
+          Context: event.Arguments.Context || '',
+          Purpose: event.Arguments.Purpose || '',
+          Method: event.Arguments.Method || '',
+          Results: event.Arguments.Results || '',
+          Analysis: event.Arguments.Analysis || '',
+          Challenge: event.Arguments.Challenge || '',
+          Ethical: event.Arguments.Ethical || '',
+          Implications: event.Arguments.Implications || '',
+          Contradictions: event.Arguments.Contradictions || ''
+        }
+      }))
     }))
   };
 };
@@ -34,6 +40,21 @@ export const fileApi = {
   async getFiles() {
     try {
       const response = await api.files.getAll();
+      
+      // Format files for display
+      if (response.files) {
+        response.files = response.files.map(file => ({
+          _id: file._id,
+          name: file.name,
+          totalSteps: file.totalSteps,
+          progress: file.progress,
+          uploadDate: file.uploadDate,
+          abstractCount: file.abstracts?.length || 0,
+          eventCount: file.abstracts?.reduce((sum, abstract) => 
+            sum + (abstract.events?.length || 0), 0) || 0
+        }));
+      }
+      
       return response;
     } catch (error) {
       console.error('Error fetching files:', error);
@@ -44,7 +65,44 @@ export const fileApi = {
   // Upload a new file
   async uploadFile(fileData) {
     try {
-      const response = await api.files.upload(fileData);
+      if (!Array.isArray(fileData.content)) {
+        throw new Error('File content must be an array of abstracts');
+      }
+
+      // Validate and format each abstract
+      const formattedContent = fileData.content.map(abstract => ({
+        paper_code: abstract.paper_code,
+        abstract: abstract.abstract,
+        events: (abstract.events || []).map(event => ({
+          type: event.type || 'Background/Introduction', // Default type if not specified
+          Text: event.Text,
+          Main_Action: event.Main_Action || '',
+          Arguments: {
+            Agent: event.Arguments?.Agent || '',
+            Object: {
+              Base_Object: event.Arguments?.Object?.Base_Object || '',
+              Base_Modifier: event.Arguments?.Object?.Base_Modifier || '',
+              Attached_Object: event.Arguments?.Object?.Attached_Object || '',
+              Attached_Modifier: event.Arguments?.Object?.Attached_Modifier || ''
+            },
+            Context: event.Arguments?.Context || '',
+            Purpose: event.Arguments?.Purpose || '',
+            Method: event.Arguments?.Method || '',
+            Results: event.Arguments?.Results || '',
+            Analysis: event.Arguments?.Analysis || '',
+            Challenge: event.Arguments?.Challenge || '',
+            Ethical: event.Arguments?.Ethical || '',
+            Implications: event.Arguments?.Implications || '',
+            Contradictions: event.Arguments?.Contradictions || ''
+          }
+        }))
+      }));
+
+      const response = await api.files.upload({
+        name: fileData.name,
+        content: formattedContent
+      });
+
       return response;
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -72,7 +130,7 @@ export const fileApi = {
       }
 
       // Format the export data
-      const exportData = formatExportData(response.file, response.file.annotations || {});
+      const exportData = formatExportData(response.file);
       
       return {
         success: true,
@@ -111,35 +169,27 @@ export const fileApi = {
       const response = await this.getFiles();
       const files = response.files || [];
       
-      // Calculate entity totals and progress separately
       const stats = files.reduce((acc, file) => {
-        // Count total entities
-        const totalEntitiesInFile = (file.abstracts || []).reduce((abstractTotal, abstract) => 
-          abstractTotal + (abstract.sentences || []).reduce((sentenceTotal, sentence) => 
-            sentenceTotal + (sentence.scientific_entities || []).length, 0), 0);
-
-        // Calculate annotated entities based on completion status
-        const annotatedEntitiesInFile = file.progress === 100 ? totalEntitiesInFile : 
-          Math.floor((file.progress || 0) * totalEntitiesInFile / 100);
-
+        // Calculate events and annotations
+        const eventCount = file.eventCount || 0;
+        const completedSteps = Math.floor((file.progress || 0) * file.totalSteps / 100);
+        
+        // Update accumulator
         return {
-          totalAnnotations: acc.totalAnnotations + Math.floor((file.progress || 0) * (file.totalSteps || 0) / 100),
+          totalAnnotations: acc.totalAnnotations + completedSteps,
           completedFiles: acc.completedFiles + (file.progress === 100 ? 1 : 0),
           totalFiles: acc.totalFiles + 1,
-          totalSentences: acc.totalSentences + (file.abstracts || []).reduce((abstractTotal, abstract) => 
-            abstractTotal + (abstract.sentences || []).length, 0),
-          totalEntities: acc.totalEntities + totalEntitiesInFile,
+          totalEvents: acc.totalEvents + eventCount,
           targetAnnotations: acc.targetAnnotations + (file.totalSteps || 0),
-          annotatedEntities: acc.annotatedEntities + annotatedEntitiesInFile
+          pendingAnnotations: acc.pendingAnnotations + (file.totalSteps - completedSteps)
         };
       }, {
         totalAnnotations: 0,
         completedFiles: 0,
         totalFiles: 0,
-        totalSentences: 0,
-        totalEntities: 0,
+        totalEvents: 0,
         targetAnnotations: 0,
-        annotatedEntities: 0
+        pendingAnnotations: 0
       });
 
       return stats;
@@ -149,10 +199,9 @@ export const fileApi = {
         totalAnnotations: 0,
         completedFiles: 0,
         totalFiles: 0,
-        totalSentences: 0,
-        totalEntities: 0,
+        totalEvents: 0,
         targetAnnotations: 0,
-        annotatedEntities: 0
+        pendingAnnotations: 0
       };
     }
   }

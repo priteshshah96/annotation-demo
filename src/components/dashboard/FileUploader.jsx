@@ -27,6 +27,88 @@ import {
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ACCEPTED_TYPES = ['.json'];
 
+// Validate JSON structure
+const validateJsonStructure = (content) => {
+  if (!Array.isArray(content)) {
+    throw new Error('Content must be an array of abstracts');
+  }
+
+  // Define valid event types that could be present
+  const validEventTypes = [
+    'Background/Introduction',
+    'Methods/Approach', 
+    'Results/Findings',
+    'Conclusions/Implications'
+  ];
+
+  content.forEach((abstract, index) => {
+    // Validate abstract basic structure
+    if (!abstract.paper_code) {
+      throw new Error(`Abstract ${index + 1}: Missing paper_code`);
+    }
+    if (!abstract.abstract) {
+      throw new Error(`Abstract ${index + 1}: Missing abstract text`);
+    }
+    if (!Array.isArray(abstract.events)) {
+      throw new Error(`Abstract ${index + 1}: events must be an array`);
+    }
+    if (abstract.events.length === 0) {
+      throw new Error(`Abstract ${index + 1}: must have at least one event`);
+    }
+
+    // Validate each event
+    abstract.events.forEach((event, eventIndex) => {
+      // Check if at least one valid event type exists as a property
+      const hasValidType = validEventTypes.some(type => type in event);
+      if (!hasValidType) {
+        throw new Error(
+          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing valid event type. ` +
+          `Must have one of: ${validEventTypes.join(', ')}`
+        );
+      }
+
+      // Check Text field
+      if (!event.Text) {
+        throw new Error(
+          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing Text`
+        );
+      }
+
+      // Check Arguments structure
+      if (!event.Arguments || typeof event.Arguments !== 'object') {
+        throw new Error(
+          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing or invalid Arguments`
+        );
+      }
+
+      // Check Object within Arguments
+      if (!event.Arguments.Object || typeof event.Arguments.Object !== 'object') {
+        throw new Error(
+          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing or invalid Arguments.Object`
+        );
+      }
+
+      // Validate Object structure
+      const requiredObjectFields = [
+        'Base Object',
+        'Base Modifier',
+        'Attached Object',
+        'Attached Modifier'
+      ];
+
+      requiredObjectFields.forEach(field => {
+        if (!(field in event.Arguments.Object)) {
+          throw new Error(
+            `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing ${field} in Arguments.Object`
+          );
+        }
+      });
+    });
+  });
+
+  return true;
+};
+
 const FileUploader = ({ 
   onUpload, 
   isUploading = false, 
@@ -89,6 +171,19 @@ const FileUploader = ({
         [fileData.id]: 0
       }));
 
+      // Read file content
+      const fileContent = await fileData.file.text();
+      let parsedContent;
+      
+      try {
+        parsedContent = JSON.parse(fileContent);
+      } catch (error) {
+        throw new Error('Invalid JSON format');
+      }
+
+      // Validate JSON structure
+      validateJsonStructure(parsedContent);
+
       // Simulate upload progress
       const progressInterval = setInterval(() => {
         setUploadProgress(prev => ({
@@ -98,7 +193,10 @@ const FileUploader = ({
       }, 200);
 
       // Actual file upload
-      const result = await onUpload(fileData.file);
+      const result = await onUpload({
+        name: fileData.file.name,
+        content: parsedContent
+      });
 
       clearInterval(progressInterval);
       setUploadProgress(prev => ({
@@ -131,7 +229,7 @@ const FileUploader = ({
     }
   };
 
-  // Drag and drop handlers
+  // Keep the rest of the component unchanged
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -167,6 +265,7 @@ const FileUploader = ({
     return <FileIcon color="primary" />;
   };
 
+  // Keep the rest of the JSX unchanged
   return (
     <Box sx={{ width: '100%' }}>
       {/* Header */}
@@ -227,7 +326,7 @@ const FileUploader = ({
           />
           
           <Typography variant="h6" gutterBottom>
-            Drag & Drop Files Here
+            Drag & Drop JSON Files Here
           </Typography>
           
           <Typography variant="body2" color="text.secondary" paragraph>
@@ -313,12 +412,4 @@ FileUploader.propTypes = {
   maxFiles: PropTypes.number
 };
 
-FileUploader.propTypes = {
-  onUpload: PropTypes.func.isRequired,
-  isUploading: PropTypes.bool,
-  multiple: PropTypes.bool,
-  maxFiles: PropTypes.number
-};
-
 export default FileUploader;
-

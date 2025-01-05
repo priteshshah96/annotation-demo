@@ -30,15 +30,6 @@ const UserDashboard = () => {
 
   // State Management
   const [files, setFiles] = useState([]);
-  const [stats, setStats] = useState({
-    totalAnnotations: 0,
-    completedFiles: 0,
-    totalSentences: 0,
-    totalEntities: 0,
-    targetAnnotations: 0,
-    totalFiles: 0,
-    annotatedEntities: 0
-  });
   const [loading, setLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState(null);
@@ -53,20 +44,14 @@ const UserDashboard = () => {
   };
 
   // File Upload Handler
-  const handleUpload = async (file) => {
+  const handleUpload = async (data) => {
     try {
       setIsUploading(true);
       
-      // Read file content
-      const fileContent = await file.text();
-      const parsedContent = JSON.parse(fileContent);
-
       // Upload file
-      await fileApi.uploadFile({
-        name: file.name,
-        content: parsedContent
-      });
+      await fileApi.uploadFile(data);
 
+      // Refresh data
       await fetchDashboardData();
       showSnackbar('File uploaded successfully', 'success');
     } catch (error) {
@@ -139,13 +124,17 @@ const UserDashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [filesData, statsData] = await Promise.all([
-        fileApi.getFiles(),
-        fileApi.getUserStats()
-      ]);
+      const response = await fileApi.getFiles();
+      console.log('Files response:', response); // Debug log
+      
+      // Ensure files have full data
+      const filesWithData = response.files?.map(file => ({
+        ...file,
+        abstracts: file.abstracts || [],
+        progress: file.progress || 0
+      })) || [];
 
-      setFiles(filesData.files || []);
-      setStats(statsData);
+      setFiles(filesWithData);
     } catch (error) {
       showSnackbar('Error loading dashboard data', 'error');
       console.error('Dashboard data fetch error:', error);
@@ -200,7 +189,7 @@ const UserDashboard = () => {
         onSignOut={signOut}
       />
 
-      <StatsPanel stats={stats} loading={loading} />
+      <StatsPanel files={files} loading={loading} />
 
       <Paper elevation={3} sx={{ padding: 3 }}>
         <FileUploader
@@ -224,7 +213,7 @@ const UserDashboard = () => {
           onDelete={handleDeleteFile}
           onExport={handleExportFile}
           onReset={handleResetAnnotations}
-          onNavigate={handleNavigate} // Added this prop
+          onNavigate={handleNavigate}
           file={files.find(f => f._id === selectedFileId)}
           disabledActions={!selectedFileId ? ['export', 'delete', 'reset', 'view'] : []}
         />

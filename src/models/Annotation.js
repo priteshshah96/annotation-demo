@@ -4,21 +4,32 @@ import mongoose from 'mongoose';
 /**
  * Constants for valid annotation answers
  */
-export const AnnotationAnswers = {
-  SENTENCE: [
+export const AnnotationTypes = {
+  EVENT_TYPE: [
     'Background/Introduction',
     'Methods/Approach',
     'Results/Findings',
-    'Conclusions/Implications',
-    'Not sure'
+    'Conclusions/Implications'
   ],
-  ENTITY: [
-    'Agent/Subject',
-    'Object/Recipient',
-    'Outcome/Effect',
-    'Context/Condition',
-    'Not sure'
-  ]
+  MAIN_ACTION: 'main_action',
+  ARGUMENT_FIELDS: {
+    AGENT: 'Agent',
+    OBJECT: {
+      BASE_OBJECT: 'Base_Object',
+      BASE_MODIFIER: 'Base_Modifier',
+      ATTACHED_OBJECT: 'Attached_Object',
+      ATTACHED_MODIFIER: 'Attached_Modifier'
+    },
+    CONTEXT: 'Context',
+    PURPOSE: 'Purpose',
+    METHOD: 'Method',
+    RESULTS: 'Results',
+    ANALYSIS: 'Analysis',
+    CHALLENGE: 'Challenge',
+    ETHICAL: 'Ethical',
+    IMPLICATIONS: 'Implications',
+    CONTRADICTIONS: 'Contradictions'
+  }
 };
 
 /**
@@ -54,23 +65,31 @@ const AnnotationSchema = new mongoose.Schema({
       message: 'Abstract index must be an integer'
     }
   },
-  sentenceIndex: {
+  eventIndex: {
     type: Number,
-    required: [true, 'Sentence index is required'],
-    min: [0, 'Sentence index must be non-negative'],
+    required: [true, 'Event index is required'],
+    min: [0, 'Event index must be non-negative'],
     validate: {
       validator: Number.isInteger,
-      message: 'Sentence index must be an integer'
+      message: 'Event index must be an integer'
     }
   },
-  entityIndex: {
-    type: Number,
-    required: [true, 'Entity index is required'],
+  fieldPath: {
+    type: String,
+    required: [true, 'Field path is required'],
     validate: {
-      validator: function(v) {
-        return Number.isInteger(v) && v >= -1;
+      validator: function(value) {
+        // Check if it's a valid field path (e.g., "Main_Action" or "Arguments.Agent")
+        const validPaths = [
+          'Main_Action',
+          ...Object.values(AnnotationTypes.ARGUMENT_FIELDS)
+            .map(field => typeof field === 'string' ? `Arguments.${field}` : 
+              Object.values(field).map(subfield => `Arguments.Object.${subfield}`))
+            .flat()
+        ];
+        return validPaths.includes(value);
       },
-      message: 'Entity index must be -1 or a non-negative integer'
+      message: 'Invalid field path'
     }
   },
   answer: {
@@ -93,45 +112,6 @@ const AnnotationSchema = new mongoose.Schema({
       delete ret._id;
       return ret;
     }
-  },
-  toObject: { virtuals: true }
-});
-
-// Pre-save middleware for validation
-AnnotationSchema.pre('save', function(next) {
-  const validAnswers = this.entityIndex === -1 
-    ? AnnotationAnswers.SENTENCE 
-    : AnnotationAnswers.ENTITY;
-
-  if (!validAnswers.includes(this.answer)) {
-    next(new Error(`Invalid ${this.entityIndex === -1 ? 'sentence' : 'entity'} annotation answer: "${this.answer}"`));
-  } else {
-    next();
-  }
-});
-
-// Pre-findOneAndUpdate middleware for validation
-AnnotationSchema.pre('findOneAndUpdate', function(next) {
-  const update = this.getUpdate();
-  const entityIndex = update.$set?.entityIndex;
-  const answer = update.$set?.answer;
-
-  // Skip validation if no answer is being updated
-  if (!answer) {
-    return next();
-  }
-
-  // Get entity index from update or from query
-  const effectiveEntityIndex = entityIndex ?? this.getQuery().entityIndex;
-  
-  const validAnswers = effectiveEntityIndex === -1 
-    ? AnnotationAnswers.SENTENCE 
-    : AnnotationAnswers.ENTITY;
-
-  if (!validAnswers.includes(answer)) {
-    next(new Error(`Invalid ${effectiveEntityIndex === -1 ? 'sentence' : 'entity'} annotation answer: "${answer}"`));
-  } else {
-    next();
   }
 });
 
@@ -140,20 +120,15 @@ AnnotationSchema.index({
   userId: 1, 
   fileId: 1, 
   abstractIndex: 1, 
-  sentenceIndex: 1, 
-  entityIndex: 1 
+  eventIndex: 1,
+  fieldPath: 1
 }, { 
   unique: true,
   name: 'unique_annotation_index'
 });
 
-AnnotationSchema.index({ timestamp: -1 });
-
 // Static Methods
 AnnotationSchema.statics = {
-  /**
-   * Calculate progress for a file
-   */
   async getProgress(fileId, userId) {
     try {
       const [annotations, file] = await Promise.all([
@@ -166,16 +141,13 @@ AnnotationSchema.statics = {
       }
 
       const progress = Math.min((annotations * 100) / file.totalSteps, 100);
-      return Math.round(progress * 10) / 10; // Round to 1 decimal place
+      return Math.round(progress * 10) / 10;
     } catch (error) {
       console.error('Error calculating progress:', error);
       throw error;
     }
   },
 
-  /**
-   * Get all annotations for a file with formatted keys
-   */
   async getFileAnnotations(fileId, userId) {
     try {
       if (!mongoose.Types.ObjectId.isValid(fileId)) {
@@ -188,7 +160,7 @@ AnnotationSchema.statics = {
       }).sort({ timestamp: -1 });
 
       return annotations.reduce((acc, annotation) => {
-        const key = `${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
+        const key = `${annotation.abstractIndex}-${annotation.eventIndex}-${annotation.fieldPath}`;
         acc[key] = {
           answer: annotation.answer,
           timestamp: annotation.timestamp
@@ -201,45 +173,19 @@ AnnotationSchema.statics = {
     }
   },
 
-  /**
-   * Bulk save annotations with validation
-   */
   async bulkSaveAnnotations(annotations, userId) {
     const session = await mongoose.startSession();
     session.startTransaction();
 
     try {
-      // Pre-validate all annotations
-      for (const ann of annotations) {
-        if (!ann.fileId || !mongoose.Types.ObjectId.isValid(ann.fileId)) {
-          throw new AnnotationError('Invalid file ID in annotations');
-        }
-
-        const validAnswers = ann.entityIndex === -1
-          ? AnnotationAnswers.SENTENCE
-          : AnnotationAnswers.ENTITY;
-
-        if (!validAnswers.includes(ann.answer)) {
-          throw new AnnotationError(
-            `Invalid answer "${ann.answer}" for ${ann.entityIndex === -1 ? 'sentence' : 'entity'} annotation`
-          );
-        }
-
-        if (!Number.isInteger(ann.abstractIndex) || ann.abstractIndex < 0 ||
-            !Number.isInteger(ann.sentenceIndex) || ann.sentenceIndex < 0 ||
-            !Number.isInteger(ann.entityIndex) || ann.entityIndex < -1) {
-          throw new AnnotationError('Invalid indices in annotations');
-        }
-      }
-
       const operations = annotations.map(annotation => ({
         updateOne: {
           filter: {
             userId,
             fileId: annotation.fileId,
             abstractIndex: annotation.abstractIndex,
-            sentenceIndex: annotation.sentenceIndex,
-            entityIndex: annotation.entityIndex
+            eventIndex: annotation.eventIndex,
+            fieldPath: annotation.fieldPath
           },
           update: {
             $set: {
@@ -263,28 +209,7 @@ AnnotationSchema.statics = {
   }
 };
 
-// Instance methods
-AnnotationSchema.methods = {
-  /**
-   * Validate a single annotation instance
-   */
-  async validateAnnotation() {
-    const validAnswers = this.entityIndex === -1
-      ? AnnotationAnswers.SENTENCE
-      : AnnotationAnswers.ENTITY;
-
-    if (!validAnswers.includes(this.answer)) {
-      throw new AnnotationError(
-        `Invalid answer "${this.answer}" for ${
-          this.entityIndex === -1 ? 'sentence' : 'entity'
-        } annotation`
-      );
-    }
-  }
-};
-
-// Create or retrieve model
 export const Annotation = mongoose.models?.Annotation || 
   mongoose.model('Annotation', AnnotationSchema);
 
-export default Annotation;clearImmediate
+export default Annotation;

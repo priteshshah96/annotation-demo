@@ -1,3 +1,4 @@
+// src/services/annotationApi.js
 import { api } from '../lib/api';
 
 class AnnotationApiService {
@@ -51,14 +52,15 @@ class AnnotationApiService {
           return [];
         }
 
-        // Convert to array format
+        // Convert to array format with new structure
         return Object.entries(response.annotations).map(([key, value]) => {
-          const [abstractIndex, sentenceIndex, entityIndex] = key.split('-').map(Number);
+          const [abstractIndex, eventIndex, annotationType, fieldName] = key.split('-');
           return {
             fileId,
-            abstractIndex,
-            sentenceIndex,
-            entityIndex,
+            abstractIndex: parseInt(abstractIndex),
+            eventIndex: parseInt(eventIndex),
+            annotationType, // 'main_action' or 'argument'
+            fieldName, // specific argument field name if type is 'argument'
             answer: value.answer,
             timestamp: value.timestamp
           };
@@ -73,7 +75,7 @@ class AnnotationApiService {
   }
 
   async saveAnnotation(annotation) {
-    const { fileId, abstractIndex, sentenceIndex, entityIndex, answer } = annotation;
+    const { fileId, abstractIndex, eventIndex, annotationType, fieldName, answer } = annotation;
     const requestId = this.generateRequestId('save', fileId);
 
     try {
@@ -90,8 +92,9 @@ class AnnotationApiService {
         return await api.annotations.save({
           fileId,
           abstractIndex,
-          sentenceIndex,
-          entityIndex,
+          eventIndex,
+          annotationType,
+          fieldName,
           answer,
           timestamp: new Date().toISOString()
         }, { signal });
@@ -136,7 +139,7 @@ class AnnotationApiService {
   }
 
   saveToLocalStorage(fileId, annotation) {
-    const key = `annotation-${fileId}-${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
+    const key = `annotation-${fileId}-${annotation.abstractIndex}-${annotation.eventIndex}-${annotation.annotationType}-${annotation.fieldName || ''}`;
     localStorage.setItem(key, JSON.stringify({
       answer: annotation.answer,
       timestamp: annotation.timestamp
@@ -150,15 +153,16 @@ class AnnotationApiService {
       const keys = Object.keys(localStorage).filter(key => key.startsWith(prefix));
 
       for (const key of keys) {
-        const [_, __, abstractIndex, sentenceIndex, entityIndex] = key.split('-');
+        const [_, __, abstractIndex, eventIndex, annotationType, fieldName] = key.split('-');
         const data = JSON.parse(localStorage.getItem(key));
         
         if (data?.answer) {
           annotations.push({
             fileId,
             abstractIndex: parseInt(abstractIndex),
-            sentenceIndex: parseInt(sentenceIndex),
-            entityIndex: parseInt(entityIndex),
+            eventIndex: parseInt(eventIndex),
+            annotationType,
+            fieldName,
             answer: data.answer,
             timestamp: data.timestamp
           });
@@ -176,14 +180,14 @@ class AnnotationApiService {
       // Create lookup maps
       const serverMap = new Map(
         server.map(annotation => [
-          `${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`,
+          `${annotation.abstractIndex}-${annotation.eventIndex}-${annotation.annotationType}-${annotation.fieldName}`,
           annotation
         ])
       );
 
       const localMap = new Map(
         local.map(annotation => [
-          `${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`,
+          `${annotation.abstractIndex}-${annotation.eventIndex}-${annotation.annotationType}-${annotation.fieldName}`,
           annotation
         ])
       );
@@ -234,7 +238,6 @@ class AnnotationApiService {
     }
   }
 
-
   async deleteAnnotations(fileId) {
     const requestId = this.generateRequestId('delete', fileId);
   
@@ -242,7 +245,6 @@ class AnnotationApiService {
       const signal = this.cancelPendingRequests();
   
       return await this.queueRequest(requestId, async () => {
-        // Use the dedicated reset endpoint instead of sync
         const response = await api.annotations.reset(fileId, { 
           method: 'POST',
           signal 
