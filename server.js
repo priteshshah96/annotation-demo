@@ -164,29 +164,57 @@ app.get('/api/test', (req, res) => {
 
 // Files routes
 app.get('/api/files', authenticateAndSync, async (req, res) => {
-  console.log('GET /api/files endpoint hit');
   try {
     const mongoUserId = req.user._id;
-    console.log('Fetching files for MongoDB userId:', mongoUserId);
+    console.log('GET /api/files endpoint hit for user:', mongoUserId);
     
-    const files = await File.find({ userId: mongoUserId });
-    console.log('Found files:', files.length);
+    // Use lean() to get plain objects and explicitly include all fields
+    const files = await File.find(
+      { userId: mongoUserId }
+    ).lean();
+
+    console.log('Raw files from DB:', JSON.stringify(files[0], null, 2));
     
     const filesWithProgress = await Promise.all(files.map(async (file) => {
+      // Log full abstract structure
+      console.log('Processing file abstracts:', 
+        file.abstracts.map(a => ({
+          paper_code: a.paper_code,
+          hasEvents: Array.isArray(a.events),
+          eventCount: a.events?.length || 0
+        }))
+      );
+
+      const eventCount = file.abstracts.reduce((sum, abstract) => 
+        sum + (abstract.events?.length || 0), 0);
+
       const annotations = await Annotation.countDocuments({
         fileId: file._id,
         userId: mongoUserId
       });
       
-      const progress = file.totalSteps > 0 
-        ? Math.min((annotations * 100) / file.totalSteps, 100)
+      const totalSteps = eventCount * 14;
+      const progress = totalSteps > 0 
+        ? Math.min((annotations * 100) / totalSteps, 100)
         : 0;
 
       return {
-        ...file.toObject(),
+        ...file,
+        eventCount,
+        totalSteps,
         progress: Math.round(progress * 10) / 10
       };
     }));
+
+    console.log('Response verification:', filesWithProgress.map(f => ({
+      name: f.name,
+      abstractCount: f.abstracts.length,
+      eventCounts: f.abstracts.map(a => ({
+        paper_code: a.paper_code,
+        eventCount: a.events?.length || 0,
+        firstEvent: a.events?.[0] ? 'present' : 'missing'
+      }))
+    })));
 
     res.json({
       success: true,
@@ -201,8 +229,6 @@ app.get('/api/files', authenticateAndSync, async (req, res) => {
   }
 });
 
-
-// Add this route after your existing /api/files route
 
 // Get single file with annotations
 app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
@@ -222,11 +248,9 @@ app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
       });
     }
 
-    // Calculate total required annotations
+    // Calculate total required annotations based on events
     let totalRequired = file.abstracts.reduce((total, abstract) => {
-      return total + abstract.sentences.reduce((sentTotal, sentence) => {
-        return sentTotal + sentence.scientific_entities.length + 1; // +1 for sentence itself
-      }, 0);
+      return total + (abstract.events?.length || 0) * 14; // 14 fields per event
     }, 0);
 
     // Calculate progress
@@ -237,7 +261,7 @@ app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
     // Create annotations map
     const annotationsMap = {};
     annotations.forEach(ann => {
-      const key = `${ann.abstractIndex}-${ann.sentenceIndex}-${ann.entityIndex}`;
+      const key = `${ann.abstractIndex}-${ann.eventIndex}-${ann.fieldPath}`;
       annotationsMap[key] = {
         answer: ann.answer,
         timestamp: ann.timestamp
@@ -249,17 +273,27 @@ app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
       $set: { progress: Math.round(progress * 10) / 10 }
     });
 
+    // Convert to plain object and ensure events are included
+    const fileObj = file.toObject();
+    console.log('File response verification:', {
+      id: fileObj._id,
+      abstractCount: fileObj.abstracts.length,
+      eventCounts: fileObj.abstracts.map(a => ({
+        paper_code: a.paper_code,
+        events: a.events?.length || 0
+      }))
+    });
+
     res.json({
       success: true,
       file: {
-        _id: file._id,
-        name: file.name,
-        abstracts: file.abstracts,
+        _id: fileObj._id,
+        name: fileObj.name,
+        abstracts: fileObj.abstracts,
         totalSteps: totalRequired,
         progress: Math.round(progress * 10) / 10,
-        uploadDate: file.uploadDate,
-        metadata: file.metadata || {},
-        annotations: annotationsMap
+        uploadDate: fileObj.uploadDate,
+        metadata: fileObj.metadata || {}
       }
     });
   } catch (error) {
@@ -317,115 +351,96 @@ app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
     const { name, content } = req.body;
     const mongoUserId = req.user._id;
 
-    if (!name || !content) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid request data',
-        details: 'Name and content are required'
-      });
-    }
+    // Enable debug mode
+    mongoose.set('debug', true);
 
-    // Validate file structure
-    try {
-      validateFileStructure(content);
-    } catch (error) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid file format',
-        details: error.message,
-        path: error.path
-      });
-    }
-
-    // Calculate total steps based on the new structure
-    const totalSteps = content.reduce((total, abstract) => {
-      return total + abstract.events.reduce((eventTotal, event) => {
-        // Count Main Action if present
-        let steps = event.Main_Action ? 1 : 0;
-        
-        // Count Arguments
-        if (event.Arguments) {
-          Object.entries(event.Arguments).forEach(([key, value]) => {
-            if (key === 'Object') {
-              // Count Object sub-fields
-              if (value && typeof value === 'object') {
-                steps += Object.values(value).filter(v => v && v.trim()).length;
-              }
-            } else if (value && value.trim()) {
-              steps += 1;
-            }
-          });
-        }
-        
-        return eventTotal + steps;
-      }, 0);
-    }, 0);
-
-    const newFile = new File({
-      userId: mongoUserId,
+    console.log('Upload request content:', {
       name,
-      abstracts: content,
-      totalSteps,
-      progress: 0,
-      uploadDate: new Date()
+      abstractCount: content?.length,
+      sampleEvents: content?.[0]?.events?.length,
+      firstEvent: content?.[0]?.events?.[0] 
     });
 
+    // Prepare file document
+    const fileDoc = {
+      userId: mongoUserId,
+      name,
+      abstracts: content.map(abstract => ({
+        paper_code: abstract.paper_code,
+        abstract: abstract.abstract,
+        events: abstract.events.map(event => ({
+          'Background/Introduction': event['Background/Introduction'] || '',
+          'Methods/Approach': event['Methods/Approach'] || '',
+          'Results/Findings': event['Results/Findings'] || '',
+          'Conclusions/Implications': event['Conclusions/Implications'] || '',
+          'Text': event.Text,
+          'Main Action': event['Main Action'] || '',
+          Arguments: {
+            Agent: event.Arguments?.Agent || '',
+            Object: {
+              'Base Object': event.Arguments?.Object?.['Base Object'] || '',
+              'Base Modifier': event.Arguments?.Object?.['Base Modifier'] || '',
+              'Attached Object': event.Arguments?.Object?.['Attached Object'] || '',
+              'Attached Modifier': event.Arguments?.Object?.['Attached Modifier'] || ''
+            },
+            Context: event.Arguments?.Context || '',
+            Purpose: event.Arguments?.Purpose || '',
+            Method: event.Arguments?.Method || '',
+            Results: event.Arguments?.Results || '',
+            Analysis: event.Arguments?.Analysis || '',
+            Challenge: event.Arguments?.Challenge || '',
+            Ethical: event.Arguments?.Ethical || '',
+            Implications: event.Arguments?.Implications || '',
+            Contradictions: event.Arguments?.Contradictions || ''
+          }
+        }))
+      }))
+    };
+
+    // Log document structure before save
+    console.log('Document before save:', {
+      name: fileDoc.name,
+      abstractCount: fileDoc.abstracts.length,
+      eventCounts: fileDoc.abstracts.map(a => ({
+        paper_code: a.paper_code,
+        eventCount: a.events.length,
+        firstEvent: a.events[0] ? 'present' : 'missing'
+      }))
+    });
+
+    // Create and save file
+    const newFile = new File(fileDoc);
     const savedFile = await newFile.save();
+
+    // Verify saved document
+    const verifiedFile = await File.findById(savedFile._id).lean();
+    console.log('Saved document verification:', {
+      id: verifiedFile._id,
+      abstractCount: verifiedFile.abstracts.length,
+      eventCounts: verifiedFile.abstracts.map(a => ({
+        paper_code: a.paper_code,
+        eventCount: a.events?.length || 0
+      }))
+    });
+
+    mongoose.set('debug', false);
 
     res.status(201).json({
       success: true,
-      file: {
-        _id: savedFile._id,
-        name: savedFile.name,
-        totalSteps: savedFile.totalSteps,
-        progress: savedFile.progress,
-        uploadDate: savedFile.uploadDate
-      },
+      file: verifiedFile,
       message: 'File uploaded successfully'
     });
+
   } catch (error) {
-    console.error('File upload error:', error);
+    console.error('Upload error:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack
+    });
+    
     res.status(500).json({
       success: false,
       error: 'Failed to upload file',
-      details: error.message,
-      validationErrors: error.errors ? 
-        Object.keys(error.errors).reduce((acc, key) => {
-          acc[key] = error.errors[key].message;
-          return acc;
-        }, {}) : 
-        undefined
-    });
-  }
-});
-
-// Get annotations for a file
-app.get('/api/annotations/:fileId', authenticateAndSync, async (req, res) => {
-  try {
-    const { fileId } = req.params;
-    const mongoUserId = req.user._id;
-
-    // Fetch annotations
-    const annotations = await Annotation.find({
-      fileId,
-      userId: mongoUserId
-    }).lean();
-
-    res.json({
-      success: true,
-      annotations: annotations.map(ann => ({
-        abstractIndex: ann.abstractIndex,
-        eventIndex: ann.eventIndex,
-        fieldPath: ann.fieldPath,
-        answer: ann.answer,
-        timestamp: ann.timestamp
-      }))
-    });
-  } catch (error) {
-    console.error('Error fetching annotations:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch annotations',
       details: error.message
     });
   }
@@ -534,50 +549,7 @@ app.delete('/api/annotations/:fileId', authenticateAndSync, async (req, res) => 
     });
   }
 });
-app.post('/api/annotations/:fileId/reset', authenticateAndSync, async (req, res) => {
-  try {
-    const { fileId } = req.params;
-    const mongoUserId = req.user._id;
 
-    // Verify the file exists and belongs to the user
-    const file = await File.findOne({
-      _id: fileId,
-      userId: mongoUserId
-    });
-
-    if (!file) {
-      return res.status(404).json({
-        success: false,
-        error: 'File not found',
-        details: 'File does not exist or you do not have permission to access it'
-      });
-    }
-
-    // Delete all annotations for this file
-    await Annotation.deleteMany({
-      fileId,
-      userId: mongoUserId
-    });
-
-    // Reset file progress
-    await File.findByIdAndUpdate(fileId, {
-      $set: { progress: 0 }
-    });
-
-    res.json({
-      success: true,
-      message: 'All annotations reset successfully',
-      progress: 0
-    });
-  } catch (error) {
-    console.error('Error resetting annotations:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to reset annotations',
-      details: error.message
-    });
-  }
-});
 
 // Sync annotations
 app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) => {
@@ -636,6 +608,38 @@ app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) 
 });
 
 
+// Reset annotations
+app.post('/api/annotations/:fileId/reset', authenticateAndSync, async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const mongoUserId = req.user._id;
+
+    // Delete all annotations for this file
+    await Annotation.deleteMany({
+      fileId,
+      userId: mongoUserId
+    });
+
+    // Reset file progress
+    await File.findByIdAndUpdate(fileId, {
+      $set: { progress: 0 }
+    });
+
+    res.json({
+      success: true,
+      message: 'All annotations reset successfully',
+      progress: 0
+    });
+  } catch (error) {
+    console.error('Error resetting annotations:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reset annotations',
+      details: error.message
+    });
+  }
+});
+
 // before general error handler
 app.use('/api/annotations', (err, req, res, next) => {
   console.error('Annotation API Error:', err);
@@ -670,11 +674,38 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
+// In server.js, update the port configuration
 const startServer = async () => {
   try {
     console.log('Attempting MongoDB connection...');
     console.log('MongoDB URI:', process.env.VITE_MONGODB_URI ? 'URI is set' : 'URI is missing');
-    
+
+    // Add connection event listeners before connecting
+    mongoose.connection.on('connected', () => {
+      console.log('MongoDB connected successfully');
+      console.log('Database name:', mongoose.connection.db.databaseName);
+      
+      // List collections to verify database state
+      mongoose.connection.db.listCollections().toArray()
+        .then(collections => {
+          console.log('Available collections:', collections.map(c => c.name));
+        })
+        .catch(err => console.error('Error listing collections:', err));
+    });
+
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', err);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.log('MongoDB disconnected');
+    });
+
+    // Enable debugging in development
+    if (process.env.NODE_ENV === 'development') {
+      mongoose.set('debug', true);
+    }
+
     await mongoose.connect(process.env.VITE_MONGODB_URI, {
       serverApi: {
         version: '1',
@@ -687,22 +718,68 @@ const startServer = async () => {
       socketTimeoutMS: 45000,
       maxPoolSize: 50
     });
-    
-    console.log('MongoDB Connected successfully');
-    console.log('Database name:', mongoose.connection.db.databaseName);
-    
-    const serverPort = process.env.PORT || 3000;
-    app.listen(serverPort, '0.0.0.0', () => {
-      console.log(`Server running on port ${serverPort}`);
-      console.log(`Environment: ${process.env.NODE_ENV}`);
-      console.log('MongoDB connection state:', mongoose.connection.readyState);
+
+    // Log successful connection details
+    console.log('Connected to MongoDB:', {
+      database: mongoose.connection.db.databaseName,
+      host: mongoose.connection.host,
+      port: mongoose.connection.port,
+      readyState: mongoose.connection.readyState
     });
+
+    // Find available port
+    const findAvailablePort = async (startPort) => {
+      let port = startPort;
+      while (port < startPort + 10) {
+        try {
+          await new Promise((resolve, reject) => {
+            const server = app.listen(port, '0.0.0.0', () => {
+              server.removeListener('error', reject);
+              resolve(server);
+            }).on('error', (err) => {
+              if (err.code === 'EADDRINUSE') {
+                server.close();
+                port++;
+                reject(err);
+              } else {
+                reject(err);
+              }
+            });
+          });
+          console.log(`Server running on port ${port}`);
+          console.log(`Environment: ${process.env.NODE_ENV}`);
+          console.log('MongoDB connection state:', mongoose.connection.readyState);
+          
+          // Add verification of collections after server starts
+          const collections = await mongoose.connection.db.listCollections().toArray();
+          console.log('Available collections after server start:', 
+            collections.map(c => ({ name: c.name, type: c.type }))
+          );
+          
+          return;
+        } catch (err) {
+          if (err.code !== 'EADDRINUSE') throw err;
+        }
+      }
+      throw new Error('No available ports found');
+    };
+
+    const startPort = process.env.PORT || 3000;
+    await findAvailablePort(startPort);
+
   } catch (error) {
-    console.error('Server startup error:', error);
+    console.error('Server startup error:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
     console.error('Connection details:', {
       uri: process.env.VITE_MONGODB_URI ? 'URI is set' : 'URI is missing',
-      env: process.env.NODE_ENV
+      env: process.env.NODE_ENV,
+      mongooseState: mongoose.connection.readyState
     });
+    
     if (process.env.NODE_ENV === 'production') {
       console.log('Attempting to recover from error...');
       setTimeout(startServer, 5000);
@@ -711,5 +788,17 @@ const startServer = async () => {
     }
   }
 };
+
+// Handle process termination
+process.on('SIGINT', async () => {
+  try {
+    await mongoose.connection.close();
+    console.log('MongoDB connection closed through app termination');
+    process.exit(0);
+  } catch (err) {
+    console.error('Error during shutdown:', err);
+    process.exit(1);
+  }
+});
 
 startServer();

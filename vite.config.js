@@ -23,7 +23,6 @@ export default defineConfig({
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
             console.log('Sending Request:', req.method, req.url);
-            // Set longer timeout for the proxy request
             proxyReq.setHeader('Connection', 'keep-alive');
             proxyReq.setHeader('Keep-Alive', 'timeout=60');
           });
@@ -33,9 +32,7 @@ export default defineConfig({
         }
       }
     },
-    // Add CORS headers
     cors: true,
-    // Increase connection timeout
     hmr: {
       timeout: 60000
     }

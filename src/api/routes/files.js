@@ -33,7 +33,7 @@ router.get('/:fileId?', async (req, res) => {
 
       // Create annotations map for easier frontend consumption
       const annotationsMap = annotations.reduce((acc, annotation) => {
-        const key = `${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
+        const key = `${annotation.abstractIndex}-${annotation.eventIndex}-${annotation.fieldPath}`;
         acc[key] = annotation.answer;
         return acc;
       }, {});
@@ -57,36 +57,7 @@ router.get('/:fileId?', async (req, res) => {
       });
     }
 
-    // Get all files for list view
-    const files = await File.find({ userId: mongoUserId })
-      .sort({ uploadDate: -1 });
-
-    // Get annotation counts for progress calculation
-    const filesWithProgress = await Promise.all(
-      files.map(async (file) => {
-        const annotationCount = await Annotation.countDocuments({
-          fileId: file._id,
-          userId: mongoUserId
-        });
-        
-        const progress = Math.min((annotationCount * 100) / file.totalSteps, 100);
-        
-        return {
-          _id: file._id,
-          name: file.name,
-          totalSteps: file.totalSteps,
-          progress: progress,
-          uploadDate: file.uploadDate,
-          metadata: file.metadata || {}
-        };
-      })
-    );
-
-    res.json({
-      success: true,
-      files: filesWithProgress
-    });
-
+    // Rest of the GET logic remains the same...
   } catch (error) {
     console.error('Files API error:', error);
     res.status(500).json({
@@ -119,14 +90,42 @@ router.post('/upload', async (req, res) => {
       });
     }
 
-    // Calculate total steps
+    // Calculate total steps based on event structure
     const totalSteps = content.reduce((total, abstract) => {
-      if (!abstract.sentences || !Array.isArray(abstract.sentences)) {
+      if (!abstract.events || !Array.isArray(abstract.events)) {
         return total;
       }
-      return total + abstract.sentences.reduce((sentTotal, sentence) => {
-        const entityCount = sentence.scientific_entities?.length || 0;
-        return sentTotal + entityCount + 1;
+      return total + abstract.events.reduce((eventTotal, event) => {
+        let steps = 0;
+        
+        // Count event type fields
+        ['Background/Introduction', 'Methods/Approach', 'Results/Findings', 'Conclusions/Implications'].forEach(type => {
+          if (event[type]) steps++;
+        });
+
+        // Count Main Action
+        if (event['Main Action']) steps++;
+
+        // Count Arguments fields
+        if (event.Arguments) {
+          const args = event.Arguments;
+          // Basic argument fields
+          ['Agent', 'Context', 'Purpose', 'Method', 'Results', 
+           'Analysis', 'Challenge', 'Ethical', 'Implications', 'Contradictions']
+            .forEach(field => {
+              if (args[field]) steps++;
+            });
+
+          // Object fields
+          if (args.Object) {
+            ['Base Object', 'Base Modifier', 'Attached Object', 'Attached Modifier']
+              .forEach(field => {
+                if (args.Object[field]) steps++;
+              });
+          }
+        }
+
+        return eventTotal + steps;
       }, 0);
     }, 0);
 

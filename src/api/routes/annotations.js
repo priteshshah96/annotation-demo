@@ -1,38 +1,21 @@
 // src/api/routes/annotations.js
 import express from 'express';
-import { Annotation } from '../../models/Annotation.js';
+import { Annotation, AnnotationTypes } from '../../models/Annotation.js';
 import { File } from '../../models/File.js';
 import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// Validation constants
-const VALID_SENTENCE_TYPES = [
-  'Background/Introduction',
-  'Methods/Approach',
-  'Results/Findings',
-  'Conclusions/Implications',
-  'Not sure'
-];
-
-const VALID_ENTITY_TYPES = [
-  'Agent/Subject',
-  'Object/Recipient',
-  'Outcome/Effect',
-  'Context/Condition',
-  'Not sure'
-];
-
 // Validation middleware
 const validateAnnotationRequest = async (req, res, next) => {
   try {
-    const { fileId, abstractIndex, sentenceIndex, entityIndex, answer } = req.body;
+    const { fileId, abstractIndex, eventIndex, fieldPath, answer } = req.body;
 
     console.log('Validating annotation request:', {
       fileId,
       abstractIndex,
-      sentenceIndex,
-      entityIndex,
+      eventIndex,
+      fieldPath,
       answer
     });
 
@@ -44,49 +27,32 @@ const validateAnnotationRequest = async (req, res, next) => {
       });
     }
 
-    // Ensure answer is properly extracted
-    const answerValue = typeof answer === 'string' ? answer : answer?.entity;
-    
-    if (!answerValue) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid answer format'
-      });
-    }
-
     // Validate indices
     if (!Number.isInteger(abstractIndex) || abstractIndex < 0 ||
-        !Number.isInteger(sentenceIndex) || sentenceIndex < 0 ||
-        !Number.isInteger(entityIndex) || entityIndex < -1) {
+        !Number.isInteger(eventIndex) || eventIndex < 0) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid indices. Must be non-negative integers (except entityIndex which can be -1)'
+        error: 'Invalid indices. Must be non-negative integers'
       });
     }
 
-    // Validate answer based on annotation type
-    const validAnswers = entityIndex === -1 ? VALID_SENTENCE_TYPES : VALID_ENTITY_TYPES;
-    
-    console.log('Validating answer:', {
-      answerValue,
-      validAnswers,
-      isValid: validAnswers.includes(answerValue)
-    });
+    // Validate fieldPath
+    const validPaths = [
+      'Main_Action',
+      ...Object.values(AnnotationTypes.ARGUMENT_FIELDS)
+        .map(field => typeof field === 'string' ? 
+          `Arguments.${field}` : 
+          Object.values(field).map(subfield => `Arguments.Object.${subfield}`))
+        .flat()
+    ];
 
-    if (!validAnswers.includes(answerValue)) {
+    if (!validPaths.includes(fieldPath)) {
       return res.status(400).json({
         success: false,
-        error: `Invalid answer. Must be one of: ${validAnswers.join(', ')}`,
-        details: {
-          providedAnswer: answerValue,
-          validAnswers,
-          annotationType: entityIndex === -1 ? 'sentence' : 'entity'
-        }
+        error: 'Invalid field path',
+        details: `Field path must be one of: ${validPaths.join(', ')}`
       });
     }
-
-    // Add validated data to request
-    req.validatedAnswer = answerValue;
 
     // Validate file exists and belongs to user
     const file = await File.findOne({ 
@@ -101,26 +67,23 @@ const validateAnnotationRequest = async (req, res, next) => {
       });
     }
 
-    // Validate abstract and sentence exist
+    // Validate abstract and event exist
     if (!file.abstracts[abstractIndex] || 
-        !file.abstracts[abstractIndex].sentences[sentenceIndex]) {
+        !file.abstracts[abstractIndex].events[eventIndex]) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid abstract or sentence index'
+        error: 'Invalid abstract or event index'
       });
     }
 
-    // Validate entity exists if entityIndex is provided
-    if (entityIndex >= 0 && 
-        !file.abstracts[abstractIndex].sentences[sentenceIndex]
-            .scientific_entities[entityIndex]) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid entity index'
-      });
-    }
-
-    // Add validated file to request
+    // Add validated data to request
+    req.validatedAnnotation = {
+      fileId,
+      abstractIndex,
+      eventIndex,
+      fieldPath,
+      answer
+    };
     req.validatedFile = file;
     next();
   } catch (error) {
@@ -154,7 +117,7 @@ router.get('/:fileId', async (req, res, next) => {
 
     // Format annotations for response
     const formattedAnnotations = annotations.reduce((acc, ann) => {
-      const key = `${ann.abstractIndex}-${ann.sentenceIndex}-${ann.entityIndex}`;
+      const key = `${ann.abstractIndex}-${ann.eventIndex}-${ann.fieldPath}`;
       acc[key] = {
         answer: ann.answer,
         timestamp: ann.timestamp
@@ -182,14 +145,13 @@ router.post('/', validateAnnotationRequest, async (req, res, next) => {
   session.startTransaction();
 
   try {
-    const { fileId, abstractIndex, sentenceIndex, entityIndex } = req.body;
-    const answer = req.validatedAnswer;
+    const { fileId, abstractIndex, eventIndex, fieldPath, answer } = req.validatedAnnotation;
 
     console.log('Creating annotation:', {
       fileId,
       abstractIndex,
-      sentenceIndex,
-      entityIndex,
+      eventIndex,
+      fieldPath,
       answer
     });
 
@@ -199,8 +161,8 @@ router.post('/', validateAnnotationRequest, async (req, res, next) => {
         userId: req.user._id,
         fileId,
         abstractIndex,
-        sentenceIndex,
-        entityIndex
+        eventIndex,
+        fieldPath
       },
       {
         $set: {
@@ -263,16 +225,21 @@ router.post('/:fileId/sync', async (req, res, next) => {
     }
 
     // Validate all annotations before processing
-    for (const ann of annotations) {
-      const validAnswers = ann.entityIndex === -1 ? 
-        VALID_SENTENCE_TYPES : VALID_ENTITY_TYPES;
+    const validPaths = [
+      'Main_Action',
+      ...Object.values(AnnotationTypes.ARGUMENT_FIELDS)
+        .map(field => typeof field === 'string' ? 
+          `Arguments.${field}` : 
+          Object.values(field).map(subfield => `Arguments.Object.${subfield}`))
+        .flat()
+    ];
 
-      if (!validAnswers.includes(ann.answer)) {
+    for (const ann of annotations) {
+      if (!validPaths.includes(ann.fieldPath)) {
         return res.status(400).json({
           success: false,
-          error: `Invalid answer "${ann.answer}" for ${
-            ann.entityIndex === -1 ? 'sentence' : 'entity'
-          } annotation`
+          error: `Invalid field path "${ann.fieldPath}"`,
+          details: `Field path must be one of: ${validPaths.join(', ')}`
         });
       }
     }
@@ -284,8 +251,8 @@ router.post('/:fileId/sync', async (req, res, next) => {
           userId: req.user._id,
           fileId,
           abstractIndex: ann.abstractIndex,
-          sentenceIndex: ann.sentenceIndex,
-          entityIndex: ann.entityIndex
+          eventIndex: ann.eventIndex,
+          fieldPath: ann.fieldPath
         },
         update: {
           $set: {
@@ -297,11 +264,9 @@ router.post('/:fileId/sync', async (req, res, next) => {
       }
     }));
 
-    // Execute bulk write
     const result = await Annotation.bulkWrite(operations, { session });
-
-    // Calculate and update progress
     const progress = await calculateProgress(fileId, req.user._id);
+    
     await File.findByIdAndUpdate(
       fileId,
       { $set: { progress } },
@@ -325,9 +290,7 @@ router.post('/:fileId/sync', async (req, res, next) => {
   }
 });
 
-/**
- * Helper function to calculate annotation progress
- */
+// Helper function remains the same
 async function calculateProgress(fileId, userId) {
   const [annotationCount, file] = await Promise.all([
     Annotation.countDocuments({ fileId, userId }),
@@ -339,7 +302,7 @@ async function calculateProgress(fileId, userId) {
   }
 
   const progress = Math.min((annotationCount * 100) / file.totalSteps, 100);
-  return Math.round(progress * 10) / 10; // Round to 1 decimal place
+  return Math.round(progress * 10) / 10;
 }
 
 /**

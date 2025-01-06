@@ -82,11 +82,11 @@ async function handleGet(req, res, userId) {
     }).lean();
 
     const annotationsMap = annotations.reduce((acc, annotation) => {
-      const key = `${annotation.abstractIndex}-${annotation.sentenceIndex}-${annotation.entityIndex}`;
+      const key = `${annotation.abstractIndex}-${annotation.eventIndex}-${annotation.fieldPath}`;
       acc[key] = annotation.answer;
       return acc;
     }, {});
-
+    
     const progress = Math.min((annotations.length * 100) / file.totalSteps, 100);
 
     return res.json({
@@ -152,12 +152,43 @@ async function handlePost(req, res, userId) {
   }
 
   const totalSteps = content.reduce((total, abstract) => {
-    if (!abstract.sentences || !Array.isArray(abstract.sentences)) {
+    if (!abstract.events || !Array.isArray(abstract.events)) {
       return total;
     }
-    return total + abstract.sentences.reduce((sentTotal, sentence) => {
-      const entityCount = sentence.scientific_entities?.length || 0;
-      return sentTotal + entityCount + 1;
+    return total + abstract.events.reduce((eventTotal, event) => {
+      let steps = 0;
+      // Count non-empty event type fields
+      ['Background/Introduction', 'Methods/Approach', 'Results/Findings', 'Conclusions/Implications'].forEach(type => {
+        if (event[type]) steps++;
+      });
+      
+      // Count Main Action if present
+      if (event['Main Action']) steps++;
+      
+      // Count argument fields
+      if (event.Arguments) {
+        if (event.Arguments.Agent) steps++;
+        if (event.Arguments.Context) steps++;
+        if (event.Arguments.Purpose) steps++;
+        if (event.Arguments.Method) steps++;
+        if (event.Arguments.Results) steps++;
+        if (event.Arguments.Analysis) steps++;
+        if (event.Arguments.Challenge) steps++;
+        if (event.Arguments.Ethical) steps++;
+        if (event.Arguments.Implications) steps++;
+        if (event.Arguments.Contradictions) steps++;
+        
+        // Count Object fields
+        const obj = event.Arguments.Object;
+        if (obj) {
+          if (obj['Base Object']) steps++;
+          if (obj['Base Modifier']) steps++;
+          if (obj['Attached Object']) steps++;
+          if (obj['Attached Modifier']) steps++;
+        }
+      }
+      
+      return eventTotal + steps;
     }, 0);
   }, 0);
 

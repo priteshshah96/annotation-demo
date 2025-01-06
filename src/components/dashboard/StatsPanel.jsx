@@ -1,3 +1,4 @@
+// src/components/dashboard/StatsPanel.jsx
 import { 
   Box,
   Tooltip,
@@ -14,7 +15,6 @@ import {
   TrendingUp as ProgressIcon
 } from '@mui/icons-material';
 
-// StatsCard component remains the same
 const StatsCard = ({ 
   title, 
   value, 
@@ -110,28 +110,138 @@ const StatsCard = ({
   );
 };
 
+// src/components/dashboard/StatsPanel.jsx
+// ... existing imports remain the same ...
+
+// Constants for field counting
+const EVENT_TYPE_FIELDS = [
+  'Background/Introduction',
+  'Methods/Approach', 
+  'Results/Findings',
+  'Conclusions/Implications'
+];
+
+const ARGUMENT_FIELDS = [
+  'Agent',
+  'Context',
+  'Purpose',
+  'Method',
+  'Results',
+  'Analysis',
+  'Challenge',
+  'Ethical',
+  'Implications',
+  'Contradictions'
+];
+
+const OBJECT_FIELDS = [
+  'Base Object',
+  'Base Modifier',
+  'Attached Object',
+  'Attached Modifier'
+];
+
+// Updated field counting logic
+const countFieldsInEvent = (event) => {
+  let fieldCount = 0;
+
+  // Count event type fields that are present
+  EVENT_TYPE_FIELDS.forEach(field => {
+    if (event[field] && event[field].trim() !== '') {
+      fieldCount++;
+    }
+  });
+
+  // Count Main Action if present
+  if (event['Main Action'] && event['Main Action'].trim() !== '') {
+    fieldCount++;
+  }
+
+  // Count Arguments fields
+  if (event.Arguments) {
+    ARGUMENT_FIELDS.forEach(field => {
+      if (event.Arguments[field] && event.Arguments[field].trim() !== '') {
+        fieldCount++;
+      }
+    });
+
+    // Count Object fields
+    if (event.Arguments.Object) {
+      OBJECT_FIELDS.forEach(field => {
+        if (event.Arguments.Object[field] && event.Arguments.Object[field].trim() !== '') {
+          fieldCount++;
+        }
+      });
+    }
+  }
+
+  return fieldCount;
+};
+
+const countEventsInFile = (file) => {
+  if (!file?.abstracts?.length) {
+    console.log('No abstracts found in file:', file?.name);
+    return { events: 0, fields: 0 };
+  }
+
+  let totalEvents = 0;
+  let totalFields = 0;
+
+  file.abstracts.forEach((abstract, abstractIndex) => {
+    if (!abstract?.events?.length) {
+      console.log(`No events in abstract ${abstractIndex} of file:`, file.name);
+      return;
+    }
+
+    const eventsInAbstract = abstract.events.length;
+    const fieldsInAbstract = abstract.events.reduce((sum, event) => {
+      return sum + countFieldsInEvent(event);
+    }, 0);
+
+    console.log(`Abstract ${abstractIndex} stats:`, {
+      events: eventsInAbstract,
+      fields: fieldsInAbstract
+    });
+
+    totalEvents += eventsInAbstract;
+    totalFields += fieldsInAbstract;
+  });
+
+  console.log(`File ${file.name} totals:`, {
+    events: totalEvents,
+    fields: totalFields
+  });
+
+  return { events: totalEvents, fields: totalFields };
+};
+
 const calculateStats = (files = []) => {
+  console.log('Calculating stats for files:', files.length);
+
   return files.reduce((stats, file) => {
-    // Count total events
-    const totalEventsInFile = file.abstracts?.reduce((sum, abstract) => 
-      sum + (abstract.events?.length || 0), 0) || 0;
-
-    // Count fields per event
-    const fieldsPerEvent = 14; // Main Action + Arguments fields (12) + Text + Type
-    const totalFieldsInFile = totalEventsInFile * fieldsPerEvent;
-
+    const { events, fields } = countEventsInFile(file);
+    
     // Calculate annotated fields based on progress
-    const annotatedFieldsInFile = Math.floor((file.progress || 0) * totalFieldsInFile / 100);
+    const annotatedFields = Math.floor((file.progress || 0) * fields / 100);
 
-    return {
-      totalEvents: stats.totalEvents + totalEventsInFile,
-      totalFields: stats.totalFields + totalFieldsInFile,
-      annotatedFields: stats.annotatedFields + annotatedFieldsInFile,
+    const newStats = {
+      totalEvents: stats.totalEvents + events,
+      totalFields: stats.totalFields + fields,
+      annotatedFields: stats.annotatedFields + annotatedFields,
       completedFiles: stats.completedFiles + (file.progress === 100 ? 1 : 0),
       totalFiles: stats.totalFiles + 1,
-      totalAnnotations: stats.totalAnnotations + annotatedFieldsInFile,
-      targetAnnotations: stats.targetAnnotations + totalFieldsInFile
+      totalAnnotations: stats.totalAnnotations + annotatedFields,
+      targetAnnotations: stats.targetAnnotations + fields
     };
+
+    console.log(`Stats updated for ${file.name}:`, {
+      events,
+      fields,
+      annotatedFields,
+      progress: file.progress
+    });
+
+    return newStats;
   }, {
     totalEvents: 0,
     totalFields: 0,
@@ -145,7 +255,16 @@ const calculateStats = (files = []) => {
 
 const StatsPanel = ({ files = [], loading = false }) => {
   const theme = useTheme();
+
+  console.log('------Raw files data in StatsPanel------:', JSON.stringify(files[0], null, 2));
+  
+  // Log incoming files data
+  console.log('Files data received:', files);
+  
   const stats = calculateStats(files);
+  
+  // Log calculated stats
+  console.log('Calculated stats:', stats);
 
   const statsConfig = [
     {
@@ -173,7 +292,7 @@ const StatsPanel = ({ files = [], loading = false }) => {
     },
     {
       title: 'Overall Progress',
-      value: `${stats.totalAnnotations} / ${stats.targetAnnotations}`,
+      value: `${stats.totalAnnotations.toLocaleString()} / ${stats.targetAnnotations.toLocaleString()}`,
       icon: ProgressIcon,
       tooltip: 'Total annotation progress across all files',
       trend: stats.targetAnnotations > 0 ? Math.round((stats.totalAnnotations / stats.targetAnnotations) * 100) : 0,

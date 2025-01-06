@@ -4,7 +4,6 @@ import PropTypes from 'prop-types';
 import { 
   Box, 
   Typography, 
-  Button, 
   LinearProgress, 
   Paper,
   List,
@@ -27,21 +26,42 @@ import {
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ACCEPTED_TYPES = ['.json'];
 
-// Validate JSON structure
+// Constants for validation
+const VALID_EVENT_TYPES = [
+  'Background/Introduction',
+  'Methods/Approach', 
+  'Results/Findings',
+  'Conclusions/Implications'
+];
+
+const REQUIRED_ARGUMENT_FIELDS = [
+  'Agent',
+  'Context',
+  'Purpose',
+  'Method',
+  'Results',
+  'Analysis',
+  'Challenge',
+  'Ethical',
+  'Implications',
+  'Contradictions'
+];
+
+const REQUIRED_OBJECT_FIELDS = [
+  'Base Object',
+  'Base Modifier',
+  'Attached Object',
+  'Attached Modifier'
+];
+
+// Validate JSON structure with normalization
 const validateJsonStructure = (content) => {
   if (!Array.isArray(content)) {
     throw new Error('Content must be an array of abstracts');
   }
 
-  // Define valid event types that could be present
-  const validEventTypes = [
-    'Background/Introduction',
-    'Methods/Approach', 
-    'Results/Findings',
-    'Conclusions/Implications'
-  ];
-
-  content.forEach((abstract, index) => {
+  // Process and normalize each abstract
+  return content.map((abstract, index) => {
     // Validate abstract basic structure
     if (!abstract.paper_code) {
       throw new Error(`Abstract ${index + 1}: Missing paper_code`);
@@ -56,57 +76,69 @@ const validateJsonStructure = (content) => {
       throw new Error(`Abstract ${index + 1}: must have at least one event`);
     }
 
-    // Validate each event
-    abstract.events.forEach((event, eventIndex) => {
-      // Check if at least one valid event type exists as a property
-      const hasValidType = validEventTypes.some(type => type in event);
-      if (!hasValidType) {
-        throw new Error(
-          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing valid event type. ` +
-          `Must have one of: ${validEventTypes.join(', ')}`
-        );
-      }
-
-      // Check Text field
+    // Process and normalize each event
+    const normalizedEvents = abstract.events.map((event, eventIndex) => {
+      // Check required Text field
       if (!event.Text) {
         throw new Error(
           `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing Text`
         );
       }
 
-      // Check Arguments structure
-      if (!event.Arguments || typeof event.Arguments !== 'object') {
+      // Validate event types
+      const hasValidType = VALID_EVENT_TYPES.some(type => type in event);
+      if (!hasValidType) {
         throw new Error(
-          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing or invalid Arguments`
+          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing valid event type. ` +
+          `Must have one of: ${VALID_EVENT_TYPES.join(', ')}`
         );
       }
 
-      // Check Object within Arguments
-      if (!event.Arguments.Object || typeof event.Arguments.Object !== 'object') {
-        throw new Error(
-          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing or invalid Arguments.Object`
-        );
-      }
-
-      // Validate Object structure
-      const requiredObjectFields = [
-        'Base Object',
-        'Base Modifier',
-        'Attached Object',
-        'Attached Modifier'
-      ];
-
-      requiredObjectFields.forEach(field => {
-        if (!(field in event.Arguments.Object)) {
-          throw new Error(
-            `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing ${field} in Arguments.Object`
-          );
+      // Initialize/normalize event types
+      const normalizedEvent = { ...event };
+      VALID_EVENT_TYPES.forEach(type => {
+        if (!(type in normalizedEvent)) {
+          normalizedEvent[type] = '';
         }
       });
-    });
-  });
 
-  return true;
+      // Initialize/validate Main Action
+      if (!normalizedEvent['Main Action']) {
+        normalizedEvent['Main Action'] = '';
+      }
+
+      // Initialize/validate Arguments structure
+      if (!normalizedEvent.Arguments || typeof normalizedEvent.Arguments !== 'object') {
+        normalizedEvent.Arguments = {};
+      }
+
+      // Initialize basic argument fields
+      REQUIRED_ARGUMENT_FIELDS.forEach(field => {
+        if (!normalizedEvent.Arguments[field]) {
+          normalizedEvent.Arguments[field] = '';
+        }
+      });
+
+      // Initialize/validate Object structure
+      if (!normalizedEvent.Arguments.Object || typeof normalizedEvent.Arguments.Object !== 'object') {
+        normalizedEvent.Arguments.Object = {};
+      }
+
+      // Initialize Object fields
+      REQUIRED_OBJECT_FIELDS.forEach(field => {
+        if (!normalizedEvent.Arguments.Object[field]) {
+          normalizedEvent.Arguments.Object[field] = '';
+        }
+      });
+
+      return normalizedEvent;
+    });
+
+    return {
+      ...abstract,
+      events: normalizedEvents
+    };
+  });
 };
 
 const FileUploader = ({ 
@@ -122,27 +154,6 @@ const FileUploader = ({
   const [expanded, setExpanded] = useState(true);
   const [uploadProgress, setUploadProgress] = useState({});
   const [uploadErrors, setUploadErrors] = useState({});
-
-  // Handle file selection
-  const handleFiles = async (selectedFiles) => {
-    const newFiles = Array.from(selectedFiles).slice(0, maxFiles);
-    
-    // Validate files
-    const validatedFiles = newFiles.map(file => ({
-      file,
-      id: Math.random().toString(36).substring(7),
-      status: validateFile(file)
-    }));
-
-    setFiles(prevFiles => [...prevFiles, ...validatedFiles]);
-
-    // Automatically upload valid files
-    for (const fileData of validatedFiles) {
-      if (fileData.status.valid) {
-        await uploadFile(fileData);
-      }
-    }
-  };
 
   // File validation
   const validateFile = (file) => {
@@ -163,6 +174,54 @@ const FileUploader = ({
     return { valid: true, error: null };
   };
 
+  // Handle file selection
+  const handleFiles = async (selectedFiles) => {
+    try {
+      const newFiles = Array.from(selectedFiles).slice(0, maxFiles);
+      
+      const validatedFiles = newFiles.map(file => ({
+        file,
+        id: Math.random().toString(36).substring(7),
+        status: validateFile(file)
+      }));
+
+      setFiles(prevFiles => [...prevFiles, ...validatedFiles]);
+
+      // Process valid files
+      for (const fileData of validatedFiles) {
+        if (fileData.status.valid) {
+          try {
+            const fileContent = await fileData.file.text();
+            const parsedContent = JSON.parse(fileContent);
+            
+            // Validate and normalize the content
+            const normalizedContent = validateJsonStructure(parsedContent);
+            
+            console.log('Normalized content:', {
+              name: fileData.file.name,
+              totalAbstracts: normalizedContent.length,
+              eventCount: normalizedContent.reduce(
+                (sum, abstract) => sum + abstract.events.length, 0
+              )
+            });
+            
+            await uploadFile({
+              ...fileData,
+              normalizedContent
+            });
+          } catch (error) {
+            setUploadErrors(prev => ({
+              ...prev,
+              [fileData.id]: error.message
+            }));
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error handling files:', error);
+    }
+  };
+
   // File upload
   const uploadFile = async (fileData) => {
     try {
@@ -170,19 +229,6 @@ const FileUploader = ({
         ...prev,
         [fileData.id]: 0
       }));
-
-      // Read file content
-      const fileContent = await fileData.file.text();
-      let parsedContent;
-      
-      try {
-        parsedContent = JSON.parse(fileContent);
-      } catch (error) {
-        throw new Error('Invalid JSON format');
-      }
-
-      // Validate JSON structure
-      validateJsonStructure(parsedContent);
 
       // Simulate upload progress
       const progressInterval = setInterval(() => {
@@ -192,10 +238,10 @@ const FileUploader = ({
         }));
       }, 200);
 
-      // Actual file upload
+      // Actual file upload with normalized content
       const result = await onUpload({
         name: fileData.file.name,
-        content: parsedContent
+        content: fileData.normalizedContent
       });
 
       clearInterval(progressInterval);
@@ -229,7 +275,7 @@ const FileUploader = ({
     }
   };
 
-  // Keep the rest of the component unchanged
+  // Drag and drop handlers
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -251,7 +297,7 @@ const FileUploader = ({
     }
   };
 
-  // Render file status icon
+  // File status icon component
   const FileStatusIcon = ({ fileData }) => {
     if (uploadErrors[fileData.id]) {
       return <ErrorIcon color="error" />;
@@ -265,7 +311,6 @@ const FileUploader = ({
     return <FileIcon color="primary" />;
   };
 
-  // Keep the rest of the JSX unchanged
   return (
     <Box sx={{ width: '100%' }}>
       {/* Header */}
