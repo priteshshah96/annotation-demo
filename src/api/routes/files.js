@@ -57,7 +57,32 @@ router.get('/:fileId?', async (req, res) => {
       });
     }
 
-    // Rest of the GET logic remains the same...
+    // Get all files
+    const files = await File.find({ userId: mongoUserId }).sort({ uploadDate: -1 });
+
+    const filesWithProgress = await Promise.all(files.map(async (file) => {
+      const completedSteps = await Annotation.countDocuments({
+        fileId: file._id,
+        userId: mongoUserId
+      });
+
+      const progress = Math.min((completedSteps * 100) / file.totalSteps, 100);
+
+      return {
+        _id: file._id,
+        name: file.name,
+        totalSteps: file.totalSteps,
+        progress,
+        uploadDate: file.uploadDate,
+        metadata: file.metadata || {}
+      };
+    }));
+
+    res.json({
+      success: true,
+      files: filesWithProgress
+    });
+
   } catch (error) {
     console.error('Files API error:', error);
     res.status(500).json({

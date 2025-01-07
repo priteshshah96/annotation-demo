@@ -1,10 +1,8 @@
-// src/components/dashboard/FileList.jsx
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   List,
   ListItem,
-  ListItemText,
   Box,
   Typography,
   Chip,
@@ -21,6 +19,8 @@ import {
   PlayArrow as StartIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
+import FileUploader from './FileUploader'; // Import FileUploader
+import { fileApi } from '../../services/fileApi'; // Import fileApi
 
 const FileListItem = ({ 
   file, 
@@ -52,10 +52,12 @@ const FileListItem = ({
   // Calculate counts
   const abstractCount = file.abstracts?.length || 0;
   const eventCount = file.abstracts?.reduce((total, abstract) => {
-    // Count events within each abstract
-    const eventsInAbstract = abstract.events?.length || 0;
-    return total + eventsInAbstract;
+    return total + (abstract.events?.length || 0);
   }, 0) || 0;
+
+  // Calculate progress dynamically
+  const completedSteps = file.annotations ? Object.keys(file.annotations).length : 0;
+  const progress = file.totalSteps > 0 ? Math.round((completedSteps / file.totalSteps) * 100) : 0;
 
   return (
     <Paper
@@ -79,10 +81,10 @@ const FileListItem = ({
               {file.name}
             </Typography>
             <Chip
-              label={file.progress === 100 ? 'Completed' : 'In Progress'}
-              color={file.progress === 100 ? 'success' : 'primary'}
+              label={progress === 100 ? 'Completed' : 'In Progress'}
+              color={progress === 100 ? 'success' : 'primary'}
               size="small"
-              variant={file.progress === 100 ? 'filled' : 'outlined'}
+              variant={progress === 100 ? 'filled' : 'outlined'}
             />
           </Box>
           
@@ -109,19 +111,19 @@ const FileListItem = ({
               <Box sx={{ flexGrow: 1, maxWidth: '300px' }}>
                 <LinearProgress
                   variant="determinate"
-                  value={file.progress}
+                  value={progress}
                   sx={{
                     height: 6,
                     borderRadius: 3,
-                    bgcolor: `${getStatusColor(file.progress)}15`,
+                    bgcolor: `${getStatusColor(progress)}15`,
                     '& .MuiLinearProgress-bar': {
-                      bgcolor: getStatusColor(file.progress)
+                      bgcolor: getStatusColor(progress)
                     }
                   }}
                 />
               </Box>
-              <Typography variant="caption" sx={{ color: getStatusColor(file.progress) }}>
-                {Math.round(file.progress)}%
+              <Typography variant="caption" sx={{ color: getStatusColor(progress) }}>
+                {Math.round(progress)}%
               </Typography>
             </Box>
           )}
@@ -130,21 +132,21 @@ const FileListItem = ({
         {/* Action Buttons */}
         <Fade in={isHovered || isSelected}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Tooltip title={file.progress === 100 ? "View Annotations" : "Continue Annotating"}>
+            <Tooltip title={progress === 100 ? "View Annotations" : "Continue Annotating"}>
               <Button
                 variant="contained"
                 size="small"
                 onClick={() => onNavigate(`/annotate/${file._id}`)}
-                startIcon={file.progress === 100 ? <ViewIcon /> : <StartIcon />}
+                startIcon={progress === 100 ? <ViewIcon /> : <StartIcon />}
                 sx={{
                   minWidth: 100,
-                  bgcolor: file.progress === 100 ? 'success.main' : 'primary.main',
+                  bgcolor: progress === 100 ? 'success.main' : 'primary.main',
                   '&:hover': {
-                    bgcolor: file.progress === 100 ? 'success.dark' : 'primary.dark'
+                    bgcolor: progress === 100 ? 'success.dark' : 'primary.dark'
                   }
                 }}
               >
-                {file.progress === 100 ? 'View' : 'Annotate'}
+                {progress === 100 ? 'View' : 'Annotate'}
               </Button>
             </Tooltip>
 
@@ -171,8 +173,26 @@ const FileList = ({
   onMenuOpen,
   loading = false,
   error = null,
-  selectedFileId = null
+  selectedFileId = null,
+  userId // Add userId prop
 }) => {
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleUpload = async (data) => {
+    try {
+      setIsUploading(true);
+      await fileApi.uploadFile({
+        ...data,
+        userId // Ensure userId is passed
+      });
+      onNavigate('/'); // Navigate back to the dashboard after upload
+    } catch (error) {
+      console.error('File upload error:', error);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ p: 4, textAlign: 'center' }}>
@@ -193,6 +213,14 @@ const FileList = ({
         <Typography variant="body2">
           {error}
         </Typography>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={() => window.location.reload()}
+          sx={{ mt: 2 }}
+        >
+          Retry
+        </Button>
       </Box>
     );
   }
@@ -213,6 +241,11 @@ const FileList = ({
         <Typography variant="body1" color="text.secondary">
           Upload a JSON file to begin annotation.
         </Typography>
+        <FileUploader
+          onUpload={handleUpload}
+          isUploading={isUploading}
+          userId={userId}
+        />
       </Box>
     );
   }
@@ -240,13 +273,16 @@ FileList.propTypes = {
       events: PropTypes.array
     })),
     uploadDate: PropTypes.string.isRequired,
-    progress: PropTypes.number.isRequired,
+    progress: PropTypes.number,
+    totalSteps: PropTypes.number,
+    annotations: PropTypes.object
   })).isRequired,
   onNavigate: PropTypes.func.isRequired,
   onMenuOpen: PropTypes.func.isRequired,
   loading: PropTypes.bool,
   error: PropTypes.string,
-  selectedFileId: PropTypes.string
+  selectedFileId: PropTypes.string,
+  userId: PropTypes.string.isRequired // Add userId prop type
 };
 
 export default FileList;

@@ -1,4 +1,3 @@
-// server.js
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -7,6 +6,7 @@ import { clerkClient } from '@clerk/clerk-sdk-node';
 import { User } from './src/models/User.js';
 import { File } from './src/models/File.js';
 import { Annotation } from './src/models/Annotation.js';
+import { connectDB } from './src/lib/db.js'; // Import the connectDB function
 
 // Load environment variables
 dotenv.config();
@@ -229,7 +229,6 @@ app.get('/api/files', authenticateAndSync, async (req, res) => {
   }
 });
 
-
 // Get single file with annotations
 app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
   try {
@@ -344,8 +343,7 @@ app.delete('/api/files/:fileId', authenticateAndSync, async (req, res) => {
   }
 });
 
-// file upload endpoint
-
+// File upload endpoint
 app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
   try {
     const { name, content } = req.body;
@@ -550,7 +548,6 @@ app.delete('/api/annotations/:fileId', authenticateAndSync, async (req, res) => 
   }
 });
 
-
 // Sync annotations
 app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) => {
   try {
@@ -606,7 +603,6 @@ app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) 
     });
   }
 });
-
 
 // Reset annotations
 app.post('/api/annotations/:fileId/reset', authenticateAndSync, async (req, res) => {
@@ -674,118 +670,17 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-// In server.js, update the port configuration
 const startServer = async () => {
   try {
-    console.log('Attempting MongoDB connection...');
-    console.log('MongoDB URI:', process.env.VITE_MONGODB_URI ? 'URI is set' : 'URI is missing');
-
-    // Add connection event listeners before connecting
-    mongoose.connection.on('connected', () => {
-      console.log('MongoDB connected successfully');
-      console.log('Database name:', mongoose.connection.db.databaseName);
-      
-      // List collections to verify database state
-      mongoose.connection.db.listCollections().toArray()
-        .then(collections => {
-          console.log('Available collections:', collections.map(c => c.name));
-        })
-        .catch(err => console.error('Error listing collections:', err));
-    });
-
-    mongoose.connection.on('error', (err) => {
-      console.error('MongoDB connection error:', err);
-    });
-
-    mongoose.connection.on('disconnected', () => {
-      console.log('MongoDB disconnected');
-    });
-
-    // Enable debugging in development
-    if (process.env.NODE_ENV === 'development') {
-      mongoose.set('debug', true);
-    }
-
-    await mongoose.connect(process.env.VITE_MONGODB_URI, {
-      serverApi: {
-        version: '1',
-        strict: true,
-        deprecationErrors: true
-      },
-      retryWrites: true,
-      w: 'majority',
-      connectTimeoutMS: 30000,
-      socketTimeoutMS: 45000,
-      maxPoolSize: 50
-    });
-
-    // Log successful connection details
-    console.log('Connected to MongoDB:', {
-      database: mongoose.connection.db.databaseName,
-      host: mongoose.connection.host,
-      port: mongoose.connection.port,
-      readyState: mongoose.connection.readyState
-    });
-
-    // Find available port
-    const findAvailablePort = async (startPort) => {
-      let port = startPort;
-      while (port < startPort + 10) {
-        try {
-          await new Promise((resolve, reject) => {
-            const server = app.listen(port, '0.0.0.0', () => {
-              server.removeListener('error', reject);
-              resolve(server);
-            }).on('error', (err) => {
-              if (err.code === 'EADDRINUSE') {
-                server.close();
-                port++;
-                reject(err);
-              } else {
-                reject(err);
-              }
-            });
-          });
-          console.log(`Server running on port ${port}`);
-          console.log(`Environment: ${process.env.NODE_ENV}`);
-          console.log('MongoDB connection state:', mongoose.connection.readyState);
-          
-          // Add verification of collections after server starts
-          const collections = await mongoose.connection.db.listCollections().toArray();
-          console.log('Available collections after server start:', 
-            collections.map(c => ({ name: c.name, type: c.type }))
-          );
-          
-          return;
-        } catch (err) {
-          if (err.code !== 'EADDRINUSE') throw err;
-        }
-      }
-      throw new Error('No available ports found');
-    };
-
-    const startPort = process.env.PORT || 3000;
-    await findAvailablePort(startPort);
-
-  } catch (error) {
-    console.error('Server startup error:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-      code: error.code
-    });
-    console.error('Connection details:', {
-      uri: process.env.VITE_MONGODB_URI ? 'URI is set' : 'URI is missing',
-      env: process.env.NODE_ENV,
-      mongooseState: mongoose.connection.readyState
-    });
+    await connectDB(); // Use the imported connectDB function
     
-    if (process.env.NODE_ENV === 'production') {
-      console.log('Attempting to recover from error...');
-      setTimeout(startServer, 5000);
-    } else {
-      process.exit(1);
-    }
+    app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+      console.log(`Environment: ${process.env.NODE_ENV}`);
+    });
+  } catch (error) {
+    console.error('Server startup error:', error);
+    process.exit(1);
   }
 };
 

@@ -1,185 +1,146 @@
-// src/lib/utils.js
+import mongoose from 'mongoose';
 
-const EVENT_TYPES = [
-  'Background/Introduction',
-  'Methods/Approach',
-  'Results/Findings',
-  'Conclusions/Implications'
-];
+// Define the Arguments schema
+const ArgumentsSchema = new mongoose.Schema({
+  Agent: { type: String, default: '' },
+  Object: {
+    'Base Object': { type: String, default: '' },
+    'Base Modifier': { type: String, default: '' },
+    'Attached Object': { type: String, default: '' },
+    'Attached Modifier': { type: String, default: '' }
+  },
+  Context: { type: String, default: '' },
+  Purpose: { type: String, default: '' },
+  Method: { type: String, default: '' },
+  Results: { type: String, default: '' },
+  Analysis: { type: String, default: '' },
+  Challenge: { type: String, default: '' },
+  Ethical: { type: String, default: '' },
+  Implications: { type: String, default: '' },
+  Contradictions: { type: String, default: '' }
+}, { _id: false });
 
-const REQUIRED_ARGUMENT_FIELDS = [
-  'Agent',
-  'Object',
-  'Context',
-  'Purpose',
-  'Method',
-  'Results',
-  'Analysis',
-  'Challenge',
-  'Ethical',
-  'Implications',
-  'Contradictions'
-];
+// Define the Event schema
+const EventSchema = new mongoose.Schema({
+  // Event type fields (only one should be present)
+  'Background/Introduction': { type: String, default: '' },
+  'Methods/Approach': { type: String, default: '' },
+  'Results/Findings': { type: String, default: '' },
+  'Conclusions/Implications': { type: String, default: '' },
 
-class ValidationError extends Error {
-  constructor(message, path = '') {
-    super(message);
-    this.name = 'ValidationError';
-    this.path = path;
-  }
-}
+  // Event-level text field
+  Text: { type: String, required: true },
 
-export const validateFileStructure = (data) => {
-  if (!Array.isArray(data)) {
-    throw new ValidationError('Invalid file format: Root should be an array of abstracts');
-  }
+  // Main Action field
+  'Main Action': { type: String, required: true },
 
-  // Validate each abstract
-  for (const [abstractIndex, abstract] of data.entries()) {
-    const abstractPath = `abstract[${abstractIndex}]`;
+  // Arguments object
+  Arguments: { type: ArgumentsSchema, required: true },
 
-    // Check required abstract fields
-    if (!abstract.paper_code || typeof abstract.paper_code !== 'string') {
-      throw new ValidationError('Missing or invalid paper_code', abstractPath);
-    }
+  // Track if the event is annotated
+  isAnnotated: { type: Boolean, default: false }
+}, { _id: false });
 
-    if (!abstract.abstract || typeof abstract.abstract !== 'string') {
-      throw new ValidationError('Missing or invalid abstract text', abstractPath);
-    }
+// Define the Abstract schema
+const AbstractSchema = new mongoose.Schema({
+  // Paper code (required)
+  paper_code: {
+    type: String,
+    required: [true, 'Paper code is required'],
+    trim: true
+  },
 
-    if (!Array.isArray(abstract.events)) {
-      throw new ValidationError('events must be an array', abstractPath);
-    }
+  // Abstract text (required)
+  abstract: {
+    type: String,
+    required: [true, 'Abstract text is required']
+  },
 
-    if (abstract.events.length === 0) {
-      throw new ValidationError('events array cannot be empty', abstractPath);
-    }
-
-    // Validate each event
-    for (const [eventIndex, event] of abstract.events.entries()) {
-      const eventPath = `${abstractPath}.events[${eventIndex}]`;
-
-      // Check if the event has one of the valid event types as a property
-      const hasValidType = EVENT_TYPES.some(type => type in event);
-      if (!hasValidType) {
-        throw new ValidationError(
-          `Event must have one of these types as a property: ${EVENT_TYPES.join(', ')}`,
-          eventPath
-        );
-      }
-
-      // Check event text
-      if (!event.Text || typeof event.Text !== 'string') {
-        throw new ValidationError('Missing or invalid Text field', eventPath);
-      }
-
-      // Validate Main Action field exists
-      if (!('Main Action' in event)) {
-        throw new ValidationError('Missing Main Action field', eventPath);
-      }
-
-      // Validate Arguments object
-      if (!event.Arguments || typeof event.Arguments !== 'object') {
-        throw new ValidationError('Missing or invalid Arguments object', eventPath);
-      }
-
-      // Validate Object structure
-      if (!event.Arguments.Object || typeof event.Arguments.Object !== 'object') {
-        throw new ValidationError('Missing or invalid Arguments.Object structure', eventPath);
-      }
-
-      // Validate Object fields
-      const requiredObjectFields = [
-        'Base Object',
-        'Base Modifier',
-        'Attached Object',
-        'Attached Modifier'
-      ];
-
-      for (const field of requiredObjectFields) {
-        if (!(field in event.Arguments.Object)) {
-          throw new ValidationError(
-            `Missing ${field} in Arguments.Object`,
-            `${eventPath}.Arguments.Object`
-          );
-        }
-      }
-
-      // Validate required argument fields
-      for (const field of REQUIRED_ARGUMENT_FIELDS) {
-        if (field !== 'Object' && !(field in event.Arguments)) {
-          throw new ValidationError(
-            `Missing ${field} in Arguments`,
-            `${eventPath}.Arguments`
-          );
-        }
-      }
+  // Events array (required, with at least one event)
+  events: {
+    type: [EventSchema],
+    required: [true, 'Events array is required'],
+    validate: {
+      validator: function(events) {
+        return events.length > 0; // At least one event is required
+      },
+      message: 'At least one event is required'
     }
   }
+}, { _id: false });
 
-  return true;
-};
+// Define the File schema
+const FileSchema = new mongoose.Schema({
+  // User ID (required)
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
+  },
 
-export const calculateTotalSteps = (data) => {
-  if (!Array.isArray(data)) return 0;
+  // File name (required)
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
 
-  return data.reduce((totalSteps, abstract) => {
-    if (!abstract.events || !Array.isArray(abstract.events)) {
-      return totalSteps;
+  // Abstracts array (required, with at least one abstract)
+  abstracts: {
+    type: [AbstractSchema],
+    required: [true, 'At least one abstract is required'],
+    validate: {
+      validator: function(abstracts) {
+        return abstracts.length > 0; // At least one abstract is required
+      },
+      message: 'At least one abstract is required'
     }
+  },
 
-    return totalSteps + abstract.events.reduce((eventSteps, event) => {
-      let steps = 0;
+  // Progress (default: 0, range: 0-100)
+  progress: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100
+  },
 
-      // Count filled event types
-      EVENT_TYPES.forEach(type => {
-        if (event[type] && event[type].trim()) steps += 1;
-      });
-
-      // Count Main Action if not empty
-      if (event['Main Action']?.trim()) steps += 1;
-
-      // Count Arguments
-      if (event.Arguments) {
-        // Count filled direct arguments
-        REQUIRED_ARGUMENT_FIELDS
-          .filter(field => field !== 'Object')
-          .forEach(field => {
-            if (event.Arguments[field]?.trim()) steps += 1;
-          });
-
-        // Count filled Object fields
-        if (event.Arguments.Object) {
-          ['Base Object', 'Base Modifier', 'Attached Object', 'Attached Modifier']
-            .forEach(field => {
-              if (event.Arguments.Object[field]?.trim()) steps += 1;
-            });
-        }
-      }
-
-      return eventSteps + steps;
-    }, 0);
-  }, 0);
-};
-
-export const formatError = (error) => {
-  if (error instanceof ValidationError) {
-    return {
-      message: error.message,
-      path: error.path,
-      type: 'ValidationError'
-    };
+  // Upload date (default: current date)
+  uploadDate: {
+    type: Date,
+    default: Date.now
   }
-  
-  if (error.response?.data?.message) {
-    return {
-      message: error.response.data.message,
-      type: 'ApiError'
-    };
-  }
-  
+});
+
+// Method to calculate total abstracts and events
+FileSchema.methods.getAnnotationStats = function() {
+  const totalAbstracts = this.abstracts.length;
+  const totalEvents = this.abstracts.reduce((sum, abstract) => sum + abstract.events.length, 0);
+
   return {
-    message: error.message || 'An error occurred',
-    type: 'GeneralError'
+    totalAbstracts,
+    totalEvents
   };
 };
+
+// Method to update progress
+FileSchema.methods.updateProgress = function() {
+  const totalEvents = this.abstracts.reduce((sum, abstract) => sum + abstract.events.length, 0);
+  const annotatedEvents = this.abstracts.reduce((sum, abstract) => {
+    return sum + abstract.events.filter(event => event.isAnnotated).length;
+  }, 0);
+
+  this.progress = totalEvents > 0 ? Math.round((annotatedEvents / totalEvents) * 100) : 0;
+};
+
+// Pre-save middleware to update progress
+FileSchema.pre('save', function(next) {
+  this.updateProgress();
+  next();
+});
+
+// Export the File model
+export const File = mongoose.models?.File || mongoose.model('File', FileSchema);
+
+export default File;

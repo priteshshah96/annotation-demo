@@ -1,4 +1,3 @@
-// src/components/dashboard/FileUploader.jsx
 import React, { useState, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { 
@@ -12,7 +11,8 @@ import {
   ListItemText,
   IconButton,
   Collapse,
-  useTheme 
+  useTheme,
+  Button 
 } from '@mui/material';
 import {
   CloudUpload as UploadIcon,
@@ -22,6 +22,7 @@ import {
   Error as ErrorIcon,
   KeyboardArrowDown as ExpandIcon
 } from '@mui/icons-material';
+import { fileApi } from '../../services/fileApi'; // Import the fileApi
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ACCEPTED_TYPES = ['.json'];
@@ -104,7 +105,7 @@ const validateJsonStructure = (content) => {
 
       // Initialize/validate Main Action
       if (!normalizedEvent['Main Action']) {
-        normalizedEvent['Main Action'] = '';
+        normalizedEvent['Main Action'] = 'Default Main Action'; // Add a default value
       }
 
       // Initialize/validate Arguments structure
@@ -145,7 +146,8 @@ const FileUploader = ({
   onUpload, 
   isUploading = false, 
   multiple = false,
-  maxFiles = 5
+  maxFiles = 5,
+  userId // Add userId prop
 }) => {
   const theme = useTheme();
   const fileInputRef = useRef(null);
@@ -167,7 +169,7 @@ const FileUploader = ({
     if (file.size > MAX_FILE_SIZE) {
       return {
         valid: false,
-        error: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit.`
+        error: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit. Please upload a smaller file.`
       };
     }
 
@@ -178,11 +180,24 @@ const FileUploader = ({
   const handleFiles = async (selectedFiles) => {
     try {
       const newFiles = Array.from(selectedFiles).slice(0, maxFiles);
-      
-      const validatedFiles = newFiles.map(file => ({
-        file,
-        id: Math.random().toString(36).substring(7),
-        status: validateFile(file)
+
+      const validatedFiles = await Promise.all(newFiles.map(async (file) => {
+        const validation = validateFile(file);
+        if (!validation.valid) {
+          return { file, id: Math.random().toString(36).substring(7), status: validation };
+        }
+
+        try {
+          const fileContent = await file.text();
+          JSON.parse(fileContent); // Validate JSON content
+          return { file, id: Math.random().toString(36).substring(7), status: { valid: true, error: null } };
+        } catch (error) {
+          return {
+            file,
+            id: Math.random().toString(36).substring(7),
+            status: { valid: false, error: 'Invalid JSON file. Please upload a valid JSON file.' }
+          };
+        }
       }));
 
       setFiles(prevFiles => [...prevFiles, ...validatedFiles]);
@@ -193,22 +208,32 @@ const FileUploader = ({
           try {
             const fileContent = await fileData.file.text();
             const parsedContent = JSON.parse(fileContent);
-            
-            // Validate and normalize the content
             const normalizedContent = validateJsonStructure(parsedContent);
-            
-            console.log('Normalized content:', {
+
+            // Call the fileApi.uploadFile method with userId
+            await fileApi.uploadFile({
               name: fileData.file.name,
-              totalAbstracts: normalizedContent.length,
-              eventCount: normalizedContent.reduce(
-                (sum, abstract) => sum + abstract.events.length, 0
-              )
+              content: normalizedContent,
+              userId // Ensure userId is passed
             });
-            
-            await uploadFile({
-              ...fileData,
-              normalizedContent
-            });
+
+            setUploadProgress(prev => ({
+              ...prev,
+              [fileData.id]: 100
+            }));
+
+            // Call the onUpload callback after successful upload
+            onUpload();
+
+            // Remove file from list after successful upload
+            setTimeout(() => {
+              setFiles(prev => prev.filter(f => f.id !== fileData.id));
+              setUploadProgress(prev => {
+                const newProgress = { ...prev };
+                delete newProgress[fileData.id];
+                return newProgress;
+              });
+            }, 2000);
           } catch (error) {
             setUploadErrors(prev => ({
               ...prev,
@@ -219,59 +244,6 @@ const FileUploader = ({
       }
     } catch (error) {
       console.error('Error handling files:', error);
-    }
-  };
-
-  // File upload
-  const uploadFile = async (fileData) => {
-    try {
-      setUploadProgress(prev => ({
-        ...prev,
-        [fileData.id]: 0
-      }));
-
-      // Simulate upload progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => ({
-          ...prev,
-          [fileData.id]: Math.min((prev[fileData.id] || 0) + 10, 90)
-        }));
-      }, 200);
-
-      // Actual file upload with normalized content
-      const result = await onUpload({
-        name: fileData.file.name,
-        content: fileData.normalizedContent
-      });
-
-      clearInterval(progressInterval);
-      setUploadProgress(prev => ({
-        ...prev,
-        [fileData.id]: 100
-      }));
-
-      // Remove file from list after successful upload
-      setTimeout(() => {
-        setFiles(prev => prev.filter(f => f.id !== fileData.id));
-        setUploadProgress(prev => {
-          const newProgress = { ...prev };
-          delete newProgress[fileData.id];
-          return newProgress;
-        });
-      }, 2000);
-
-      return result;
-
-    } catch (error) {
-      setUploadErrors(prev => ({
-        ...prev,
-        [fileData.id]: error.message
-      }));
-      setUploadProgress(prev => {
-        const newProgress = { ...prev };
-        delete newProgress[fileData.id];
-        return newProgress;
-      });
     }
   };
 
@@ -421,7 +393,8 @@ const FileUploader = ({
                       value={uploadProgress[fileData.id]} 
                       sx={{
                         height: 6,
-                        borderRadius: 3
+                        borderRadius: 3,
+                        transition: 'all 0.3s ease-in-out'
                       }}
                     />
                   </Box>
@@ -445,6 +418,21 @@ const FileUploader = ({
             ))}
           </List>
         )}
+
+        {/* Reset Button */}
+        {files.length > 0 && (
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setFiles([]);
+              setUploadErrors({});
+              setUploadProgress({});
+            }}
+            sx={{ mt: 2 }}
+          >
+            Reset
+          </Button>
+        )}
       </Collapse>
     </Box>
   );
@@ -454,7 +442,8 @@ FileUploader.propTypes = {
   onUpload: PropTypes.func.isRequired,
   isUploading: PropTypes.bool,
   multiple: PropTypes.bool,
-  maxFiles: PropTypes.number
+  maxFiles: PropTypes.number,
+  userId: PropTypes.string.isRequired // Add userId prop type
 };
 
 export default FileUploader;

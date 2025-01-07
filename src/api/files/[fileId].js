@@ -14,8 +14,17 @@ export const config = {
 export default async function handler(req, res) {
   try {
     // Enable CORS
+    const allowedOrigins = [
+      'http://localhost:3000', // Local development
+      'https://your-render-app-url.onrender.com' // Production
+    ];
+
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+
     res.setHeader('Access-Control-Allow-Credentials', true);
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,DELETE,POST,OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
@@ -58,6 +67,7 @@ export default async function handler(req, res) {
   }
 }
 
+
 async function handleGet(req, res, userId) {
   const { fileId } = req.query;
 
@@ -86,8 +96,19 @@ async function handleGet(req, res, userId) {
       acc[key] = annotation.answer;
       return acc;
     }, {});
-    
-    const progress = Math.min((annotations.length * 100) / file.totalSteps, 100);
+
+    // Calculate total abstracts and events
+    const totalAbstracts = file.abstracts.length;
+    const totalEvents = file.abstracts.reduce((sum, abstract) => sum + abstract.events.length, 0);
+
+    // Calculate annotated events using annotations
+    const annotatedEvents = await Annotation.countDocuments({
+      fileId: file._id,
+      userId
+    });
+
+    // Calculate progress
+    const progress = totalEvents > 0 ? Math.round((annotatedEvents / totalEvents) * 100) : 0;
 
     return res.json({
       success: true,
@@ -95,7 +116,8 @@ async function handleGet(req, res, userId) {
         _id: file._id,
         name: file.name,
         abstracts: file.abstracts,
-        totalSteps: file.totalSteps,
+        totalAbstracts,
+        totalEvents,
         progress,
         uploadDate: file.uploadDate,
         metadata: file.metadata || {},
@@ -109,17 +131,20 @@ async function handleGet(req, res, userId) {
     .sort({ uploadDate: -1 });
 
   const filesWithProgress = await Promise.all(files.map(async (file) => {
-    const annotationCount = await Annotation.countDocuments({
+    const totalAbstracts = file.abstracts.length;
+    const totalEvents = file.abstracts.reduce((sum, abstract) => sum + abstract.events.length, 0);
+    const annotatedEvents = await Annotation.countDocuments({
       fileId: file._id,
       userId
     });
-    
-    const progress = Math.min((annotationCount * 100) / file.totalSteps, 100);
-    
+
+    const progress = totalEvents > 0 ? Math.round((annotatedEvents / totalEvents) * 100) : 0;
+
     return {
       _id: file._id,
       name: file.name,
-      totalSteps: file.totalSteps,
+      totalAbstracts,
+      totalEvents,
       progress,
       uploadDate: file.uploadDate,
       metadata: file.metadata || {}
@@ -151,44 +176,42 @@ async function handlePost(req, res, userId) {
     });
   }
 
-  const totalSteps = content.reduce((total, abstract) => {
-    if (!abstract.events || !Array.isArray(abstract.events)) {
-      return total;
-    }
-    return total + abstract.events.reduce((eventTotal, event) => {
-      let steps = 0;
-      // Count non-empty event type fields
-      ['Background/Introduction', 'Methods/Approach', 'Results/Findings', 'Conclusions/Implications'].forEach(type => {
-        if (event[type]) steps++;
+  // Calculate total abstracts and events
+  const totalAbstracts = content.length;
+  const totalEvents = content.reduce((sum, abstract) => sum + (abstract.events?.length || 0), 0);
+
+  // Calculate totalSteps
+  const totalSteps = content.reduce((steps, abstract) => {
+    return steps + abstract.events.reduce((eventSteps, event) => {
+      // Count non-empty event types
+      const eventTypes = ['Background/Introduction', 'Methods/Approach', 'Results/Findings', 'Conclusions/Implications'];
+      eventTypes.forEach(type => {
+        if (event[type]) eventSteps++;
       });
-      
-      // Count Main Action if present
-      if (event['Main Action']) steps++;
-      
-      // Count argument fields
-      if (event.Arguments) {
-        if (event.Arguments.Agent) steps++;
-        if (event.Arguments.Context) steps++;
-        if (event.Arguments.Purpose) steps++;
-        if (event.Arguments.Method) steps++;
-        if (event.Arguments.Results) steps++;
-        if (event.Arguments.Analysis) steps++;
-        if (event.Arguments.Challenge) steps++;
-        if (event.Arguments.Ethical) steps++;
-        if (event.Arguments.Implications) steps++;
-        if (event.Arguments.Contradictions) steps++;
-        
-        // Count Object fields
-        const obj = event.Arguments.Object;
-        if (obj) {
-          if (obj['Base Object']) steps++;
-          if (obj['Base Modifier']) steps++;
-          if (obj['Attached Object']) steps++;
-          if (obj['Attached Modifier']) steps++;
-        }
-      }
-      
-      return eventTotal + steps;
+
+      // Count Main Action
+      if (event['Main Action']) eventSteps++;
+
+      // Count Arguments fields
+      const args = event.Arguments;
+      if (args.Agent) eventSteps++;
+      if (args.Context) eventSteps++;
+      if (args.Purpose) eventSteps++;
+      if (args.Method) eventSteps++;
+      if (args.Results) eventSteps++;
+      if (args.Analysis) eventSteps++;
+      if (args.Challenge) eventSteps++;
+      if (args.Ethical) eventSteps++;
+      if (args.Implications) eventSteps++;
+      if (args.Contradictions) eventSteps++;
+
+      // Count Object fields
+      if (args.Object['Base Object']) eventSteps++;
+      if (args.Object['Base Modifier']) eventSteps++;
+      if (args.Object['Attached Object']) eventSteps++;
+      if (args.Object['Attached Modifier']) eventSteps++;
+
+      return eventSteps;
     }, 0);
   }, 0);
 
@@ -196,7 +219,9 @@ async function handlePost(req, res, userId) {
     userId,
     name,
     abstracts: content,
-    totalSteps,
+    totalAbstracts,
+    totalEvents,
+    totalSteps, // Add totalSteps here
     progress: 0,
     uploadDate: new Date(),
     metadata: metadata || {}
@@ -209,7 +234,8 @@ async function handlePost(req, res, userId) {
     file: {
       _id: savedFile._id,
       name: savedFile.name,
-      totalSteps: savedFile.totalSteps,
+      totalAbstracts: savedFile.totalAbstracts,
+      totalEvents: savedFile.totalEvents,
       progress: savedFile.progress,
       uploadDate: savedFile.uploadDate,
       metadata: savedFile.metadata
@@ -233,6 +259,7 @@ async function handleDelete(req, res, userId) {
     });
   }
 
+  // Delete both file and its annotations
   await Promise.all([
     File.deleteOne({ _id: fileId }),
     Annotation.deleteMany({ fileId })

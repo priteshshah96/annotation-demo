@@ -1,8 +1,7 @@
-// src/pages/UserDashboard.jsx
 import React, { useState, useEffect } from 'react';
-import { 
-  Container, 
-  Typography, 
+import {
+  Container,
+  Typography,
   Paper,
   CircularProgress,
   Divider
@@ -24,7 +23,7 @@ import { useSnackbar } from '../hooks/useSnackbar';
 const UserDashboard = () => {
   // Auth & Navigation
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
-  const { getToken } = useAuth();
+  const { userId } = useAuth();
   const { signOut } = useClerk();
   const navigate = useNavigate();
 
@@ -47,12 +46,8 @@ const UserDashboard = () => {
   const handleUpload = async (data) => {
     try {
       setIsUploading(true);
-      
-      // Upload file
       await fileApi.uploadFile(data);
-
-      // Refresh data
-      await fetchDashboardData();
+      await fetchDashboardData(); // Refresh the file list after upload
       showSnackbar('File uploaded successfully', 'success');
     } catch (error) {
       console.error('File upload error:', error);
@@ -78,7 +73,7 @@ const UserDashboard = () => {
   const handleDeleteFile = async () => {
     try {
       await fileApi.deleteFile(selectedFileId);
-      await fetchDashboardData();
+      await fetchDashboardData(); // Refresh the file list after deletion
       showSnackbar('File deleted successfully', 'success');
     } catch (error) {
       showSnackbar('Error deleting file', 'error');
@@ -89,8 +84,6 @@ const UserDashboard = () => {
   const handleExportFile = async () => {
     try {
       const response = await fileApi.getFile(selectedFileId);
-      
-      // Create and trigger download
       const blob = new Blob([JSON.stringify(response.file, null, 2)], {
         type: 'application/json'
       });
@@ -125,15 +118,11 @@ const UserDashboard = () => {
     try {
       setLoading(true);
       const response = await fileApi.getFiles();
-      console.log('Files response:', response); // Debug log
-      
-      // Ensure files have full data
       const filesWithData = response.files?.map(file => ({
         ...file,
         abstracts: file.abstracts || [],
         progress: file.progress || 0
       })) || [];
-
       setFiles(filesWithData);
     } catch (error) {
       showSnackbar('Error loading dashboard data', 'error');
@@ -154,7 +143,6 @@ const UserDashboard = () => {
     if (isUserLoaded && isSignedIn) {
       fetchDashboardData();
 
-      // Add listener for annotation updates
       const handleAnnotationUpdate = () => {
         fetchDashboardData();
       };
@@ -169,11 +157,11 @@ const UserDashboard = () => {
   // Loading State
   if (!isUserLoaded || loading) {
     return (
-      <Container sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh' 
+      <Container sx={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh'
       }}>
         <CircularProgress />
       </Container>
@@ -195,6 +183,7 @@ const UserDashboard = () => {
         <FileUploader
           onUpload={handleUpload}
           isUploading={isUploading}
+          userId={userId} // Pass userId to FileUploader
         />
 
         <Divider sx={{ my: 3 }} />
@@ -205,6 +194,7 @@ const UserDashboard = () => {
           onNavigate={handleNavigate}
           selectedFileId={selectedFileId}
           loading={loading}
+          userId={userId} // Pass userId to FileList
         />
 
         <FileActionsMenu
