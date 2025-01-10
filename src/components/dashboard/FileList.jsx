@@ -1,3 +1,4 @@
+// FileList.jsx
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import {
@@ -19,20 +20,14 @@ import {
   PlayArrow as StartIcon,
   Visibility as ViewIcon,
 } from '@mui/icons-material';
-import FileUploader from './FileUploader'; // Import FileUploader
-import { fileApi } from '../../services/fileApi'; // Import fileApi
+import FileUploader from './FileUploader';
+import { fileApi } from '../../services/fileApi';
 
-const FileListItem = ({ 
-  file, 
-  onNavigate, 
-  onMenuOpen, 
-  isSelected,
-  showProgress = true 
-}) => {
+// FileListItem Component
+const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
 
-  // Format date
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -43,21 +38,13 @@ const FileListItem = ({
     });
   };
 
-  const getStatusColor = (progress) => {
-    if (progress === 100) return theme.palette.success.main;
-    if (progress > 0) return theme.palette.primary.main;
-    return theme.palette.grey[500];
+  // Calculate stats once
+  const stats = {
+    abstractCount: file.abstracts?.length || 0,
+    eventCount: file.abstracts?.reduce((total, abstract) => 
+      total + (abstract.events?.length || 0), 0) || 0,
+    progress: file.progress || 0,
   };
-
-  // Calculate counts
-  const abstractCount = file.abstracts?.length || 0;
-  const eventCount = file.abstracts?.reduce((total, abstract) => {
-    return total + (abstract.events?.length || 0);
-  }, 0) || 0;
-
-  // Calculate progress dynamically
-  const completedSteps = file.annotations ? Object.keys(file.annotations).length : 0;
-  const progress = file.totalSteps > 0 ? Math.round((completedSteps / file.totalSteps) * 100) : 0;
 
   return (
     <Paper
@@ -75,29 +62,27 @@ const FileListItem = ({
     >
       <ListItem sx={{ px: 2, py: 1.5 }}>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          {/* File Header */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
               {file.name}
             </Typography>
             <Chip
-              label={progress === 100 ? 'Completed' : 'In Progress'}
-              color={progress === 100 ? 'success' : 'primary'}
+              label={stats.progress === 100 ? 'Completed' : 'In Progress'}
+              color={stats.progress === 100 ? 'success' : 'primary'}
               size="small"
-              variant={progress === 100 ? 'filled' : 'outlined'}
+              variant={stats.progress === 100 ? 'filled' : 'outlined'}
             />
           </Box>
           
-          {/* File Stats */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, color: 'text.secondary' }}>
-            {abstractCount > 0 && (
+            {stats.abstractCount > 0 && (
               <Typography variant="caption">
-                {`${abstractCount} Abstract${abstractCount !== 1 ? 's' : ''}`}
+                {`${stats.abstractCount} Abstract${stats.abstractCount !== 1 ? 's' : ''}`}
               </Typography>
             )}
-            {eventCount > 0 && (
+            {stats.eventCount > 0 && (
               <Typography variant="caption">
-                {`${eventCount} Event${eventCount !== 1 ? 's' : ''}`}
+                {`${stats.eventCount} Event${stats.eventCount !== 1 ? 's' : ''}`}
               </Typography>
             )}
             <Typography variant="caption">
@@ -105,48 +90,53 @@ const FileListItem = ({
             </Typography>
           </Box>
 
-          {/* Progress Bar */}
-          {showProgress && (
-            <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Box sx={{ flexGrow: 1, maxWidth: '300px' }}>
-                <LinearProgress
-                  variant="determinate"
-                  value={progress}
-                  sx={{
-                    height: 6,
-                    borderRadius: 3,
-                    bgcolor: `${getStatusColor(progress)}15`,
-                    '& .MuiLinearProgress-bar': {
-                      bgcolor: getStatusColor(progress)
-                    }
-                  }}
-                />
-              </Box>
-              <Typography variant="caption" sx={{ color: getStatusColor(progress) }}>
-                {Math.round(progress)}%
-              </Typography>
+          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ flexGrow: 1, maxWidth: '300px' }}>
+              <LinearProgress
+                variant="determinate"
+                value={stats.progress}
+                sx={{
+                  height: 6,
+                  borderRadius: 3,
+                  bgcolor: theme.palette.grey[100],
+                  '& .MuiLinearProgress-bar': {
+                    bgcolor: stats.progress === 100 ? 
+                      theme.palette.success.main : 
+                      theme.palette.primary.main
+                  }
+                }}
+              />
             </Box>
-          )}
+            <Typography 
+              variant="caption" 
+              sx={{ 
+                color: stats.progress === 100 ? 
+                  theme.palette.success.main : 
+                  theme.palette.primary.main 
+              }}
+            >
+              {stats.progress}%
+            </Typography>
+          </Box>
         </Box>
 
-        {/* Action Buttons */}
         <Fade in={isHovered || isSelected}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Tooltip title={progress === 100 ? "View Annotations" : "Continue Annotating"}>
+            <Tooltip title={stats.progress === 100 ? "View Annotations" : "Continue Annotating"}>
               <Button
                 variant="contained"
                 size="small"
                 onClick={() => onNavigate(`/annotate/${file._id}`)}
-                startIcon={progress === 100 ? <ViewIcon /> : <StartIcon />}
+                startIcon={stats.progress === 100 ? <ViewIcon /> : <StartIcon />}
                 sx={{
                   minWidth: 100,
-                  bgcolor: progress === 100 ? 'success.main' : 'primary.main',
+                  bgcolor: stats.progress === 100 ? 'success.main' : 'primary.main',
                   '&:hover': {
-                    bgcolor: progress === 100 ? 'success.dark' : 'primary.dark'
+                    bgcolor: stats.progress === 100 ? 'success.dark' : 'primary.dark'
                   }
                 }}
               >
-                {progress === 100 ? 'View' : 'Annotate'}
+                {stats.progress === 100 ? 'View' : 'Annotate'}
               </Button>
             </Tooltip>
 
@@ -167,6 +157,7 @@ const FileListItem = ({
   );
 };
 
+// Main FileList Component
 const FileList = ({
   files,
   onNavigate,
@@ -174,7 +165,8 @@ const FileList = ({
   loading = false,
   error = null,
   selectedFileId = null,
-  userId // Add userId prop
+  userId,
+  onUpload
 }) => {
   const [isUploading, setIsUploading] = useState(false);
 
@@ -183,9 +175,11 @@ const FileList = ({
       setIsUploading(true);
       await fileApi.uploadFile({
         ...data,
-        userId // Ensure userId is passed
+        userId
       });
-      onNavigate('/'); // Navigate back to the dashboard after upload
+      if (onUpload) {
+        await onUpload();
+      }
     } catch (error) {
       console.error('File upload error:', error);
     } finally {
@@ -225,43 +219,46 @@ const FileList = ({
     );
   }
 
-  if (!files?.length) {
-    return (
-      <Box sx={{ 
-        textAlign: 'center', 
-        py: 6,
-        bgcolor: 'grey.50',
-        borderRadius: 2,
-        border: '2px dashed',
-        borderColor: 'grey.300'
-      }}>
-        <Typography variant="h6" color="text.secondary" gutterBottom>
-          No Files Available
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Upload a JSON file to begin annotation.
-        </Typography>
+  return (
+    <Box>
+      <Box sx={{ mb: 3 }}>
         <FileUploader
           onUpload={handleUpload}
           isUploading={isUploading}
           userId={userId}
         />
       </Box>
-    );
-  }
 
-  return (
-    <List sx={{ mt: 2 }}>
-      {files.map((file) => (
-        <FileListItem
-          key={file._id}
-          file={file}
-          onNavigate={onNavigate}
-          onMenuOpen={onMenuOpen}
-          isSelected={selectedFileId === file._id}
-        />
-      ))}
-    </List>
+      {!files?.length ? (
+        <Box sx={{ 
+          textAlign: 'center', 
+          py: 6,
+          bgcolor: 'grey.50',
+          borderRadius: 2,
+          border: '2px dashed',
+          borderColor: 'grey.300'
+        }}>
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            No Files Available
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Upload a JSON file to begin annotation.
+          </Typography>
+        </Box>
+      ) : (
+        <List sx={{ mt: 2 }}>
+          {files.map((file) => (
+            <FileListItem
+              key={file._id}
+              file={file}
+              onNavigate={onNavigate}
+              onMenuOpen={onMenuOpen}
+              isSelected={selectedFileId === file._id}
+            />
+          ))}
+        </List>
+      )}
+    </Box>
   );
 };
 
@@ -273,16 +270,15 @@ FileList.propTypes = {
       events: PropTypes.array
     })),
     uploadDate: PropTypes.string.isRequired,
-    progress: PropTypes.number,
-    totalSteps: PropTypes.number,
-    annotations: PropTypes.object
+    progress: PropTypes.number
   })).isRequired,
   onNavigate: PropTypes.func.isRequired,
   onMenuOpen: PropTypes.func.isRequired,
   loading: PropTypes.bool,
   error: PropTypes.string,
   selectedFileId: PropTypes.string,
-  userId: PropTypes.string.isRequired // Add userId prop type
+  userId: PropTypes.string.isRequired,
+  onUpload: PropTypes.func
 };
 
 export default FileList;

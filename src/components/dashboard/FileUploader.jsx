@@ -1,3 +1,4 @@
+// FileUploader.jsx - Simplified to match model
 import React, { useState, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { 
@@ -22,133 +23,9 @@ import {
   Error as ErrorIcon,
   KeyboardArrowDown as ExpandIcon
 } from '@mui/icons-material';
-import { fileApi } from '../../services/fileApi'; // Import the fileApi
+import { fileApi } from '../../services/fileApi';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ACCEPTED_TYPES = ['.json'];
-
-// Constants for validation
-const VALID_EVENT_TYPES = [
-  'Background/Introduction',
-  'Methods/Approach', 
-  'Results/Findings',
-  'Conclusions/Implications'
-];
-
-const REQUIRED_ARGUMENT_FIELDS = [
-  'Agent',
-  'Context',
-  'Purpose',
-  'Method',
-  'Results',
-  'Analysis',
-  'Challenge',
-  'Ethical',
-  'Implications',
-  'Contradictions'
-];
-
-const REQUIRED_OBJECT_FIELDS = [
-  'Base Object',
-  'Base Modifier',
-  'Attached Object',
-  'Attached Modifier'
-];
-
-// Validate JSON structure with normalization
-const validateJsonStructure = (content) => {
-  if (!Array.isArray(content)) {
-    throw new Error('Content must be an array of abstracts');
-  }
-
-  // Process and normalize each abstract
-  return content.map((abstract, index) => {
-    // Validate abstract basic structure
-    if (!abstract.paper_code) {
-      throw new Error(`Abstract ${index + 1}: Missing paper_code`);
-    }
-    if (!abstract.abstract) {
-      throw new Error(`Abstract ${index + 1}: Missing abstract text`);
-    }
-    if (!Array.isArray(abstract.events)) {
-      throw new Error(`Abstract ${index + 1}: events must be an array`);
-    }
-    if (abstract.events.length === 0) {
-      throw new Error(`Abstract ${index + 1}: must have at least one event`);
-    }
-
-    // Process and normalize each event
-    const normalizedEvents = abstract.events.map((event, eventIndex) => {
-      // Check required Text field
-      if (!event.Text) {
-        throw new Error(
-          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing Text`
-        );
-      }
-
-      // Validate event types
-      const hasValidType = VALID_EVENT_TYPES.some(type => type in event);
-      if (!hasValidType) {
-        throw new Error(
-          `Abstract ${index + 1}, Event ${eventIndex + 1}: Missing valid event type. ` +
-          `Must have one of: ${VALID_EVENT_TYPES.join(', ')}`
-        );
-      }
-
-      // Initialize/normalize event types
-      const normalizedEvent = { ...event };
-      VALID_EVENT_TYPES.forEach(type => {
-        if (!(type in normalizedEvent)) {
-          normalizedEvent[type] = '';
-        }
-      });
-
-      // Initialize/validate Main Action
-      if (!normalizedEvent['Main Action']) {
-        normalizedEvent['Main Action'] = 'Default Main Action'; // Add a default value
-      }
-
-      // Initialize/validate Arguments structure
-      if (!normalizedEvent.Arguments || typeof normalizedEvent.Arguments !== 'object') {
-        normalizedEvent.Arguments = {};
-      }
-
-      // Initialize basic argument fields
-      REQUIRED_ARGUMENT_FIELDS.forEach(field => {
-        if (!normalizedEvent.Arguments[field]) {
-          normalizedEvent.Arguments[field] = '';
-        }
-      });
-
-      // Initialize/validate Object structure
-      if (!normalizedEvent.Arguments.Object || typeof normalizedEvent.Arguments.Object !== 'object') {
-        normalizedEvent.Arguments.Object = {};
-      }
-
-      // Initialize Object fields
-      REQUIRED_OBJECT_FIELDS.forEach(field => {
-        if (!normalizedEvent.Arguments.Object[field]) {
-          normalizedEvent.Arguments.Object[field] = '';
-        }
-      });
-
-      return normalizedEvent;
-    });
-
-    return {
-      ...abstract,
-      events: normalizedEvents
-    };
-  });
-};
-
-const FileUploader = ({ 
-  onUpload, 
-  isUploading = false, 
-  multiple = false,
-  maxFiles = 5,
-  userId // Add userId prop
-}) => {
+const FileUploader = ({ onUpload, isUploading = false, userId }) => {
   const theme = useTheme();
   const fileInputRef = useRef(null);
   const [dragActive, setDragActive] = useState(false);
@@ -157,89 +34,50 @@ const FileUploader = ({
   const [uploadProgress, setUploadProgress] = useState({});
   const [uploadErrors, setUploadErrors] = useState({});
 
-  // File validation
-  const validateFile = (file) => {
-    if (!ACCEPTED_TYPES.some(type => file.name.toLowerCase().endsWith(type))) {
-      return {
-        valid: false,
-        error: 'Invalid file type. Please upload JSON files only.'
-      };
-    }
-
-    if (file.size > MAX_FILE_SIZE) {
-      return {
-        valid: false,
-        error: `File size exceeds ${MAX_FILE_SIZE / (1024 * 1024)}MB limit. Please upload a smaller file.`
-      };
-    }
-
-    return { valid: true, error: null };
-  };
-
-  // Handle file selection
   const handleFiles = async (selectedFiles) => {
     try {
-      const newFiles = Array.from(selectedFiles).slice(0, maxFiles);
+      const fileArray = Array.from(selectedFiles);
 
-      const validatedFiles = await Promise.all(newFiles.map(async (file) => {
-        const validation = validateFile(file);
-        if (!validation.valid) {
-          return { file, id: Math.random().toString(36).substring(7), status: validation };
-        }
-
+      for (const file of fileArray) {
         try {
-          const fileContent = await file.text();
-          JSON.parse(fileContent); // Validate JSON content
-          return { file, id: Math.random().toString(36).substring(7), status: { valid: true, error: null } };
-        } catch (error) {
-          return {
-            file,
-            id: Math.random().toString(36).substring(7),
-            status: { valid: false, error: 'Invalid JSON file. Please upload a valid JSON file.' }
-          };
-        }
-      }));
+          const fileId = Math.random().toString(36).substring(7);
+          setFiles(prev => [...prev, { file, id: fileId }]);
 
-      setFiles(prevFiles => [...prevFiles, ...validatedFiles]);
+          const content = await file.text();
+          const parsedContent = JSON.parse(content);
 
-      // Process valid files
-      for (const fileData of validatedFiles) {
-        if (fileData.status.valid) {
-          try {
-            const fileContent = await fileData.file.text();
-            const parsedContent = JSON.parse(fileContent);
-            const normalizedContent = validateJsonStructure(parsedContent);
+          await fileApi.uploadFile({
+            name: file.name,
+            content: parsedContent,
+            userId
+          });
 
-            // Call the fileApi.uploadFile method with userId
-            await fileApi.uploadFile({
-              name: fileData.file.name,
-              content: normalizedContent,
-              userId // Ensure userId is passed
-            });
+          setUploadProgress(prev => ({
+            ...prev,
+            [fileId]: 100
+          }));
 
-            setUploadProgress(prev => ({
-              ...prev,
-              [fileData.id]: 100
-            }));
-
-            // Call the onUpload callback after successful upload
-            onUpload();
-
-            // Remove file from list after successful upload
-            setTimeout(() => {
-              setFiles(prev => prev.filter(f => f.id !== fileData.id));
-              setUploadProgress(prev => {
-                const newProgress = { ...prev };
-                delete newProgress[fileData.id];
-                return newProgress;
-              });
-            }, 2000);
-          } catch (error) {
-            setUploadErrors(prev => ({
-              ...prev,
-              [fileData.id]: error.message
-            }));
+          // Call onUpload callback
+          if (onUpload) {
+            await onUpload();
           }
+
+          // Remove file from list after successful upload
+          setTimeout(() => {
+            setFiles(prev => prev.filter(f => f.id !== fileId));
+            setUploadProgress(prev => {
+              const newProgress = { ...prev };
+              delete newProgress[fileId];
+              return newProgress;
+            });
+          }, 2000);
+
+        } catch (error) {
+          console.error('Error processing file:', error);
+          setUploadErrors(prev => ({
+            ...prev,
+            [file.name]: error.message
+          }));
         }
       }
     } catch (error) {
@@ -247,45 +85,10 @@ const FileUploader = ({
     }
   };
 
-  // Drag and drop handlers
-  const handleDrag = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      await handleFiles(e.dataTransfer.files);
-    }
-  };
-
-  // File status icon component
-  const FileStatusIcon = ({ fileData }) => {
-    if (uploadErrors[fileData.id]) {
-      return <ErrorIcon color="error" />;
-    }
-    if (uploadProgress[fileData.id] === 100) {
-      return <SuccessIcon color="success" />;
-    }
-    if (!fileData.status.valid) {
-      return <ErrorIcon color="error" />;
-    }
-    return <FileIcon color="primary" />;
-  };
-
+  // ... rest of the UI component code remains the same ...
+  
   return (
     <Box sx={{ width: '100%' }}>
-      {/* Header */}
       <Box sx={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
@@ -303,13 +106,18 @@ const FileUploader = ({
       </Box>
 
       <Collapse in={expanded}>
-        {/* Drop Zone */}
         <Paper
           variant="outlined"
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
+          onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+          onDragOver={(e) => { e.preventDefault(); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            if (e.dataTransfer.files) {
+              handleFiles(e.dataTransfer.files);
+            }
+          }}
           sx={{
             p: 3,
             textAlign: 'center',
@@ -327,20 +135,12 @@ const FileUploader = ({
           <input
             ref={fileInputRef}
             type="file"
-            multiple={multiple}
-            accept={ACCEPTED_TYPES.join(',')}
+            accept=".json"
             onChange={(e) => handleFiles(e.target.files)}
             style={{ display: 'none' }}
           />
           
-          <UploadIcon 
-            sx={{ 
-              fontSize: 48, 
-              color: theme.palette.primary.main,
-              mb: 2,
-              opacity: 0.8
-            }} 
-          />
+          <UploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2, opacity: 0.8 }} />
           
           <Typography variant="h6" gutterBottom>
             Drag & Drop JSON Files Here
@@ -349,13 +149,8 @@ const FileUploader = ({
           <Typography variant="body2" color="text.secondary" paragraph>
             or click to browse
           </Typography>
-          
-          <Typography variant="caption" color="text.secondary">
-            Supports JSON files up to {MAX_FILE_SIZE / (1024 * 1024)}MB
-          </Typography>
         </Paper>
 
-        {/* File List */}
         {files.length > 0 && (
           <List sx={{ mt: 2 }}>
             {files.map((fileData) => (
@@ -370,19 +165,23 @@ const FileUploader = ({
                 }}
               >
                 <ListItemIcon>
-                  <FileStatusIcon fileData={fileData} />
+                  {uploadErrors[fileData.id] ? (
+                    <ErrorIcon color="error" />
+                  ) : uploadProgress[fileData.id] === 100 ? (
+                    <SuccessIcon color="success" />
+                  ) : (
+                    <FileIcon color="primary" />
+                  )}
                 </ListItemIcon>
                 
                 <ListItemText
                   primary={fileData.file.name}
                   secondary={
                     uploadErrors[fileData.id] || 
-                    fileData.status.error || 
                     `${(fileData.file.size / 1024).toFixed(1)} KB`
                   }
                   secondaryTypographyProps={{
-                    color: uploadErrors[fileData.id] || fileData.status.error ? 
-                      'error' : 'text.secondary'
+                    color: uploadErrors[fileData.id] ? 'error' : 'text.secondary'
                   }}
                 />
 
@@ -393,15 +192,14 @@ const FileUploader = ({
                       value={uploadProgress[fileData.id]} 
                       sx={{
                         height: 6,
-                        borderRadius: 3,
-                        transition: 'all 0.3s ease-in-out'
+                        borderRadius: 3
                       }}
                     />
                   </Box>
                 )}
 
                 <IconButton 
-                  size="small" 
+                  size="small"
                   onClick={() => {
                     setFiles(prev => prev.filter(f => f.id !== fileData.id));
                     setUploadErrors(prev => {
@@ -418,21 +216,6 @@ const FileUploader = ({
             ))}
           </List>
         )}
-
-        {/* Reset Button */}
-        {files.length > 0 && (
-          <Button
-            variant="outlined"
-            onClick={() => {
-              setFiles([]);
-              setUploadErrors({});
-              setUploadProgress({});
-            }}
-            sx={{ mt: 2 }}
-          >
-            Reset
-          </Button>
-        )}
       </Collapse>
     </Box>
   );
@@ -441,9 +224,7 @@ const FileUploader = ({
 FileUploader.propTypes = {
   onUpload: PropTypes.func.isRequired,
   isUploading: PropTypes.bool,
-  multiple: PropTypes.bool,
-  maxFiles: PropTypes.number,
-  userId: PropTypes.string.isRequired // Add userId prop type
+  userId: PropTypes.string.isRequired
 };
 
 export default FileUploader;

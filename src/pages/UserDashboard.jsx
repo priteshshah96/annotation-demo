@@ -3,8 +3,7 @@ import {
   Container,
   Typography,
   Paper,
-  CircularProgress,
-  Divider
+  CircularProgress
 } from '@mui/material';
 import { useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +11,6 @@ import { useNavigate } from 'react-router-dom';
 // Components
 import DashboardHeader from '../components/dashboard/DashboardHeader';
 import StatsPanel from '../components/dashboard/StatsPanel';
-import FileUploader from '../components/dashboard/FileUploader';
 import FileList from '../components/dashboard/FileList';
 import FileActionsMenu from '../components/dashboard/FileActionsMenu';
 
@@ -30,7 +28,6 @@ const UserDashboard = () => {
   // State Management
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isUploading, setIsUploading] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState(null);
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
 
@@ -40,21 +37,6 @@ const UserDashboard = () => {
   // Navigation Handlers
   const handleNavigate = (path) => {
     navigate(path);
-  };
-
-  // File Upload Handler
-  const handleUpload = async (data) => {
-    try {
-      setIsUploading(true);
-      await fileApi.uploadFile(data);
-      await fetchDashboardData(); // Refresh the file list after upload
-      showSnackbar('File uploaded successfully', 'success');
-    } catch (error) {
-      console.error('File upload error:', error);
-      showSnackbar(error.message || 'Error uploading file', 'error');
-    } finally {
-      setIsUploading(false);
-    }
   };
 
   // Menu Handlers
@@ -73,7 +55,7 @@ const UserDashboard = () => {
   const handleDeleteFile = async () => {
     try {
       await fileApi.deleteFile(selectedFileId);
-      await fetchDashboardData(); // Refresh the file list after deletion
+      await fetchDashboardData();
       showSnackbar('File deleted successfully', 'success');
     } catch (error) {
       showSnackbar('Error deleting file', 'error');
@@ -180,13 +162,9 @@ const UserDashboard = () => {
       <StatsPanel files={files} loading={loading} />
 
       <Paper elevation={3} sx={{ padding: 3 }}>
-        <FileUploader
-          onUpload={handleUpload}
-          isUploading={isUploading}
-          userId={userId} // Pass userId to FileUploader
-        />
-
-        <Divider sx={{ my: 3 }} />
+        <Typography variant="h6" gutterBottom>
+          Your Files
+        </Typography>
 
         <FileList
           files={files}
@@ -194,7 +172,8 @@ const UserDashboard = () => {
           onNavigate={handleNavigate}
           selectedFileId={selectedFileId}
           loading={loading}
-          userId={userId} // Pass userId to FileList
+          userId={userId}
+          onUpload={fetchDashboardData}
         />
 
         <FileActionsMenu

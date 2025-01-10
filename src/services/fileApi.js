@@ -1,108 +1,203 @@
+// src/services/fileApi.js
 import { api } from '../lib/api';
 
+// Constants for field validation
+const EVENT_TYPES = [
+  'Background/Introduction',
+  'Methods/Approach', 
+  'Results/Findings',
+  'Conclusions/Implications'
+];
+
+const ARGUMENT_FIELDS = [
+  'Agent',
+  'Context',
+  'Purpose',
+  'Method',
+  'Results',
+  'Analysis',
+  'Challenge',
+  'Ethical',
+  'Implications',
+  'Contradictions'
+];
+
+const OBJECT_FIELDS = [
+  'Base Object',
+  'Base Modifier',
+  'Attached Object',
+  'Attached Modifier'
+];
+
+// Utility function to format event data - only include fields that exist
 // Utility function to format event data
 const formatEvent = (event = {}) => {
-  return {
-    'Background/Introduction': event['Background/Introduction'] || '',
-    'Methods/Approach': event['Methods/Approach'] || '',
-    'Results/Findings': event['Results/Findings'] || '',
-    'Conclusions/Implications': event['Conclusions/Implications'] || '',
-    Text: event.Text || '',
-    'Main Action': event['Main Action'] || '',
-    Arguments: {
-      Agent: event.Arguments?.Agent || '',
-      Object: {
-        'Base Object': event.Arguments?.Object?.['Base Object'] || '',
-        'Base Modifier': event.Arguments?.Object?.['Base Modifier'] || '',
-        'Attached Object': event.Arguments?.Object?.['Attached Object'] || '',
-        'Attached Modifier': event.Arguments?.Object?.['Attached Modifier'] || ''
-      },
-      Context: event.Arguments?.Context || '',
-      Purpose: event.Arguments?.Purpose || '',
-      Method: event.Arguments?.Method || '',
-      Results: event.Arguments?.Results || '',
-      Analysis: event.Arguments?.Analysis || '',
-      Challenge: event.Arguments?.Challenge || '',
-      Ethical: event.Arguments?.Ethical || '',
-      Implications: event.Arguments?.Implications || '',
-      Contradictions: event.Arguments?.Contradictions || ''
-    }
+  const formattedEvent = {
+    Text: event.Text // Text is always required
   };
+
+  // Add event type field only if it exists in the input
+  if ('Background/Introduction' in event) {
+    formattedEvent['Background/Introduction'] = event['Background/Introduction'];
+  }
+  if ('Methods/Approach' in event) {
+    formattedEvent['Methods/Approach'] = event['Methods/Approach'];
+  }
+  if ('Results/Findings' in event) {
+    formattedEvent['Results/Findings'] = event['Results/Findings'];
+  }
+  if ('Conclusions/Implications' in event) {
+    formattedEvent['Conclusions/Implications'] = event['Conclusions/Implications'];
+  }
+
+  // Add Main Action only if it exists in the input
+  if ('Main Action' in event) {
+    formattedEvent['Main Action'] = event['Main Action'];
+  }
+
+  // Add Arguments only if they exist in the input
+  if ('Arguments' in event) {
+    formattedEvent.Arguments = {};
+    
+    // Copy Arguments fields only if they exist
+    if ('Agent' in event.Arguments) {
+      formattedEvent.Arguments.Agent = event.Arguments.Agent;
+    }
+    if ('Context' in event.Arguments) {
+      formattedEvent.Arguments.Context = event.Arguments.Context;
+    }
+    if ('Purpose' in event.Arguments) {
+      formattedEvent.Arguments.Purpose = event.Arguments.Purpose;
+    }
+    if ('Method' in event.Arguments) {
+      formattedEvent.Arguments.Method = event.Arguments.Method;
+    }
+    if ('Results' in event.Arguments) {
+      formattedEvent.Arguments.Results = event.Arguments.Results;
+    }
+    if ('Analysis' in event.Arguments) {
+      formattedEvent.Arguments.Analysis = event.Arguments.Analysis;
+    }
+    if ('Challenge' in event.Arguments) {
+      formattedEvent.Arguments.Challenge = event.Arguments.Challenge;
+    }
+    if ('Ethical' in event.Arguments) {
+      formattedEvent.Arguments.Ethical = event.Arguments.Ethical;
+    }
+    if ('Implications' in event.Arguments) {
+      formattedEvent.Arguments.Implications = event.Arguments.Implications;
+    }
+    if ('Contradictions' in event.Arguments) {
+      formattedEvent.Arguments.Contradictions = event.Arguments.Contradictions;
+    }
+
+    // Handle Object fields only if they exist
+    if ('Object' in event.Arguments) {
+      formattedEvent.Arguments.Object = {};
+      
+      if ('Base Object' in event.Arguments.Object) {
+        formattedEvent.Arguments.Object['Base Object'] = event.Arguments.Object['Base Object'];
+      }
+      if ('Base Modifier' in event.Arguments.Object) {
+        formattedEvent.Arguments.Object['Base Modifier'] = event.Arguments.Object['Base Modifier'];
+      }
+      if ('Attached Object' in event.Arguments.Object) {
+        formattedEvent.Arguments.Object['Attached Object'] = event.Arguments.Object['Attached Object'];
+      }
+      if ('Attached Modifier' in event.Arguments.Object) {
+        formattedEvent.Arguments.Object['Attached Modifier'] = event.Arguments.Object['Attached Modifier'];
+      }
+
+      // Remove Object if it's empty
+      if (Object.keys(formattedEvent.Arguments.Object).length === 0) {
+        delete formattedEvent.Arguments.Object;
+      }
+    }
+
+    // Remove Arguments if they're empty
+    if (Object.keys(formattedEvent.Arguments).length === 0) {
+      delete formattedEvent.Arguments;
+    }
+  }
+
+  return formattedEvent;
 };
 
 // Utility function to calculate total steps
 const calculateTotalSteps = (content) => {
   return content.reduce((totalSteps, abstract) => {
     return totalSteps + (abstract.events?.reduce((eventSteps, event) => {
-      const eventTypes = ['Background/Introduction', 'Methods/Approach', 'Results/Findings', 'Conclusions/Implications'];
-      const argumentFields = ['Agent', 'Context', 'Purpose', 'Method', 'Results', 'Analysis', 'Challenge', 'Ethical', 'Implications', 'Contradictions'];
-      const objectFields = ['Base Object', 'Base Modifier', 'Attached Object', 'Attached Modifier'];
-
-      // Count non-empty event types
-      eventSteps += eventTypes.filter(type => event[type]).length;
-
-      // Count Main Action if present
+      eventSteps += EVENT_TYPES.filter(type => event[type]).length;
       if (event['Main Action']) eventSteps++;
-
-      // Count non-empty argument fields
-      eventSteps += argumentFields.filter(field => event.Arguments?.[field]).length;
-
-      // Count non-empty object fields
-      eventSteps += objectFields.filter(field => event.Arguments?.Object?.[field]).length;
-
+      eventSteps += ARGUMENT_FIELDS.filter(field => event.Arguments?.[field]).length;
+      eventSteps += OBJECT_FIELDS.filter(field => event.Arguments?.Object?.[field]).length;
       return eventSteps;
     }, 0) || 0);
   }, 0);
 };
 
-// Utility function to format export data
-const formatExportData = (file) => ({
-  file_name: file.name,
-  export_date: new Date().toISOString(),
-  abstracts: file.abstracts.map(abstract => ({
-    paper_code: abstract.paper_code,
-    abstract: abstract.abstract,
-    events: abstract.events.map(event => formatEvent(event))
-  }))
-});
+// Cache configuration for stats
+const STATS_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+let cachedStats = null;
+let lastFetchTime = null;
 
 export const fileApi = {
   async uploadFile(fileData) {
     try {
-      // Validate input data
-      if (!fileData.content || !Array.isArray(fileData.content)) {
-        throw new Error('Invalid file content: expected an array of abstracts');
-      }
-
-      // Process each abstract
-      const formattedContent = fileData.content.map(abstract => ({
-        paper_code: abstract.paper_code,
-        abstract: abstract.abstract,
-        events: (abstract.events || []).map(event => formatEvent(event))
-      }));
-
-      // Calculate total steps
+      this.validateFileData(fileData);
+      const formattedContent = this.formatFileContent(fileData.content);
       const totalSteps = calculateTotalSteps(formattedContent);
 
-      // Prepare upload data
       const uploadData = {
         name: fileData.name,
         content: formattedContent,
         userId: fileData.userId,
         metadata: {
           totalAbstracts: formattedContent.length,
-          totalEvents: formattedContent.reduce((sum, abstract) => sum + (abstract.events?.length || 0), 0)
+          totalEvents: formattedContent.reduce((sum, abstract) => 
+            sum + (abstract.events?.length || 0), 0)
         },
         totalSteps
       };
 
-      // Make API request
-      const response = await api.files.upload(uploadData);
-      return response;
+      return await api.files.upload(uploadData);
     } catch (error) {
       console.error('File upload error:', error);
-      throw error;
+      throw new Error(`Failed to upload file: ${error.message}`);
     }
+  },
+
+  validateFileData(fileData) {
+    if (!fileData.content || !Array.isArray(fileData.content)) {
+      throw new Error('Invalid file content: expected an array of abstracts');
+    }
+
+    fileData.content.forEach((abstract, index) => {
+      if (!abstract.paper_code || !abstract.abstract) {
+        throw new Error(`Abstract ${index + 1} must have paper_code and abstract fields`);
+      }
+      if (!Array.isArray(abstract.events)) {
+        throw new Error(`Abstract ${index + 1} must have an events array`);
+      }
+      if (abstract.events.length === 0) {
+        throw new Error(`Abstract ${index + 1} must have at least one event`);
+      }
+
+      // Validate required Text field in events
+      abstract.events.forEach((event, eventIndex) => {
+        if (!event.Text) {
+          throw new Error(`Abstract ${index + 1}, Event ${eventIndex + 1}: Missing Text field`);
+        }
+      });
+    });
+  },
+
+  formatFileContent(content) {
+    return content.map(abstract => ({
+      paper_code: abstract.paper_code,
+      abstract: abstract.abstract,
+      events: (abstract.events || []).map(event => formatEvent(event))
+    }));
   },
 
   async getFiles() {
@@ -112,38 +207,33 @@ export const fileApi = {
         throw new Error('Invalid response: files not found');
       }
 
-      // Calculate progress for each file
-      response.files = response.files.map(file => {
-        const totalAbstracts = file.abstracts?.length || 0;
-        const totalEvents = file.abstracts?.reduce((sum, abstract) => sum + (abstract.events?.length || 0), 0) || 0;
-        const annotatedEvents = file.abstracts?.reduce((sum, abstract) => {
-          return sum + (abstract.events?.filter(event => event.isAnnotated).length || 0);
-        }, 0) || 0;
-
-        const progress = totalEvents > 0 ? Math.round((annotatedEvents / totalEvents) * 100) : 0;
-
-        return {
-          _id: file._id,
-          name: file.name,
-          totalAbstracts,
-          totalEvents,
-          progress,
-          uploadDate: file.uploadDate,
-          metadata: file.metadata || {}
-        };
-      });
-
-      return response;
+      return {
+        files: this.processFiles(response.files),
+        totalFiles: response.totalFiles
+      };
     } catch (error) {
       console.error('Error fetching files:', error);
       throw error;
     }
   },
 
+  processFiles(files) {
+    return files.map(file => ({
+      _id: file._id,
+      name: file.name,
+      abstracts: file.abstracts,
+      totalAbstracts: file.abstracts?.length || 0,
+      totalEvents: file.abstracts?.reduce((sum, abstract) => 
+        sum + (abstract.events?.length || 0), 0) || 0,
+      progress: file.progress || 0,
+      uploadDate: file.uploadDate,
+      metadata: file.metadata || {}
+    }));
+  },
+
   async deleteFile(fileId) {
     try {
-      const response = await api.files.delete(fileId);
-      return response;
+      return await api.files.delete(fileId);
     } catch (error) {
       console.error('Error deleting file:', error);
       throw error;
@@ -157,9 +247,18 @@ export const fileApi = {
         throw new Error('File not found');
       }
 
-      // Format the export data
-      const exportData = formatExportData(response.file);
-      return { success: true, file: exportData };
+      return { 
+        success: true, 
+        file: {
+          file_name: response.file.name,
+          export_date: new Date().toISOString(),
+          abstracts: response.file.abstracts.map(abstract => ({
+            paper_code: abstract.paper_code,
+            abstract: abstract.abstract,
+            events: abstract.events.map(event => formatEvent(event))
+          }))
+        }
+      };
     } catch (error) {
       console.error('Error fetching file:', error);
       throw error;
@@ -173,9 +272,10 @@ export const fileApi = {
         throw new Error('Failed to export file');
       }
 
-      const exportData = response.file;
-      const fileName = exportData.file_name.replace('.json', '_annotated.json');
-      return { data: exportData, fileName };
+      return {
+        data: response.file,
+        fileName: response.file.file_name.replace('.json', '_annotated.json')
+      };
     } catch (error) {
       console.error('Error exporting file:', error);
       throw error;
@@ -183,40 +283,46 @@ export const fileApi = {
   },
 
   async getUserStats() {
+    if (this.isStatsCacheValid()) {
+      return cachedStats;
+    }
+
     try {
       const response = await this.getFiles();
       const files = response.files || [];
-
-      const stats = files.reduce((acc, file) => {
-        const totalAbstracts = file.totalAbstracts || 0;
-        const totalEvents = file.totalEvents || 0;
-        const annotatedEvents = Math.floor((file.progress || 0) * totalEvents / 100);
-
-        return {
-          totalAbstracts: acc.totalAbstracts + totalAbstracts,
-          totalEvents: acc.totalEvents + totalEvents,
-          annotatedEvents: acc.annotatedEvents + annotatedEvents,
-          completedFiles: acc.completedFiles + (file.progress === 100 ? 1 : 0),
-          totalFiles: acc.totalFiles + 1
-        };
-      }, {
-        totalAbstracts: 0,
-        totalEvents: 0,
-        annotatedEvents: 0,
-        completedFiles: 0,
-        totalFiles: 0
-      });
-
-      return stats;
+      cachedStats = this.calculateStats(files);
+      lastFetchTime = Date.now();
+      return cachedStats;
     } catch (error) {
       console.error('Error calculating user stats:', error);
-      return {
-        totalAbstracts: 0,
-        totalEvents: 0,
-        annotatedEvents: 0,
-        completedFiles: 0,
-        totalFiles: 0
-      };
+      return this.getEmptyStats();
     }
+  },
+
+  isStatsCacheValid() {
+    return cachedStats && 
+           lastFetchTime && 
+           (Date.now() - lastFetchTime < STATS_CACHE_DURATION);
+  },
+
+  calculateStats(files) {
+    return files.reduce((acc, file) => ({
+      totalAbstracts: acc.totalAbstracts + (file.totalAbstracts || 0),
+      totalEvents: acc.totalEvents + (file.totalEvents || 0),
+      annotatedEvents: acc.annotatedEvents + 
+        Math.floor((file.progress || 0) * file.totalEvents / 100),
+      completedFiles: acc.completedFiles + (file.progress === 100 ? 1 : 0),
+      totalFiles: acc.totalFiles + 1
+    }), this.getEmptyStats());
+  },
+
+  getEmptyStats() {
+    return {
+      totalAbstracts: 0,
+      totalEvents: 0,
+      annotatedEvents: 0,
+      completedFiles: 0,
+      totalFiles: 0
+    };
   }
 };
