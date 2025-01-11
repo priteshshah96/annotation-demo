@@ -40,9 +40,9 @@ const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
 
   // Calculate stats once
   const stats = {
-    abstractCount: file.abstracts?.length || 0,
-    eventCount: file.abstracts?.reduce((total, abstract) => 
-      total + (abstract.events?.length || 0), 0) || 0,
+    paperCount: file.papers?.length || 0,
+    eventCount: file.papers?.reduce((total, paper) => 
+      total + (paper.events?.length || 0), 0) || 0,
     progress: file.progress || 0,
   };
 
@@ -75,9 +75,9 @@ const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
           </Box>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, color: 'text.secondary' }}>
-            {stats.abstractCount > 0 && (
+            {stats.paperCount > 0 && (
               <Typography variant="caption">
-                {`${stats.abstractCount} Abstract${stats.abstractCount !== 1 ? 's' : ''}`}
+                {`${stats.paperCount} Paper${stats.paperCount !== 1 ? 's' : ''}`}
               </Typography>
             )}
             {stats.eventCount > 0 && (
@@ -266,7 +266,7 @@ FileList.propTypes = {
   files: PropTypes.arrayOf(PropTypes.shape({
     _id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
-    abstracts: PropTypes.arrayOf(PropTypes.shape({
+    papers: PropTypes.arrayOf(PropTypes.shape({
       events: PropTypes.array
     })),
     uploadDate: PropTypes.string.isRequired,

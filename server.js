@@ -168,7 +168,6 @@ app.get('/api/files', authenticateAndSync, async (req, res) => {
     const mongoUserId = req.user._id;
     console.log('GET /api/files endpoint hit for user:', mongoUserId);
     
-    // Use lean() to get plain objects and explicitly include all fields
     const files = await File.find(
       { userId: mongoUserId }
     ).lean();
@@ -176,17 +175,16 @@ app.get('/api/files', authenticateAndSync, async (req, res) => {
     console.log('Raw files from DB:', JSON.stringify(files[0], null, 2));
     
     const filesWithProgress = await Promise.all(files.map(async (file) => {
-      // Log full abstract structure
-      console.log('Processing file abstracts:', 
-        file.abstracts.map(a => ({
-          paper_code: a.paper_code,
-          hasEvents: Array.isArray(a.events),
-          eventCount: a.events?.length || 0
+      console.log('Processing file papers:', 
+        file.papers.map(p => ({
+          paper_code: p.paper_code,
+          hasEvents: Array.isArray(p.events),
+          eventCount: p.events?.length || 0
         }))
       );
 
-      const eventCount = file.abstracts.reduce((sum, abstract) => 
-        sum + (abstract.events?.length || 0), 0);
+      const eventCount = file.papers.reduce((sum, paper) => 
+        sum + (paper.events?.length || 0), 0);
 
       const annotations = await Annotation.countDocuments({
         fileId: file._id,
@@ -208,11 +206,11 @@ app.get('/api/files', authenticateAndSync, async (req, res) => {
 
     console.log('Response verification:', filesWithProgress.map(f => ({
       name: f.name,
-      abstractCount: f.abstracts.length,
-      eventCounts: f.abstracts.map(a => ({
-        paper_code: a.paper_code,
-        eventCount: a.events?.length || 0,
-        firstEvent: a.events?.[0] ? 'present' : 'missing'
+      paperCount: f.papers.length,
+      eventCounts: f.papers.map(p => ({
+        paper_code: p.paper_code,
+        eventCount: p.events?.length || 0,
+        firstEvent: p.events?.[0] ? 'present' : 'missing'
       }))
     })));
 
@@ -228,6 +226,7 @@ app.get('/api/files', authenticateAndSync, async (req, res) => {
     });
   }
 });
+
 
 // Get single file with annotations
 app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
@@ -248,11 +247,10 @@ app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
     }
 
     // Calculate total required annotations based on events
-    let totalRequired = file.abstracts.reduce((total, abstract) => {
-      return total + (abstract.events?.length || 0) * 14; // 14 fields per event
+    let totalRequired = file.papers.reduce((total, paper) => {
+      return total + (paper.events?.length || 0) * 14; // 14 fields per event
     }, 0);
 
-    // Calculate progress
     const progress = totalRequired > 0 
       ? Math.min((annotations.length * 100) / totalRequired, 100)
       : 0;
@@ -260,26 +258,24 @@ app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
     // Create annotations map
     const annotationsMap = {};
     annotations.forEach(ann => {
-      const key = `${ann.abstractIndex}-${ann.eventIndex}-${ann.fieldPath}`;
+      const key = `${ann.paperIndex}-${ann.eventIndex}-${ann.fieldPath}`;
       annotationsMap[key] = {
         answer: ann.answer,
         timestamp: ann.timestamp
       };
     });
 
-    // Update file progress in database
     await File.findByIdAndUpdate(fileId, {
       $set: { progress: Math.round(progress * 10) / 10 }
     });
 
-    // Convert to plain object and ensure events are included
     const fileObj = file.toObject();
     console.log('File response verification:', {
       id: fileObj._id,
-      abstractCount: fileObj.abstracts.length,
-      eventCounts: fileObj.abstracts.map(a => ({
-        paper_code: a.paper_code,
-        events: a.events?.length || 0
+      paperCount: fileObj.papers.length,
+      eventCounts: fileObj.papers.map(p => ({
+        paper_code: p.paper_code,
+        events: p.events?.length || 0
       }))
     });
 
@@ -288,7 +284,7 @@ app.get('/api/files/:fileId', authenticateAndSync, async (req, res) => {
       file: {
         _id: fileObj._id,
         name: fileObj.name,
-        abstracts: fileObj.abstracts,
+        papers: fileObj.papers,
         totalSteps: totalRequired,
         progress: Math.round(progress * 10) / 10,
         uploadDate: fileObj.uploadDate,
@@ -346,86 +342,61 @@ app.delete('/api/files/:fileId', authenticateAndSync, async (req, res) => {
 // File upload endpoint
 app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
   try {
-    const { name, content } = req.body;
+    const { name, papers, userId: clientUserId } = req.body;
     const mongoUserId = req.user._id;
 
-    // Enable debug mode
-    mongoose.set('debug', true);
-
-    console.log('Upload request content:', {
+    // Debug logging
+    console.log('Upload request body:', {
       name,
-      abstractCount: content?.length,
-      sampleEvents: content?.[0]?.events?.length,
-      firstEvent: content?.[0]?.events?.[0] 
+      papersPresent: Array.isArray(papers),
+      paperCount: papers?.length,
+      samplePaper: papers?.[0] ? {
+        hasCode: !!papers[0].paper_code,
+        hasAbstract: !!papers[0].abstract,
+        eventCount: papers[0].events?.length
+      } : null
     });
+
+    if (!Array.isArray(papers)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request format',
+        details: 'Papers must be an array'
+      });
+    }
 
     // Prepare file document
     const fileDoc = {
       userId: mongoUserId,
       name,
-      abstracts: content.map(abstract => ({
-        paper_code: abstract.paper_code,
-        abstract: abstract.abstract,
-        events: abstract.events.map(event => ({
-          'Background/Introduction': event['Background/Introduction'] || '',
-          'Methods/Approach': event['Methods/Approach'] || '',
-          'Results/Findings': event['Results/Findings'] || '',
-          'Conclusions/Implications': event['Conclusions/Implications'] || '',
-          'Text': event.Text,
-          'Main Action': event['Main Action'] || '',
-          Arguments: {
-            Agent: event.Arguments?.Agent || '',
-            Object: {
-              'Base Object': event.Arguments?.Object?.['Base Object'] || '',
-              'Base Modifier': event.Arguments?.Object?.['Base Modifier'] || '',
-              'Attached Object': event.Arguments?.Object?.['Attached Object'] || '',
-              'Attached Modifier': event.Arguments?.Object?.['Attached Modifier'] || ''
-            },
-            Context: event.Arguments?.Context || '',
-            Purpose: event.Arguments?.Purpose || '',
-            Method: event.Arguments?.Method || '',
-            Results: event.Arguments?.Results || '',
-            Analysis: event.Arguments?.Analysis || '',
-            Challenge: event.Arguments?.Challenge || '',
-            Ethical: event.Arguments?.Ethical || '',
-            Implications: event.Arguments?.Implications || '',
-            Contradictions: event.Arguments?.Contradictions || ''
-          }
+      papers: papers.map(paper => ({
+        paper_code: paper.paper_code,
+        abstract: paper.abstract,
+        events: paper.events.map(event => ({
+          eventType: new Map(event.eventType), // Convert array back to Map
+          Text: event.Text,
+          'Main Action': event['Main Action'],
+          Arguments: event.Arguments
         }))
       }))
     };
 
-    // Log document structure before save
-    console.log('Document before save:', {
+    // Debug log document structure
+    console.log('Document structure check:', {
       name: fileDoc.name,
-      abstractCount: fileDoc.abstracts.length,
-      eventCounts: fileDoc.abstracts.map(a => ({
-        paper_code: a.paper_code,
-        eventCount: a.events.length,
-        firstEvent: a.events[0] ? 'present' : 'missing'
+      paperCount: fileDoc.papers.length,
+      papers: fileDoc.papers.map(p => ({
+        code: p.paper_code,
+        eventCount: p.events?.length
       }))
     });
 
-    // Create and save file
     const newFile = new File(fileDoc);
     const savedFile = await newFile.save();
 
-    // Verify saved document
-    const verifiedFile = await File.findById(savedFile._id).lean();
-    console.log('Saved document verification:', {
-      id: verifiedFile._id,
-      abstractCount: verifiedFile.abstracts.length,
-      eventCounts: verifiedFile.abstracts.map(a => ({
-        paper_code: a.paper_code,
-        eventCount: a.events?.length || 0
-      }))
-    });
-
-    mongoose.set('debug', false);
-
     res.status(201).json({
       success: true,
-      file: verifiedFile,
+      file: savedFile,
       message: 'File uploaded successfully'
     });
 
@@ -447,7 +418,7 @@ app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
 // Save annotation
 app.post('/api/annotations', authenticateAndSync, async (req, res) => {
   try {
-    const { fileId, abstractIndex, eventIndex, fieldPath, answer } = req.body;
+    const { fileId, paperIndex, eventIndex, fieldPath, answer } = req.body;
     const mongoUserId = req.user._id;
 
     // Save the annotation
@@ -455,7 +426,7 @@ app.post('/api/annotations', authenticateAndSync, async (req, res) => {
       {
         fileId,
         userId: mongoUserId,
-        abstractIndex,
+        paperIndex,
         eventIndex,
         fieldPath
       },
@@ -471,7 +442,6 @@ app.post('/api/annotations', authenticateAndSync, async (req, res) => {
       }
     );
 
-    // Calculate total steps and current progress
     const file = await File.findById(fileId);
     if (!file) {
       throw new Error('File not found');
@@ -561,7 +531,7 @@ app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) 
         filter: {
           fileId,
           userId: mongoUserId,
-          abstractIndex: ann.abstractIndex,
+          paperIndex: ann.paperIndex,
           eventIndex: ann.eventIndex,
           fieldPath: ann.fieldPath
         },
@@ -577,7 +547,6 @@ app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) 
 
     await Annotation.bulkWrite(operations);
 
-    // Update progress
     const [totalAnnotations, file] = await Promise.all([
       Annotation.countDocuments({ fileId, userId: mongoUserId }),
       File.findById(fileId)
