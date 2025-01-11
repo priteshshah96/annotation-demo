@@ -5,19 +5,20 @@ export const fileApi = {
     try {
       // Debugging: Log the fileData object
       console.log('fileData:', fileData);
-
+  
       // Check if papers property exists
       if (!fileData.papers) {
         throw new Error('The "papers" property is missing in fileData.');
       }
-
+  
       // Calculate metadata required for StatsPanel
       const totalEvents = fileData.papers.reduce((sum, paper) => 
         sum + (paper.events?.length || 0), 0);
-
+  
+      // Prepare upload data (preserve the original structure)
       const uploadData = {
         name: fileData.name,
-        papers: fileData.papers,
+        papers: fileData.papers, // Send papers as-is
         userId: fileData.userId,
         metadata: {
           totalPapers: fileData.papers.length,
@@ -26,7 +27,7 @@ export const fileApi = {
         },
         progress: 0
       };
-
+  
       console.log('Upload data structure:', JSON.stringify({
         name: uploadData.name,
         paperCount: uploadData.papers.length,
@@ -35,7 +36,8 @@ export const fileApi = {
           hasEvents: !!uploadData.papers[0].events
         } : null
       }));
-
+  
+      // Make the API request to upload the file
       return await api.files.upload(uploadData);
     } catch (error) {
       console.error('File upload error:', error);
@@ -46,7 +48,7 @@ export const fileApi = {
   async getFiles() {
     try {
       const response = await api.files.getAll();
-      
+
       // Process files to include stats needed by StatsPanel
       const files = response.files?.map(file => ({
         ...file,

@@ -1,199 +1,232 @@
-// StatsPanel.jsx
+import React from 'react';
 import {
   Box,
-  Tooltip,
-  Typography,
   Card,
   CardContent,
-  LinearProgress,
+  Typography,
+  Tooltip,
   useTheme
 } from '@mui/material';
 import {
   FormatListBulleted as EventsIcon,
   CheckCircle as CompletedIcon,
-  TrendingUp as ProgressIcon
+  TrendingUp as ProgressIcon,
+  Article as PaperIcon
 } from '@mui/icons-material';
 
-// Constants for field counting
-const EVENT_TYPE_FIELDS = [
-  'Background/Introduction',
-  'Methods/Approach',
-  'Results/Findings',
-  'Conclusions/Implications'
-];
+// Constants for field validation
+const REQUIRED_EVENT_FIELDS = {
+  eventTypes: [
+    'Background/Introduction',
+    'Methods/Approach',
+    'Results/Findings',
+    'Conclusions/Implications'
+  ],
+  mainAction: ['Main Action'],
+  arguments: [
+    'Agent',
+    'Context',
+    'Purpose',
+    'Method',
+    'Results',
+    'Analysis',
+    'Challenge',
+    'Ethical',
+    'Implications',
+    'Contradictions'
+  ],
+  objects: [
+    'Base Object',
+    'Base Modifier',
+    'Attached Object',
+    'Attached Modifier'
+  ]
+};
 
-const ARGUMENT_FIELDS = [
-  'Agent',
-  'Context',
-  'Purpose',
-  'Method',
-  'Results',
-  'Analysis',
-  'Challenge',
-  'Ethical',
-  'Implications',
-  'Contradictions'
-];
+// Stats card component
+const StatsCard = ({ title, value, icon: Icon, tooltip = '', trend = null, color = 'primary.main' }) => {
+  const theme = useTheme();
+  
+  return (
+    <Tooltip title={tooltip} arrow placement="top">
+      <Card sx={{ height: '100%' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Icon sx={{ color, mr: 1 }} />
+            <Typography variant="h6" component="div" color="text.secondary">
+              {title}
+            </Typography>
+          </Box>
+          
+          <Typography variant="h4" component="div" sx={{ mb: trend !== null ? 1 : 0 }}>
+            {value}
+          </Typography>
+          
+          {trend !== null && (
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                color: trend >= 70 ? 'success.main' : 
+                       trend >= 30 ? 'warning.main' : 
+                       'error.main'
+              }}
+            >
+              {trend}% Complete
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
+    </Tooltip>
+  );
+};
 
-const OBJECT_FIELDS = [
-  'Base Object',
-  'Base Modifier',
-  'Attached Object',
-  'Attached Modifier'
-];
-
-// Check if an event is fully annotated
+// Helper function to check if an event is completely annotated
 const isEventAnnotated = (event) => {
-  // Check if at least one event type field is filled
-  const hasEventType = EVENT_TYPE_FIELDS.some(field => 
-    event[field]?.trim().length > 0
+  if (!event) return false;
+
+  // Check if at least one event type is filled
+  const hasEventType = REQUIRED_EVENT_FIELDS.eventTypes.some(
+    field => event[field]?.trim?.()
   );
 
   // Check Main Action
-  const hasMainAction = event['Main Action']?.trim().length > 0;
+  const hasMainAction = event['Main Action']?.trim?.();
 
-  // Check Arguments fields
-  const hasArguments = event.Arguments && ARGUMENT_FIELDS.some(field => 
-    event.Arguments[field]?.trim().length > 0
+  // Check Arguments
+  const hasArguments = event.Arguments && REQUIRED_EVENT_FIELDS.arguments.some(
+    field => event.Arguments[field]?.trim?.()
   );
 
-  // Check Object fields
-  const hasObject = event.Arguments?.Object && OBJECT_FIELDS.some(field => 
-    event.Arguments.Object[field]?.trim().length > 0
+  // Check Objects
+  const hasObjects = event.Arguments?.Object && REQUIRED_EVENT_FIELDS.objects.some(
+    field => event.Arguments.Object[field]?.trim?.()
   );
 
-  return hasEventType && hasMainAction && hasArguments && hasObject;
+  return hasEventType && hasMainAction && hasArguments && hasObjects;
 };
 
-// Count filled fields in an event
-const countFilledFieldsInEvent = (event) => {
-  let fieldCount = 0;
-  let filledCount = 0;
+// Helper function to count filled fields in an event
+const countFilledFields = (event) => {
+  if (!event) return { total: 0, filled: 0 };
 
-  // Count event type fields
-  EVENT_TYPE_FIELDS.forEach(field => {
+  let totalFields = 0;
+  let filledFields = 0;
+
+  // Count event types
+  REQUIRED_EVENT_FIELDS.eventTypes.forEach(field => {
     if (field in event) {
-      fieldCount++;
-      if (event[field]?.trim()) filledCount++;
+      totalFields++;
+      if (event[field]?.trim?.()) filledFields++;
     }
   });
 
-  // Count Main Action
+  // Count main action
   if ('Main Action' in event) {
-    fieldCount++;
-    if (event['Main Action']?.trim()) filledCount++;
+    totalFields++;
+    if (event['Main Action']?.trim?.()) filledFields++;
   }
 
-  // Count Arguments fields
+  // Count arguments
   if (event.Arguments) {
-    ARGUMENT_FIELDS.forEach(field => {
+    REQUIRED_EVENT_FIELDS.arguments.forEach(field => {
       if (field in event.Arguments) {
-        fieldCount++;
-        if (event.Arguments[field]?.trim()) filledCount++;
+        totalFields++;
+        if (event.Arguments[field]?.trim?.()) filledFields++;
       }
     });
 
-    // Count Object fields
+    // Count object fields
     if (event.Arguments.Object) {
-      OBJECT_FIELDS.forEach(field => {
+      REQUIRED_EVENT_FIELDS.objects.forEach(field => {
         if (field in event.Arguments.Object) {
-          fieldCount++;
-          if (event.Arguments.Object[field]?.trim()) filledCount++;
+          totalFields++;
+          if (event.Arguments.Object[field]?.trim?.()) filledFields++;
         }
       });
     }
   }
 
-  return { total: fieldCount, filled: filledCount };
+  return { total: totalFields, filled: filledFields };
 };
 
-// Count events and fields in a file
-const countEventsInFile = (file) => {
-  if (!file?.papers?.length) {
-    return { events: 0, totalFields: 0, filledFields: 0 };
-  }
-
-  let totalEvents = 0;
-  let totalFields = 0;
-  let filledFields = 0;
-
-  file.papers.forEach((paper) => {
-    if (!paper?.events?.length) return;
-
-    paper.events.forEach(event => {
-      totalEvents++;
-      const { total, filled } = countFilledFieldsInEvent(event);
-      totalFields += total;
-      filledFields += filled;
-    });
-  });
-
-  return { events: totalEvents, totalFields, filledFields };
-};
-
-// StatsCard component remains the same
-const StatsCard = ({ title, value, icon: Icon, tooltip = '', trend = null, color = 'primary.main' }) => {
-  const theme = useTheme();
-  // ... StatsCard implementation stays the same
-};
-
-// StatsPanel component
 const StatsPanel = ({ files = [], loading = false }) => {
   const theme = useTheme();
 
-  // Calculate total papers and completed papers
-  const paperStats = files.reduce((acc, file) => {
-    const total = file.papers?.length || 0;
-    const completed = file.papers?.filter(paper => 
-      paper.events?.every(event => isEventAnnotated(event))
-    ).length || 0;
-    
-    return {
-      total: acc.total + total,
-      completed: acc.completed + completed
-    };
-  }, { total: 0, completed: 0 });
+  console.log('StatsPanel received files:', files);
 
-  // Calculate event and field statistics
+  // Calculate statistics with error handling
   const stats = files.reduce((acc, file) => {
-    const { events, totalFields, filledFields } = countEventsInFile(file);
-    
-    return {
-      totalEvents: acc.totalEvents + events,
-      totalFields: acc.totalFields + totalFields,
-      filledFields: acc.filledFields + filledFields
-    };
-  }, { totalEvents: 0, totalFields: 0, filledFields: 0 });
+    try {
+      // Process papers
+      const papers = file.papers || [];
+      const totalPapers = papers.length;
+      
+      // Process events
+      let totalEvents = 0;
+      let totalFields = 0;
+      let filledFields = 0;
+      let completedPapers = 0;
 
-  // Stats configuration
+      papers.forEach(paper => {
+        const events = paper.events || [];
+        const isComplete = events.every(event => isEventAnnotated(event));
+        if (isComplete) completedPapers++;
+        
+        events.forEach(event => {
+          totalEvents++;
+          const { total, filled } = countFilledFields(event);
+          totalFields += total;
+          filledFields += filled;
+        });
+      });
+
+      return {
+        papers: acc.papers + totalPapers,
+        completedPapers: acc.completedPapers + completedPapers,
+        events: acc.events + totalEvents,
+        totalFields: acc.totalFields + totalFields,
+        filledFields: acc.filledFields + filledFields
+      };
+    } catch (error) {
+      console.error('Error processing file stats:', error);
+      return acc;
+    }
+  }, {
+    papers: 0,
+    completedPapers: 0,
+    events: 0,
+    totalFields: 0,
+    filledFields: 0
+  });
+
   const statsConfig = [
     {
       title: 'Total Papers',
-      value: paperStats.total,
-      icon: EventsIcon,
+      value: stats.papers,
+      icon: PaperIcon,
       tooltip: 'Total number of papers across all files',
       color: theme.palette.primary.main
     },
     {
       title: 'Completed Papers',
-      value: paperStats.completed,
+      value: stats.completedPapers,
       icon: CompletedIcon,
-      tooltip: 'Number of papers with all events annotated',
-      trend: paperStats.total > 0 ? Math.round((paperStats.completed / paperStats.total) * 100) : 0,
+      tooltip: 'Papers with all events fully annotated',
+      trend: stats.papers > 0 ? Math.round((stats.completedPapers / stats.papers) * 100) : 0,
       color: theme.palette.success.main
     },
     {
       title: 'Total Events',
-      value: stats.totalEvents,
+      value: stats.events,
       icon: EventsIcon,
-      tooltip: 'Total number of events across all files',
+      tooltip: 'Total number of events across all papers',
       color: theme.palette.info.main
     },
     {
-      title: 'Overall Progress',
+      title: 'Annotation Progress',
       value: `${stats.filledFields.toLocaleString()} / ${stats.totalFields.toLocaleString()}`,
       icon: ProgressIcon,
-      tooltip: 'Total fields filled across all files',
+      tooltip: 'Total annotated fields vs total available fields',
       trend: stats.totalFields > 0 ? Math.round((stats.filledFields / stats.totalFields) * 100) : 0,
       color: theme.palette.warning.main
     }

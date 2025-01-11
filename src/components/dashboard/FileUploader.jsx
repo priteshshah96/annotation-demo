@@ -35,54 +35,33 @@ const FileUploader = ({ onUpload, isUploading = false, userId }) => {
   const handleFiles = async (selectedFiles) => {
     try {
       const fileArray = Array.from(selectedFiles);
-      
+  
       for (const file of fileArray) {
         const fileId = Math.random().toString(36).substring(7);
-        
+  
         try {
           setFiles(prev => [...prev, { file, id: fileId }]);
-          
+  
+          // Read and parse the file content
           const content = await file.text();
           const papers = JSON.parse(content);
-          
+  
           console.log('Parsed papers:', papers); // Log parsed papers
-          
+  
+          // Normalize papers to ensure it's an array
           const normalizedPapers = Array.isArray(papers) ? papers : [papers];
   
-          // Process papers to extract relevant event_type and other fields
-          const processedPapers = normalizedPapers.map(paper => ({
-            ...paper,
-            events: paper.events.map(event => {
-              const eventType = new Map(); // Use a Map for dynamic event type fields
-              const eventData = {};
-          
-              // Separate event_type fields from the rest
-              for (const key in event) {
-                if (key === "Text" || key === "Main Action" || key === "Arguments") {
-                  eventData[key] = event[key]; // These are part of the event data
-                } else if (event[key] !== "") { // Only include non-empty event type fields
-                  eventType.set(key, event[key]); // Add to the eventType map
-                }
-              }
-          
-              return {
-                eventType: Array.from(eventType.entries()), // Convert Map to array of key-value pairs
-                ...eventData // Rest of the fields as event data
-              };
-            })
-          }));
-  
           // Calculate metadata
-          const totalEvents = processedPapers.reduce((sum, paper) => 
+          const totalEvents = normalizedPapers.reduce((sum, paper) => 
             sum + (paper.events?.length || 0), 0);
   
-          // Prepare upload data
+          // Prepare upload data (preserve the original structure)
           const uploadData = {
             name: file.name,
-            papers: processedPapers, // Ensure papers property is included
+            papers: normalizedPapers, // Send papers as-is
             userId,
             metadata: {
-              totalPapers: processedPapers.length,
+              totalPapers: normalizedPapers.length,
               totalEvents,
               totalFields: totalEvents * 14 // Assuming 14 fields per event
             },
@@ -98,17 +77,21 @@ const FileUploader = ({ onUpload, isUploading = false, userId }) => {
             } : null
           }));
   
-          await fileApi.uploadFile(uploadData);
-          
+          // Upload the file data
+          const response = await fileApi.uploadFile(uploadData); // Pass uploadData instead of fileData
+  
+          // Update progress
           setUploadProgress(prev => ({
             ...prev,
             [fileId]: 100
           }));
-          
+  
+          // Trigger onUpload callback if provided
           if (onUpload) {
-            await onUpload();
+            await onUpload(uploadData);
           }
-          
+  
+          // Remove the file from the list after 2 seconds
           setTimeout(() => {
             setFiles(prev => prev.filter(f => f.id !== fileId));
             setUploadProgress(prev => {
@@ -275,4 +258,4 @@ FileUploader.propTypes = {
   userId: PropTypes.string.isRequired
 };
 
-export default FileUploader;
+export default FileUploader; // Default export

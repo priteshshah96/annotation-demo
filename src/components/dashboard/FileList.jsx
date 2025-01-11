@@ -173,12 +173,9 @@ const FileList = ({
   const handleUpload = async (data) => {
     try {
       setIsUploading(true);
-      await fileApi.uploadFile({
-        ...data,
-        userId
-      });
+      // Don't upload again - the file is already uploaded in FileUploader
       if (onUpload) {
-        await onUpload();
+        await onUpload(); // Just refresh the list
       }
     } catch (error) {
       console.error('File upload error:', error);

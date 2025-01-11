@@ -365,20 +365,21 @@ app.post('/api/files/upload', authenticateAndSync, async (req, res) => {
       });
     }
 
+    // Calculate metadata
+    const totalEvents = papers.reduce((sum, paper) => 
+      sum + (paper.events?.length || 0), 0);
+
     // Prepare file document
     const fileDoc = {
       userId: mongoUserId,
       name,
-      papers: papers.map(paper => ({
-        paper_code: paper.paper_code,
-        abstract: paper.abstract,
-        events: paper.events.map(event => ({
-          eventType: new Map(event.eventType), // Convert array back to Map
-          Text: event.Text,
-          'Main Action': event['Main Action'],
-          Arguments: event.Arguments
-        }))
-      }))
+      papers, // Store papers as-is
+      metadata: {
+        totalPapers: papers.length,
+        totalEvents,
+        totalFields: totalEvents * 14 // Assuming 14 fields per event
+      },
+      progress: 0
     };
 
     // Debug log document structure
