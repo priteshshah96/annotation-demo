@@ -46,8 +46,6 @@ const FileUploader = ({ onUpload, isUploading = false, userId }) => {
           const content = await file.text();
           const papers = JSON.parse(content);
   
-          console.log('Parsed papers:', papers); // Log parsed papers
-  
           // Normalize papers to ensure it's an array
           const normalizedPapers = Array.isArray(papers) ? papers : [papers];
   
@@ -55,30 +53,19 @@ const FileUploader = ({ onUpload, isUploading = false, userId }) => {
           const totalEvents = normalizedPapers.reduce((sum, paper) => 
             sum + (paper.events?.length || 0), 0);
   
-          // Prepare upload data (preserve the original structure)
+          // Prepare upload data
           const uploadData = {
             name: file.name,
-            papers: normalizedPapers, // Send papers as-is
+            papers: normalizedPapers,
             userId,
             metadata: {
               totalPapers: normalizedPapers.length,
-              totalEvents,
-              totalFields: totalEvents * 14 // Assuming 14 fields per event
-            },
-            progress: 0
+              totalEvents
+            }
           };
   
-          console.log('Upload data structure:', JSON.stringify({
-            name: uploadData.name,
-            paperCount: uploadData.papers.length,
-            firstPaper: uploadData.papers[0] ? {
-              paper_code: uploadData.papers[0].paper_code,
-              hasEvents: !!uploadData.papers[0].events
-            } : null
-          }));
-  
           // Upload the file data
-          const response = await fileApi.uploadFile(uploadData); // Pass uploadData instead of fileData
+          await fileApi.uploadFile(uploadData);
   
           // Update progress
           setUploadProgress(prev => ({

@@ -3,29 +3,25 @@ import { api } from '../lib/api';
 export const fileApi = {
   async uploadFile(fileData) {
     try {
-      // Debugging: Log the fileData object
       console.log('fileData:', fileData);
   
-      // Check if papers property exists
       if (!fileData.papers) {
         throw new Error('The "papers" property is missing in fileData.');
       }
   
-      // Calculate metadata required for StatsPanel
+      // Calculate basic metadata
       const totalEvents = fileData.papers.reduce((sum, paper) => 
         sum + (paper.events?.length || 0), 0);
   
-      // Prepare upload data (preserve the original structure)
+      // Simplified upload data
       const uploadData = {
         name: fileData.name,
-        papers: fileData.papers, // Send papers as-is
+        papers: fileData.papers,
         userId: fileData.userId,
         metadata: {
           totalPapers: fileData.papers.length,
-          totalEvents,
-          totalFields: totalEvents * 14 // Assuming 14 fields per event
-        },
-        progress: 0
+          totalEvents
+        }
       };
   
       console.log('Upload data structure:', JSON.stringify({
@@ -37,7 +33,6 @@ export const fileApi = {
         } : null
       }));
   
-      // Make the API request to upload the file
       return await api.files.upload(uploadData);
     } catch (error) {
       console.error('File upload error:', error);
@@ -49,15 +44,12 @@ export const fileApi = {
     try {
       const response = await api.files.getAll();
 
-      // Process files to include stats needed by StatsPanel
+      // Process files with basic stats only
       const files = response.files?.map(file => ({
         ...file,
         totalPapers: file.papers?.length || 0,
         totalEvents: file.papers?.reduce((sum, paper) => 
-          sum + (paper.events?.length || 0), 0) || 0,
-        totalFields: file.papers?.reduce((sum, paper) => 
-          sum + ((paper.events?.length || 0) * 14), 0) || 0,
-        progress: file.progress || 0
+          sum + (paper.events?.length || 0), 0) || 0
       })) || [];
 
       return {
@@ -75,15 +67,13 @@ export const fileApi = {
       const response = await api.files.get(fileId);
       if (!response?.file) return null;
 
-      // Add stats for single file view
+      // Add basic stats only
       const totalEvents = response.file.papers?.reduce((sum, paper) => 
         sum + (paper.events?.length || 0), 0) || 0;
 
       return {
         ...response.file,
-        totalEvents,
-        totalFields: totalEvents * 14,
-        progress: response.file.progress || 0
+        totalEvents
       };
     } catch (error) {
       console.error('Error fetching file:', error);

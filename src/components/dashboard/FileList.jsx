@@ -24,6 +24,7 @@ import FileUploader from './FileUploader';
 import { fileApi } from '../../services/fileApi';
 
 // FileListItem Component
+// FileListItem Component
 const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
@@ -42,8 +43,7 @@ const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
   const stats = {
     paperCount: file.papers?.length || 0,
     eventCount: file.papers?.reduce((total, paper) => 
-      total + (paper.events?.length || 0), 0) || 0,
-    progress: file.progress || 0,
+      total + (paper.events?.length || 0), 0) || 0
   };
 
   return (
@@ -66,12 +66,6 @@ const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
             <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
               {file.name}
             </Typography>
-            <Chip
-              label={stats.progress === 100 ? 'Completed' : 'In Progress'}
-              color={stats.progress === 100 ? 'success' : 'primary'}
-              size="small"
-              variant={stats.progress === 100 ? 'filled' : 'outlined'}
-            />
           </Box>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, color: 'text.secondary' }}>
@@ -89,54 +83,25 @@ const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
               Uploaded: {formatDate(file.uploadDate)}
             </Typography>
           </Box>
-
-          <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Box sx={{ flexGrow: 1, maxWidth: '300px' }}>
-              <LinearProgress
-                variant="determinate"
-                value={stats.progress}
-                sx={{
-                  height: 6,
-                  borderRadius: 3,
-                  bgcolor: theme.palette.grey[100],
-                  '& .MuiLinearProgress-bar': {
-                    bgcolor: stats.progress === 100 ? 
-                      theme.palette.success.main : 
-                      theme.palette.primary.main
-                  }
-                }}
-              />
-            </Box>
-            <Typography 
-              variant="caption" 
-              sx={{ 
-                color: stats.progress === 100 ? 
-                  theme.palette.success.main : 
-                  theme.palette.primary.main 
-              }}
-            >
-              {stats.progress}%
-            </Typography>
-          </Box>
         </Box>
 
         <Fade in={isHovered || isSelected}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Tooltip title={stats.progress === 100 ? "View Annotations" : "Continue Annotating"}>
+            <Tooltip title="Annotate File">
               <Button
                 variant="contained"
                 size="small"
                 onClick={() => onNavigate(`/annotate/${file._id}`)}
-                startIcon={stats.progress === 100 ? <ViewIcon /> : <StartIcon />}
+                startIcon={<StartIcon />}
                 sx={{
                   minWidth: 100,
-                  bgcolor: stats.progress === 100 ? 'success.main' : 'primary.main',
+                  bgcolor: 'primary.main',
                   '&:hover': {
-                    bgcolor: stats.progress === 100 ? 'success.dark' : 'primary.dark'
+                    bgcolor: 'primary.dark'
                   }
                 }}
               >
-                {stats.progress === 100 ? 'View' : 'Annotate'}
+                Annotate
               </Button>
             </Tooltip>
 

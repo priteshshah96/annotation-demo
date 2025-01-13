@@ -47,7 +47,6 @@ const fileSchema = new mongoose.Schema({
     totalPapers: { type: Number, default: 0 }, // Total number of papers
     totalEvents: { type: Number, default: 0 } // Total number of events
   },
-  progress: { type: Number, default: 0 }, // Upload progress (0-100)
   lastUpdated: { type: Date, default: Date.now } // Timestamp of last update
 }, {
   strict: false, // Allow any fields in the file object

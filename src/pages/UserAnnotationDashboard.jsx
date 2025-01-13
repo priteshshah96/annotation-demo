@@ -1,287 +1,144 @@
-// src/pages/UserAnnotationDashboard.jsx
-import React, { useEffect, useCallback, memo, useRef, useMemo, useState } from 'react';
-import { 
-  Container, 
-  Typography, 
-  Button, 
-  Box,
-  CircularProgress,
-  Paper,
-  alpha,
-  useTheme
-} from '@mui/material';
+import React, { useEffect, useCallback, memo, useRef, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAnnotation } from '../hooks/useAnnotation';
+import { useUser, useAuth } from '@clerk/clerk-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import useAnnotation, { ANNOTATION_FIELDS } from '../hooks/useAnnotation';  // Add ANNOTATION_FIELDS import
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { useSnackbar } from '../hooks/useSnackbar';
-import AnnotationContent from '../components/annotation/AnnotationContent';
-import AnnotationHeader from '../components/annotation/AnnotationHeader';
-import OptionBox from '../components/annotation/OptionBox';
-import AutoScrollAnnotation from '../components/annotation/AutoScrollAnnotation';
+import JsonViewer from '../components/annotation/JsonViewer';
+import TextAnnotationPanel from '../components/annotation/TextAnnotationPanel';
 
-// Constants for question types
-const QUESTIONS = {
-  sentence: [
-    { 
-      text: "What is the background or the main problem discussed by this research?", 
-      entity: "Background/Introduction" 
-    },
-    { 
-      text: "What methods or approaches are used to conduct the research?", 
-      entity: "Methods/Approach" 
-    },
-    { 
-      text: "What are the key findings or outcomes of this study?", 
-      entity: "Results/Findings" 
-    },
-    { 
-      text: "What are the implications of these findings, and what future directions are suggested?", 
-      entity: "Conclusions/Implications" 
-    },
-    { 
-      text: "Not sure", 
-      entity: "Not sure" 
-    }
-  ],
-  entity: [
-    { 
-      text: "What is the main focus or who/what is performing the action in the sentence?", 
-      entity: "Agent/Subject" 
-    },
-    { 
-      text: "What is receiving the action or being acted upon in the sentence?", 
-      entity: "Object/Recipient" 
-    },
-    { 
-      text: "What is the result or effect of the action or focus in the sentence?", 
-      entity: "Outcome/Effect" 
-    },
-    { 
-      text: "What background conditions or circumstances are relevant to the action or subject in the sentence?", 
-      entity: "Context/Condition" 
-    },
-    { 
-      text: "Not sure", 
-      entity: "Not sure" 
-    }
-  ]
-};
-
-// Loading Component
 const LoadingView = memo(() => (
-  <Container 
-    sx={{ 
-      display: 'flex', 
-      justifyContent: 'center', 
-      alignItems: 'center', 
-      height: '100vh',
-      bgcolor: 'background.default'
-    }}
-  >
-    <CircularProgress />
-  </Container>
+  <div className="flex justify-center items-center h-screen bg-gray-50">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+  </div>
 ));
 
-// Error Component
+// Error Component 
 const ErrorView = memo(({ error, onBack }) => (
-  <Container 
-    maxWidth="xl" 
-    sx={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      alignItems: 'center', 
-      gap: 2, 
-      pt: 4 
-    }}
-  >
-    <Typography variant="h6" color="error" align="center" gutterBottom>
-      {error}
-    </Typography>
-    <Button 
-      variant="contained" 
-      onClick={onBack}
-      sx={{ minWidth: 200 }}
-    >
-      Return to Dashboard
-    </Button>
-  </Container>
+  <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
+    <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6">
+      <h2 className="text-red-600 text-lg font-semibold mb-4">{error}</h2>
+      <button
+        onClick={onBack}
+        className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors"
+      >
+        Return to Dashboard
+      </button>
+    </div>
+  </div>
 ));
 
-// Navigation Buttons Component
-const NavigationButtons = memo(({ 
-  onPrevious, 
-  onNext, 
-  onComplete, 
-  isFirstQuestion, 
-  hasSelection, 
-  isLastItem,
-  isCompleting
-}) => {
-  const theme = useTheme();
-
-  return (
-    <Box 
-      display="flex" 
-      justifyContent="space-between" 
-      marginTop={2}
-      gap={2}
-    >
-      <Button 
-        variant="outlined" 
-        onClick={onPrevious}
-        disabled={isFirstQuestion || isCompleting}
-        sx={{ 
-          minWidth: 120,
-          '&:not(:disabled):hover': {
-            backgroundColor: alpha(theme.palette.primary.main, 0.04)
-          }
-        }}
-      >
-        Previous
-      </Button>
-      <Button 
-        variant="contained" 
-        onClick={isLastItem ? onComplete : onNext}
-        disabled={!hasSelection || isCompleting}
-        color={isLastItem ? "success" : "primary"}
-        sx={{ 
-          minWidth: 120,
-          position: 'relative'
-        }}
-      >
-        {isCompleting ? (
-          <>
-            <CircularProgress 
-              size={24} 
-              sx={{ 
-                color: 'white',
-                position: 'absolute',
-                left: '50%',
-                marginLeft: '-12px'
-              }} 
-            />
-            <Box sx={{ opacity: 0 }}>
-              {isLastItem ? 'Complete' : 'Next'}
-            </Box>
-          </>
-        ) : (
-          isLastItem ? 'Complete' : 'Next'
-        )}
-      </Button>
-    </Box>
-  );
-});
-
-// Questions List Component
-const QuestionsList = memo(({ questions, selectedAnswer, onAnswerSelect, disabled }) => (
-  <Box>
-    {questions.map((question, index) => (
-      <OptionBox
-        key={`${question.entity}-${index}`}
-        text={question.text}
-        isSelected={selectedAnswer === question.entity}
-        onClick={() => onAnswerSelect(question)}
-        disabled={disabled}
-      />
-    ))}
-  </Box>
-));
-
-// Main Component
-const UserAnnotationDashboard = () => {
+const AnnotationDashboard = ({ mode }) => {
   const mountedRef = useRef(true);
-  const theme = useTheme();
   const navigate = useNavigate();
   const { fileId } = useParams();
+  const { user } = useUser();
+  const { isLoaded, isSignedIn } = useAuth();
   const { showSnackbar, SnackbarComponent } = useSnackbar();
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [selectedText, setSelectedText] = useState(null);
+  const [isAbstractOpen, setIsAbstractOpen] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
   
   const {
     currentPosition,
-    selections,
     fileData,
     progress,
-    expandAbstract,
-    setExpandAbstract,
     loading,
     error,
     moveNext,
     movePrevious,
-    loadFileData,
-    handleAnswerSelect,
-    isFirstQuestion,
-    isLastQuestion,
-    isLastItem
-  } = useAnnotation(fileId);
+    handleAnnotationSave,
+    getCurrentEvent,
+    getCurrentPaper,
+    isFirstField,
+    isLastField,
+    ANNOTATION_FIELDS
+  } = useAnnotation(fileId, navigate, user?.id);
 
-  const { syncStatus, syncAnnotation } = useAnnotationSync(fileId);
+  const { syncStatus, syncAnnotation, finalizeSync } = useAnnotationSync(fileId, user?.id);
 
-  const handleBack = useCallback(() => {
-    if (isCompleting) return;
-    navigate('/', { replace: true });
-  }, [navigate, isCompleting]);
+  // Memoized values
+  const currentEvent = useMemo(() => getCurrentEvent(), [getCurrentEvent]);
+  const currentPaper = useMemo(() => getCurrentPaper(), [getCurrentPaper]);
+  const eventType = useMemo(() => {
+    if (!currentEvent) return null;
+    return ANNOTATION_FIELDS.EVENT_TYPES.find(type => currentEvent[type] !== undefined);
+  }, [currentEvent, ANNOTATION_FIELDS.EVENT_TYPES]);
 
-  // In UserAnnotationDashboard.jsx
-const handleCompletion = useCallback(async () => {
-  if (!mountedRef.current || isCompleting) return;
-    
-  try {
-    setIsCompleting(true);
-    showSnackbar('Finalizing annotations...', 'info');
-    
-    // Final sync of annotations
-    await syncAnnotation();
-    
-    // Clear local storage position and file cache
-    localStorage.removeItem(`last-position-${fileId}`);
-    localStorage.removeItem(`file-data-${fileId}`);
+  // Process event data for display
+  const { cleanedEvent, displayAnnotations } = useMemo(() => {
+    if (!currentEvent) return { cleanedEvent: null, displayAnnotations: [] };
 
-    if (!mountedRef.current) return;
-    
-    showSnackbar('Annotations completed!', 'success');
-    
-    // Small delay to show completion state
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    if (mountedRef.current) {
-      // Force navigation to dashboard
-      window.location.href = '/';  // Use direct navigation instead of react-router
-    }
-  } catch (error) {
-    console.error('Completion error:', error);
-    if (mountedRef.current) {
-      setIsCompleting(false);
-      showSnackbar('Error completing annotations. Please try again.', 'error');
-    }
-  }
-}, [syncAnnotation, fileId, showSnackbar, isCompleting]);
-
-
-  // Initial data load
-  useEffect(() => {
-    if (isInitialLoad && fileId && mountedRef.current) {
-      loadFileData();
-      setIsInitialLoad(false);
-    }
-  }, [loadFileData, fileId, isInitialLoad]);
-
-  // Auto-sync effect
-  useEffect(() => {
-    let syncInterval;
-    if (!loading && fileData && mountedRef.current && !isCompleting) {
-      syncInterval = setInterval(() => {
-        if (mountedRef.current) {
-          syncAnnotation().catch(console.error);
-        }
-      }, 30000);
-    }
-    return () => {
-      if (syncInterval) {
-        clearInterval(syncInterval);
-      }
+    // Create cleaned event with only relevant fields
+    const cleaned = {
+      Text: currentEvent.Text,
+      [eventType]: currentEvent[eventType] || '',
+      'Main Action': currentEvent['Main Action'] || '',
+      Arguments: currentEvent.Arguments || {}
     };
-  }, [syncAnnotation, loading, fileData, isCompleting]);
+
+    // Process annotations for text highlighting
+    const annotations = [];
+    const text = currentEvent.Text || '';
+
+    // Process Main Action
+    if (currentEvent['Main Action']) {
+      const start = text.indexOf(currentEvent['Main Action']);
+      if (start !== -1) {
+        annotations.push({
+          start,
+          end: start + currentEvent['Main Action'].length,
+          text: currentEvent['Main Action'],
+          type: 'Main_Action'
+        });
+      }
+    }
+
+    // Process Arguments
+    if (currentEvent.Arguments) {
+      Object.entries(currentEvent.Arguments).forEach(([key, value]) => {
+        if (!value) return;
+
+        if (key === 'Object') {
+          Object.entries(value).forEach(([objKey, objValue]) => {
+            if (!objValue) return;
+            const start = text.indexOf(objValue);
+            if (start !== -1) {
+              annotations.push({
+                start,
+                end: start + objValue.length,
+                text: objValue,
+                type: `Object.${objKey.replace(' ', '_')}`
+              });
+            }
+          });
+        } else if (value) {
+          const start = text.indexOf(value);
+          if (start !== -1) {
+            annotations.push({
+              start,
+              end: start + value.length,
+              text: value,
+              type: key
+            });
+          }
+        }
+      });
+    }
+
+    return {
+      cleanedEvent: cleaned,
+      displayAnnotations: annotations.sort((a, b) => a.start - b.start)
+    };
+  }, [currentEvent, eventType]);
+
+  // Authentication check
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      navigate('/sign-in');
+    }
+  }, [isLoaded, isSignedIn, navigate]);
 
   // Cleanup effect
   useEffect(() => {
@@ -290,114 +147,235 @@ const handleCompletion = useCallback(async () => {
     };
   }, []);
 
-  // Memoized current data
-  const currentData = useMemo(() => {
-    if (!fileData?.abstracts?.length) return null;
+  const handleBack = useCallback(() => {
+    if (isCompleting) return;
+    navigate('/', { replace: true });
+  }, [navigate, isCompleting]);
 
-    const currentAbstract = fileData.abstracts[currentPosition.abstractIndex];
-    const currentSentence = currentAbstract.sentences[currentPosition.sentenceIndex];
-    const currentEntity = currentPosition.entityIndex >= 0 
-      ? currentSentence.scientific_entities[currentPosition.entityIndex] 
-      : null;
+  const handleCompletion = useCallback(async () => {
+    if (!mountedRef.current || isCompleting) return;
     
-    return {
-      abstract: currentAbstract,
-      sentence: currentSentence,
-      entity: currentEntity,
-      questions: currentPosition.entityIndex === -1 ? QUESTIONS.sentence : QUESTIONS.entity,
-      selectedAnswer: currentPosition.entityIndex === -1 
-        ? selections.sentenceAnswer 
-        : selections.entityAnswer
-    };
-  }, [fileData, currentPosition, selections]);
+    try {
+      setIsCompleting(true);
+      showSnackbar('Finalizing annotations...', 'info');
+      
+      const success = await finalizeSync();
+      
+      if (!success || !mountedRef.current) return;
+      
+      showSnackbar('Annotations completed!', 'success');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      if (mountedRef.current) {
+        navigate('/', { replace: true });
+      }
+    } catch (error) {
+      console.error('Completion error:', error);
+      if (mountedRef.current) {
+        setIsCompleting(false);
+        showSnackbar('Error completing annotations. Please try again.', 'error');
+      }
+    }
+  }, [finalizeSync, navigate, showSnackbar, isCompleting]);
 
-  if (loading || isInitialLoad) {
-    return <LoadingView />;
+  const handleTextSelect = useCallback((selection) => {
+    setSelectedText(selection);
+  }, []);
+
+  const handleAnnotationSelect = useCallback((annotationType) => {
+    if (!selectedText || !currentPosition) return;
+    
+    let field;
+    let value = selectedText.text;
+
+    if (annotationType.startsWith('Object.')) {
+      field = `Arguments.Object.${annotationType.split('.')[1]}`;
+    } else if (annotationType === 'Main_Action') {
+      field = 'Main Action';
+    } else {
+      field = `Arguments.${annotationType}`;
+    }
+
+    handleAnnotationSave(field, value, {
+      paperIndex: Number(currentPosition.paperIndex),
+      eventIndex: Number(currentPosition.eventIndex)
+    });
+    
+    setSelectedText(null);
+  }, [selectedText, currentPosition, handleAnnotationSave]);
+
+  const handleSummaryChange = useCallback((e) => {
+    if (!eventType || !currentPosition) return;
+    
+    handleAnnotationSave(eventType, e.target.value, {
+      paperIndex: Number(currentPosition.paperIndex),
+      eventIndex: Number(currentPosition.eventIndex)
+    });
+  }, [eventType, currentPosition, handleAnnotationSave]);
+
+  // Early returns
+  if (!isLoaded || !user) return <LoadingView />;
+  if (!isSignedIn) return null;
+  if (loading) return <LoadingView />;
+  if (error) return <ErrorView error={error} onBack={handleBack} />;
+  if (!currentEvent || !currentPaper) {
+    return <ErrorView error="No data available for annotation." onBack={handleBack} />;
   }
 
-  if (error) {
-    return <ErrorView error={error} onBack={handleBack} />;
-  }
-
-  if (!currentData) {
-    return <ErrorView error="No file data available for annotation." onBack={handleBack} />;
-  }
+  // Disable editing if in view mode
+  const isViewMode = mode === 'view';
 
   return (
-    <Box component="main" sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', bgcolor: 'background.default', overflow: 'hidden' }}>
-      <Container maxWidth="xl" sx={{ flex: 1, pb: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <AnnotationHeader 
-          onBack={handleBack}
-          progress={progress}
-          syncStatus={syncStatus}
-          fileName={fileData.name}
-          
-        />
-  
-        <AutoScrollAnnotation currentPosition={currentPosition}>
-          <AnnotationContent 
-            abstract={currentData.abstract}
-            sentence={currentData.sentence}
-            entity={currentData.entity}
-            expanded={expandAbstract}
-            onToggleExpand={() => setExpandAbstract(!expandAbstract)}
-            abstractIndex={currentPosition.abstractIndex}
-            totalAbstracts={fileData.abstracts.length}
-            sentenceIndex={currentPosition.sentenceIndex}
-            totalSentences={currentData.abstract.sentences.length}
-            entityIndex={currentPosition.entityIndex}
-            totalEntities={currentData.sentence.scientific_entities.length}
-          />
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-20">
+        <div className="max-w-7xl mx-auto p-4">
+          <div className="flex justify-between items-center mb-2">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleBack}
+                className="text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                ← Back to Dashboard
+              </button>
+              <h1 className="text-xl font-bold text-gray-900">
+                {currentPaper.paper_code}
+              </h1>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-medium text-gray-600">
+                Paper {currentPosition.paperIndex + 1} of {fileData.papers.length}
+              </span>
+              <span className="text-lg font-bold text-blue-600">
+                Event {currentPosition.eventIndex + 1} of {currentPaper.events.length}
+              </span>
+            </div>
+          </div>
 
-        <Paper 
-          elevation={3}
-          data-question-section
-          sx={{ 
-            padding: 3,
-            position: 'sticky',
-            bottom: 16,
-            backgroundColor: 'background.paper',
-            zIndex: 1,
-            borderRadius: 2,
-            transition: 'transform 0.2s ease-in-out',
-            border: `1px solid ${theme.palette.divider}`
-          }}
-        >
-          <Typography 
-            variant="subtitle1" 
-            gutterBottom
-            sx={{ 
-              fontWeight: 500,
-              color: theme.palette.text.primary
-            }}
-          >
-            {currentPosition.entityIndex === -1 
-              ? "Which of the following best describes this sentence?" 
-              : "Which of the following best describes this entity?"}
-          </Typography>
+          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-blue-600 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      </header>
 
-          <QuestionsList
-            questions={currentData.questions}
-            selectedAnswer={currentData.selectedAnswer}
-            onAnswerSelect={handleAnswerSelect}
-            disabled={isCompleting}
-          />
+      {/* Main content */}
+      <main className="pt-24 pb-20 px-4">
+        <div className="max-w-[95%] mx-auto space-y-6">
+          {/* Abstract Section */}
+          {currentPaper?.abstract && (
+            <div className="w-full bg-white rounded-xl shadow-lg">
+              <button
+                onClick={() => setIsAbstractOpen(!isAbstractOpen)}
+                className="w-full flex items-center justify-between p-4 hover:bg-gray-50 
+                         transition-colors rounded-t-xl"
+                aria-expanded={isAbstractOpen}
+              >
+                <h2 className="text-xl font-semibold text-gray-900">Abstract</h2>
+                {isAbstractOpen ? (
+                  <ChevronUp className="w-5 h-5 text-gray-500" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-500" />
+                )}
+              </button>
+              
+              <div className={`transition-all duration-300 ${
+                isAbstractOpen ? 'max-h-96 overflow-y-auto' : 'max-h-0 overflow-hidden'
+              }`}>
+                <div className="p-6 border-t border-gray-100">
+                  <p className="text-gray-700 whitespace-pre-wrap">
+                    {currentPaper.abstract}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-          <NavigationButtons
-            onPrevious={movePrevious}
-            onNext={moveNext}
-            onComplete={handleCompletion}
-            isFirstQuestion={isFirstQuestion}
-            isLastItem={isLastItem}
-            hasSelection={Boolean(currentData.selectedAnswer)}
-            isCompleting={isCompleting}
-          />
-        </Paper>
-      </AutoScrollAnnotation>
-    </Container>
-    {SnackbarComponent}
-  </Box>
-);
+          {/* Two Column Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Left Column: Text Annotation */}
+            <div className="col-span-1">
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <div className="mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Event Type: <span className="text-blue-600">{eventType}</span>
+                  </h2>
+                </div>
+                
+                <TextAnnotationPanel
+                  text={cleanedEvent?.Text}
+                  annotations={displayAnnotations}
+                  onTextSelect={isViewMode ? null : handleTextSelect}
+                  selectedText={selectedText}
+                  onAnnotationSelect={isViewMode ? null : handleAnnotationSelect}
+                  readOnly={isViewMode}
+                />
+              </div>
+            </div>
+
+            {/* Right Column: Summary + JSON */}
+            <div className="col-span-1 space-y-4">
+              {/* Summarization Input */}
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <h3 className="text-xl font-semibold mb-2">Summarization</h3>
+                <textarea
+                  className="w-full p-2 border border-gray-300 rounded-lg h-12 
+                           resize-none text-sm"
+                  placeholder="Add a brief summary (max 10 words)..."
+                  value={cleanedEvent?.[eventType] || ''}
+                  onChange={handleSummaryChange}
+                  maxLength={100}
+                  disabled={isViewMode}
+                />
+              </div>
+
+              {/* JSON Viewer */}
+              <div className="flex-1">
+                <JsonViewer 
+                  data={cleanedEvent}
+                  onRemoveAnnotation={isViewMode ? null : handleAnnotationSave}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Navigation Footer */}
+      {!isViewMode && (
+        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-4">
+          <div className="max-w-7xl mx-auto flex justify-center gap-4">
+            <button
+              onClick={movePrevious}
+              disabled={isFirstField || isCompleting}
+              className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 
+                       disabled:opacity-50 flex items-center gap-2"
+            >
+              Previous
+            </button>
+            
+            <button
+              onClick={isLastField ? handleCompletion : moveNext}
+              disabled={isCompleting}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 
+                       disabled:opacity-50 flex items-center gap-2"
+            >
+              {isCompleting ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white" />
+              ) : (
+                isLastField ? 'Complete' : 'Next'
+              )}
+            </button>
+          </div>
+        </footer>
+      )}
+
+      {SnackbarComponent}
+    </div>
+  );
 };
 
-export default memo(UserAnnotationDashboard);
+export default memo(AnnotationDashboard);

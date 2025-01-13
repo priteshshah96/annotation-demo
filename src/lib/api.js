@@ -106,20 +106,19 @@ export const api = {
       method: 'DELETE'
     })
   },
+  
   annotations: {
     get: (fileId) => fetchWithAuth(`/api/annotations/${fileId}`),
     save: (data) => fetchWithAuth('/api/annotations', {
       method: 'POST',
       body: JSON.stringify(data)
     }),
-    sync: (fileId, data, options) => fetchWithAuth(`/api/annotations/${fileId}/sync`, {
+    sync: (fileId, data) => fetchWithAuth(`/api/annotations/${fileId}/sync`, {
       method: 'POST',
-      body: JSON.stringify(data),
-      ...options
+      body: JSON.stringify(data)
     }),
-    reset: (fileId, options) => fetchWithAuth(`/api/annotations/${fileId}/reset`, {
-      method: 'POST',
-      ...options
+    reset: (fileId) => fetchWithAuth(`/api/annotations/${fileId}/reset`, {
+      method: 'POST'
     })
   }
 };

@@ -1,5 +1,47 @@
-body {
-  margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for annotation interface */
+.prose {
+  max-width: none !important;
+}
+
+/* Selection styles */
+::selection {
+  @apply bg-blue-100;
+}
+
+/* Animation utilities */
+.fade-in {
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Transitions */
+.transition-height {
+  transition-property: max-height;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+/* Annotation highlights */
+.highlight-main-action {
+  @apply bg-blue-100 hover:bg-blue-200 transition-colors;
+}
+
+.highlight-agent {
+  @apply bg-green-100 hover:bg-green-200 transition-colors;
+}
+
+.highlight-object {
+  @apply bg-violet-100 hover:bg-violet-200 transition-colors;
+}
+
+.highlight-context {
+  @apply bg-orange-100 hover:bg-orange-200 transition-colors;
 }
