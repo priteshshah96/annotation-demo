@@ -28,7 +28,6 @@ export const AnnotationTypes = {
   }
 };
 
-// Precompute valid field paths including full paths for object fields
 const validPaths = [
   ...AnnotationTypes.EVENT_TYPE,
   AnnotationTypes.MAIN_ACTION,
@@ -38,6 +37,33 @@ const validPaths = [
       Object.values(field).map(subfield => `Object.${subfield}`)
   )
 ];
+
+// Define schema for individual text selections
+const TextSelectionSchema = new mongoose.Schema({
+  text: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  start: {
+    type: Number,
+    required: true,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'Start position must be an integer'
+    }
+  },
+  end: {
+    type: Number,
+    required: true,
+    min: 0,
+    validate: {
+      validator: Number.isInteger,
+      message: 'End position must be an integer'
+    }
+  }
+}, { _id: false });
 
 const AnnotationSchema = new mongoose.Schema({
   userId: {
@@ -57,12 +83,11 @@ const AnnotationSchema = new mongoose.Schema({
     required: true,
     min: 0,
     set: function(v) {
-      // Ensure value is converted to number and is an integer
       const num = Number(v);
       if (Number.isNaN(num)) {
         throw new Error('paperIndex must be a valid number');
       }
-      return Math.floor(num); // Ensure integer
+      return Math.floor(num);
     },
     validate: {
       validator: function(v) {
@@ -76,12 +101,11 @@ const AnnotationSchema = new mongoose.Schema({
     required: true,
     min: 0,
     set: function(v) {
-      // Ensure value is converted to number and is an integer
       const num = Number(v);
       if (Number.isNaN(num)) {
         throw new Error('eventIndex must be a valid number');
       }
-      return Math.floor(num); // Ensure integer
+      return Math.floor(num);
     },
     validate: {
       validator: function(v) {
@@ -101,17 +125,34 @@ const AnnotationSchema = new mongoose.Schema({
     }
   },
   answer: {
-    type: String,
+    type: mongoose.Schema.Types.Mixed,
     required: true,
-    set: function(v) {
-      // Handle null/undefined and ensure string type
-      return v?.toString().trim() ?? '';
-    },
     validate: {
       validator: function(v) {
-        return typeof v === 'string';
+        // Determine if this is an argument field
+        const isArgumentField = this.fieldPath.startsWith('Arguments.') || 
+                              this.fieldPath.startsWith('Object.');
+        
+        if (isArgumentField) {
+          // For arguments, answer should be an array of text selections
+          if (!Array.isArray(v)) return false;
+          if (v.length === 0) return true; // Allow empty arrays
+          
+          // Validate each text selection in the array
+          return v.every(selection => 
+            selection &&
+            typeof selection.text === 'string' &&
+            Number.isInteger(selection.start) &&
+            Number.isInteger(selection.end) &&
+            selection.start >= 0 &&
+            selection.end > selection.start
+          );
+        } else {
+          // For event types and main action, answer should be a string
+          return typeof v === 'string';
+        }
       },
-      message: 'Answer must be a string'
+      message: 'Invalid answer format: Arguments require an array of text selections, others require a string'
     }
   },
   timestamp: {
@@ -120,10 +161,10 @@ const AnnotationSchema = new mongoose.Schema({
   }
 });
 
-// Add this pre-validate middleware to ensure proper type conversion
+// Pre-validate middleware
 AnnotationSchema.pre('validate', function(next) {
   try {
-    // Convert indices to numbers if they exist
+    // Convert indices to numbers
     if (this.paperIndex !== undefined) {
       this.paperIndex = Number(this.paperIndex);
     }
@@ -131,9 +172,27 @@ AnnotationSchema.pre('validate', function(next) {
       this.eventIndex = Number(this.eventIndex);
     }
     
-    // Ensure fieldPath is correctly formatted
+    // Format fieldPath
     if (this.fieldPath) {
       this.fieldPath = this.fieldPath.trim();
+    }
+
+    const isArgumentField = this.fieldPath.startsWith('Arguments.') || 
+                          this.fieldPath.startsWith('Object.');
+
+    if (isArgumentField && Array.isArray(this.answer) && this.answer.length > 0) {
+      // Sort array by start position
+      this.answer.sort((a, b) => a.start - b.start);
+
+      // Check for overlapping selections
+      for (let i = 0; i < this.answer.length - 1; i++) {
+        const current = this.answer[i];
+        const next = this.answer[i + 1];
+        
+        if (current.end > next.start) {
+          throw new Error('Text selections must not overlap');
+        }
+      }
     }
     
     next();
@@ -157,16 +216,6 @@ AnnotationSchema.statics.validateAndSave = async function(annotations, userId) {
   session.startTransaction();
 
   try {
-    // Validate types before attempting to save
-    annotations.forEach(ann => {
-      if (typeof Number(ann.paperIndex) !== 'number' || Number.isNaN(Number(ann.paperIndex))) {
-        throw new Error(`Invalid paperIndex: ${ann.paperIndex}`);
-      }
-      if (typeof Number(ann.eventIndex) !== 'number' || Number.isNaN(Number(ann.eventIndex))) {
-        throw new Error(`Invalid eventIndex: ${ann.eventIndex}`);
-      }
-    });
-
     const operations = annotations.map(ann => ({
       updateOne: {
         filter: {
@@ -178,7 +227,7 @@ AnnotationSchema.statics.validateAndSave = async function(annotations, userId) {
         },
         update: { 
           $set: { 
-            answer: ann.answer?.toString().trim() ?? '',
+            answer: ann.answer,
             timestamp: ann.timestamp || new Date()
           }
         },
@@ -188,7 +237,7 @@ AnnotationSchema.statics.validateAndSave = async function(annotations, userId) {
 
     const result = await this.bulkWrite(operations, { 
       session,
-      ordered: false // Continue processing even if some operations fail
+      ordered: false
     });
     await session.commitTransaction();
     return result;
@@ -200,6 +249,5 @@ AnnotationSchema.statics.validateAndSave = async function(annotations, userId) {
   }
 };
 
-// Create or get the model
 export const Annotation = mongoose.models?.Annotation || mongoose.model('Annotation', AnnotationSchema);
 export default Annotation;

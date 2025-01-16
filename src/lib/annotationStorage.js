@@ -1,14 +1,61 @@
 // src/lib/annotationStorage.js
-export const saveAnnotation = async ({ fileId, paperIndex, eventIndex, fieldPath, answer }) => {
-  try {
-    // First save to localStorage for immediate feedback
-    const annotationKey = `annotation-${fileId}-${paperIndex}-${eventIndex}-${fieldPath}`;
-    localStorage.setItem(annotationKey, JSON.stringify({
-      answer,
-      timestamp: new Date().toISOString()
-    }));
 
-    // Then persist to MongoDB
+const isArgumentField = (fieldPath) => {
+  return fieldPath.startsWith('Arguments.') || fieldPath.startsWith('Object.');
+};
+
+export const saveAnnotation = async ({ fileId, paperIndex, eventIndex, fieldPath, answer, index, isDelete }) => {
+  try {
+    const annotationKey = `annotation-${fileId}-${paperIndex}-${eventIndex}-${fieldPath}`;
+    
+    if (isArgumentField(fieldPath)) {
+      // Handle argument fields (array-based)
+      let currentValue = [];
+      try {
+        const stored = localStorage.getItem(annotationKey);
+        if (stored) {
+          const data = JSON.parse(stored);
+          currentValue = Array.isArray(data.answer) ? data.answer : [];
+        }
+      } catch (e) {
+        console.warn('Invalid localStorage entry:', annotationKey);
+      }
+
+      if (isDelete) {
+        if (index !== undefined) {
+          // Remove specific annotation from array
+          currentValue = currentValue.filter((_, i) => i !== index);
+        } else {
+          // Remove entire array
+          localStorage.removeItem(annotationKey);
+          currentValue = null;
+        }
+      } else {
+        // Add new annotation to array
+        currentValue = [...currentValue, answer].sort((a, b) => a.start - b.end);
+      }
+
+      if (currentValue && currentValue.length > 0) {
+        localStorage.setItem(annotationKey, JSON.stringify({
+          answer: currentValue,
+          timestamp: new Date().toISOString()
+        }));
+      } else {
+        localStorage.removeItem(annotationKey);
+      }
+    } else {
+      // Handle non-argument fields (string-based)
+      if (isDelete) {
+        localStorage.removeItem(annotationKey);
+      } else {
+        localStorage.setItem(annotationKey, JSON.stringify({
+          answer,
+          timestamp: new Date().toISOString()
+        }));
+      }
+    }
+
+    // Then persist to server
     const token = await window.Clerk.session?.getToken();
     const response = await fetch('/api/annotations', {
       method: 'POST',
@@ -21,17 +68,21 @@ export const saveAnnotation = async ({ fileId, paperIndex, eventIndex, fieldPath
         paperIndex,
         eventIndex,
         fieldPath,
-        answer
+        answer,
+        index,
+        isDelete: Boolean(isDelete)
       })
     });
 
     if (!response.ok) {
-      throw new Error('Failed to save annotation to server');
+      const errorData = await response.json();
+      console.error('Server error:', errorData);
+      throw new Error(errorData.details || 'Failed to save annotation to server');
     }
 
     return true;
   } catch (error) {
-    console.error('Error saving annotation:', error);
+    console.error('Error in saveAnnotation:', error);
     throw error;
   }
 };
@@ -42,7 +93,12 @@ export const loadFileAnnotations = async (fileId) => {
     const localAnnotations = {};
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith(`annotation-${fileId}`)) {
-        localAnnotations[key] = JSON.parse(localStorage.getItem(key));
+        try {
+          localAnnotations[key] = JSON.parse(localStorage.getItem(key));
+        } catch (e) {
+          console.warn('Invalid localStorage entry:', key);
+          localStorage.removeItem(key);
+        }
       }
     }
 
@@ -65,11 +121,26 @@ export const loadFileAnnotations = async (fileId) => {
       const key = `annotation-${fileId}-${annotation.paperIndex}-${annotation.eventIndex}-${annotation.fieldPath}`;
       const localAnnotation = localAnnotations[key];
       
-      if (!localAnnotation || new Date(annotation.timestamp) > new Date(localAnnotation.timestamp)) {
-        localStorage.setItem(key, JSON.stringify({
-          answer: annotation.answer,
-          timestamp: annotation.timestamp
-        }));
+      const serverTimestamp = new Date(annotation.timestamp);
+      const localTimestamp = localAnnotation ? new Date(localAnnotation.timestamp) : null;
+
+      if (!localAnnotation || serverTimestamp > localTimestamp) {
+        if (annotation.isDelete) {
+          localStorage.removeItem(key);
+        } else {
+          let finalAnswer = annotation.answer;
+          
+          // For argument fields, ensure array format and sort
+          if (isArgumentField(annotation.fieldPath) && finalAnswer) {
+            finalAnswer = Array.isArray(finalAnswer) ? finalAnswer : [finalAnswer];
+            finalAnswer.sort((a, b) => a.start - b.end);
+          }
+
+          localStorage.setItem(key, JSON.stringify({
+            answer: finalAnswer,
+            timestamp: annotation.timestamp
+          }));
+        }
       }
     });
 
@@ -89,13 +160,20 @@ export const syncAnnotations = async (fileId) => {
       if (key.startsWith(`annotation-${fileId}`)) {
         const [_, __, paperIndex, eventIndex, ...fieldPathParts] = key.split('-');
         const data = JSON.parse(localStorage.getItem(key));
+        const fieldPath = fieldPathParts.join('-'); // Rejoin fieldPath parts
         
+        let answer = data.answer;
+        // Ensure array format for argument fields
+        if (isArgumentField(fieldPath) && answer && !Array.isArray(answer)) {
+          answer = [answer];
+        }
+
         localAnnotations.push({
           fileId,
           paperIndex: parseInt(paperIndex),
           eventIndex: parseInt(eventIndex),
-          fieldPath: fieldPathParts.join('-'), // Rejoin fieldPath parts in case it contained hyphens
-          answer: data.answer,
+          fieldPath,
+          answer,
           timestamp: data.timestamp
         });
       }

@@ -1,41 +1,38 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { annotationApi } from '../services/annotationApi';
+import { AnnotationTypes } from '../models/Annotation';
 
-// Constants matching MongoDB schema
 const FIELD_TYPES = {
   EVENT: 'event',
   MAIN_ACTION: 'main_action',
-  ARGUMENT: 'argument',
-  OBJECT: 'object'
+  ARGUMENT: 'argument'
 };
 
-const ANNOTATION_FIELDS = {
-  EVENT_TYPES: [
-    'Background/Introduction',
-    'Methods/Approach',
-    'Results/Findings',
-    'Conclusions/Implications'
-  ],
-  MAIN_ACTION: 'Main Action',
-  ARGUMENTS: {
-    AGENT: 'Agent',
-    CONTEXT: 'Context',
-    PURPOSE: 'Purpose',
-    METHOD: 'Method',
-    RESULTS: 'Results',
-    ANALYSIS: 'Analysis',
-    CHALLENGE: 'Challenge',
-    ETHICAL: 'Ethical',
-    IMPLICATIONS: 'Implications',
-    CONTRADICTIONS: 'Contradictions'
-  },
-  OBJECT: {
-    BASE_OBJECT: 'Base Object',
-    BASE_MODIFIER: 'Base Modifier',
-    ATTACHED_OBJECT: 'Attached Object',
-    ATTACHED_MODIFIER: 'Attached Modifier'
+const createInitialEventState = () => ({
+  'Background/Introduction': '',
+  'Methods/Approach': '',
+  'Results/Findings': '',
+  'Conclusions/Implications': '',
+  'Main Action': '',
+  Arguments: {
+    Agent: [],
+    Context: [],
+    Purpose: [],
+    Method: [],
+    Results: [],
+    Analysis: [],
+    Challenge: [],
+    Ethical: [],
+    Implications: [],
+    Contradictions: [],
+    Object: {
+      'Base Object': [],
+      'Base Modifier': [],
+      'Attached Object': [],
+      'Attached Modifier': []
+    }
   }
-};
+});
 
 class FileCache {
   constructor(ttl = 1000 * 60 * 30) {
@@ -43,9 +40,9 @@ class FileCache {
     this.ttl = ttl;
   }
 
-  set(key, value) {
+  set(key, answer) {
     this.cache.set(key, {
-      value,
+      answer,
       timestamp: Date.now()
     });
   }
@@ -57,7 +54,7 @@ class FileCache {
       this.cache.delete(key);
       return null;
     }
-    return item.value;
+    return item.answer;
   }
 
   delete(key) {
@@ -70,16 +67,16 @@ const fileCache = new FileCache();
 const safeStorage = {
   get: (key) => {
     try {
-      const value = localStorage.getItem(key);
-      return value ? JSON.parse(value) : null;
+      const answer = localStorage.getItem(key);
+      return answer ? JSON.parse(answer) : null;
     } catch (error) {
       console.error(`Error reading from localStorage: ${key}`, error);
       return null;
     }
   },
-  set: (key, value) => {
+  set: (key, answer) => {
     try {
-      localStorage.setItem(key, JSON.stringify(value));
+      localStorage.setItem(key, JSON.stringify(answer));
       return true;
     } catch (error) {
       console.error(`Error writing to localStorage: ${key}`, error);
@@ -100,7 +97,6 @@ const safeStorage = {
 function useAnnotation(fileId, navigate, userId) {
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
-  const progressDebounceRef = useRef(null);
 
   const [state, setState] = useState({
     currentPosition: {
@@ -108,11 +104,9 @@ function useAnnotation(fileId, navigate, userId) {
       eventIndex: 0
     },
     fileData: fileCache.get(fileId) || null,
-    progress: 0,
     loading: !fileCache.get(fileId),
     error: null,
-    saving: false,
-    isComplete: false
+    saving: false
   });
 
   const safeSetState = useCallback((updater) => {
@@ -123,152 +117,135 @@ function useAnnotation(fileId, navigate, userId) {
     });
   }, []);
 
-  const calculateProgress = useCallback(() => {
-    if (!state.fileData) return Promise.resolve(0);
-
-    return new Promise(resolve => {
-      if (progressDebounceRef.current) {
-        clearTimeout(progressDebounceRef.current);
-      }
-
-      progressDebounceRef.current = setTimeout(() => {
-        if (!mountedRef.current) return;
-
-        let completedFields = 0;
-        let totalFields = 0;
-
-        state.fileData.papers.forEach(paper => {
-          paper.events.forEach(event => {
-            // Count event type field
-            ANNOTATION_FIELDS.EVENT_TYPES.forEach(type => {
-              totalFields++;
-              if (event[type]) completedFields++;
-            });
-
-            // Count Main Action
-            totalFields++;
-            if (event['Main Action']) completedFields++;
-
-            // Count Arguments
-            if (event.Arguments) {
-              Object.entries(ANNOTATION_FIELDS.ARGUMENTS).forEach(([key]) => {
-                totalFields++;
-                if (event.Arguments[key]) completedFields++;
-              });
-
-              // Count Object fields
-              if (event.Arguments.Object) {
-                Object.entries(ANNOTATION_FIELDS.OBJECT).forEach(([key]) => {
-                  totalFields++;
-                  if (event.Arguments.Object[key]) completedFields++;
-                });
-              }
-            }
-          });
-        });
-
-        const progress = totalFields > 0 ? (completedFields / totalFields) * 100 : 0;
-        resolve(Math.min(100, progress));
-      }, 100);
-    });
-  }, [state.fileData]);
-
-  const handleAnnotationSave = useCallback(async (field, value, indices = null) => {
+  const handleAnnotationSave = useCallback(async (field, answer, options = {}) => {
     if (!mountedRef.current) return;
-    console.log("Starting annotation save:", { field, value, indices });
-  
-    // Validate value
-    if (!value || typeof value !== 'string') {
-      throw new Error('Invalid value for annotation. Value must be a non-empty string.');
-    }
+    
+    const { indices = null, isDelete = false, span = null } = options;
+    const { paperIndex, eventIndex } = indices || state.currentPosition;
   
     try {
       safeSetState(prev => ({ ...prev, saving: true }));
   
-      // Use provided indices or current position, ensuring they're numbers
-      const { paperIndex, eventIndex } = indices || state.currentPosition;
       const numericPaperIndex = Number(paperIndex);
       const numericEventIndex = Number(eventIndex);
   
-      // Validate indices
       if (isNaN(numericPaperIndex) || isNaN(numericEventIndex) || 
           numericPaperIndex < 0 || numericEventIndex < 0) {
         throw new Error('Invalid indices. Must be non-negative integers');
       }
   
-      // Save to server
+      const currentEvent = state.fileData.papers[numericPaperIndex].events[numericEventIndex];
+      let currentSpans = [];
+      let processedField = field;
+      
+      if (field.startsWith('Object.')) {
+        processedField = `Arguments.${field}`;
+      }
+
+      const isEventType = AnnotationTypes.EVENT_TYPE.includes(field);
+      const isMainAction = field === AnnotationTypes.MAIN_ACTION;
+      const isArgument = processedField.startsWith('Arguments.');
+
+      let processedAnswer;
+
+      if (isEventType || isMainAction) {
+        if (typeof answer !== 'string') {
+          throw new Error(`${field} must be a string`);
+        }
+        processedAnswer = answer.trim();
+        
+      } else if (isArgument) {
+        if (processedField.startsWith('Arguments.Object.')) {
+          const objectField = processedField.replace('Arguments.Object.', '');
+          currentSpans = currentEvent.Arguments?.Object?.[objectField] || [];
+        } else {
+          const argField = processedField.replace('Arguments.', '');
+          currentSpans = currentEvent.Arguments?.[argField] || [];
+        }
+
+        if (isDelete) {
+          if (span) {
+            processedAnswer = currentSpans.filter(s => 
+              s.start !== span.start || s.end !== span.end || s.text !== span.text
+            );
+          } else {
+            processedAnswer = [];
+          }
+        } else if (span) {
+          processedAnswer = [...currentSpans, span]
+            .sort((a, b) => a.start - b.start)
+            .filter(s => s.text && typeof s.start === 'number' && typeof s.end === 'number');
+        } else {
+          processedAnswer = currentSpans;
+        }
+      }
+
       const result = await annotationApi.saveAnnotation({
         fileId,
         paperIndex: numericPaperIndex,
         eventIndex: numericEventIndex,
-        fieldPath: field,
-        answer: value.trim(), // Ensure the value is trimmed and not empty
-        userId
+        fieldPath: processedField,
+        answer: isDelete && !span ? null : processedAnswer,
+        isDelete: isDelete && !span
       });
   
-      console.log('Save result:', result);
-  
-      // Update local state with deep cloning
       safeSetState(prev => {
-        const newFileData = JSON.parse(JSON.stringify(prev.fileData)); // Deep clone
+        const newFileData = JSON.parse(JSON.stringify(prev.fileData));
         const currentEvent = newFileData.papers[numericPaperIndex].events[numericEventIndex];
   
-        // Ensure required objects exist
-        if (!currentEvent.Arguments) {
-          currentEvent.Arguments = {};
-        }
-        if (!currentEvent.Arguments.Object) {
-          currentEvent.Arguments.Object = {};
+        if (!currentEvent.Arguments) currentEvent.Arguments = {};
+        if (!currentEvent.Arguments.Object) currentEvent.Arguments.Object = {};
+  
+        if (isDelete && !span) {
+          if (isEventType) {
+            currentEvent[field] = '';
+          } else if (isMainAction) {
+            currentEvent['Main Action'] = '';
+          } else if (processedField.startsWith('Arguments.Object.')) {
+            const objectField = processedField.replace('Arguments.Object.', '');
+            currentEvent.Arguments.Object[objectField] = [];
+          } else if (processedField.startsWith('Arguments.')) {
+            const argField = processedField.replace('Arguments.', '');
+            currentEvent.Arguments[argField] = [];
+          }
+        } else {
+          if (isEventType) {
+            currentEvent[field] = processedAnswer;
+          } else if (isMainAction) {
+            currentEvent['Main Action'] = processedAnswer;
+          } else if (processedField.startsWith('Arguments.Object.')) {
+            const objectField = processedField.replace('Arguments.Object.', '');
+            currentEvent.Arguments.Object[objectField] = processedAnswer;
+          } else if (processedField.startsWith('Arguments.')) {
+            const argField = processedField.replace('Arguments.', '');
+            currentEvent.Arguments[argField] = processedAnswer;
+          }
         }
   
-        // Update appropriate field
-        if (field === 'Main Action') {
-          currentEvent['Main Action'] = value;
-        } else if (field.startsWith('Arguments.Object.')) {
-          const objectField = field.replace('Arguments.Object.', '');
-          currentEvent.Arguments.Object[objectField] = value;
-        } else if (field.startsWith('Arguments.')) {
-          const argField = field.replace('Arguments.', '');
-          currentEvent.Arguments[argField] = value;
-        } else if (ANNOTATION_FIELDS.EVENT_TYPES.includes(field)) {
-          currentEvent[field] = value;
-        }
-  
-        // Force re-render by creating new object
         return { 
           ...prev, 
           fileData: newFileData,
-          lastUpdate: Date.now() // Add this to force re-render
+          lastUpdate: Date.now()
         };
       });
   
-      // Add console log to track state updates
-      console.log('State updated after save');
-  
-      // Store in localStorage
-      const storageKey = `annotation-${fileId}-${numericPaperIndex}-${numericEventIndex}-${field}`;
-      safeStorage.set(storageKey, {
-        value,
-        timestamp: Date.now()
-      });
-  
-      // Update progress
-      const progress = await calculateProgress();
-      safeSetState(prev => ({ 
-        ...prev, 
-        progress,
-        saving: false,
-        isComplete: progress === 100
-      }));
+      const storageKey = `annotation-${fileId}-${numericPaperIndex}-${numericEventIndex}-${processedField}`;
+      if (isDelete && !span) {
+        safeStorage.remove(storageKey);
+      } else {
+        safeStorage.set(storageKey, {
+          answer: processedAnswer,
+          timestamp: Date.now()
+        });
+      }
   
     } catch (error) {
       console.error('Error saving annotation:', error);
-      if (mountedRef.current) {
-        safeSetState(prev => ({ ...prev, saving: false }));
-      }
       throw error;
+    } finally {
+      safeSetState(prev => ({ ...prev, saving: false }));
     }
-  }, [fileId, state.currentPosition, calculateProgress, safeSetState, userId]);
+  }, [fileId, state.currentPosition, state.fileData, safeSetState]);
 
   const moveNext = useCallback(() => {
     if (!state.fileData?.papers) return;
@@ -336,66 +313,49 @@ function useAnnotation(fileId, navigate, userId) {
 
   const loadFileData = useCallback(async () => {
     if (!fileId || loadingRef.current || !mountedRef.current || !userId) return;
-    
+  
     try {
       loadingRef.current = true;
       safeSetState(prev => ({ ...prev, loading: true, error: null }));
+  
       let data = fileCache.get(fileId);
-      
+  
       if (!data) {
-        console.log('Fetching fresh data from API...');
-        const response = await annotationApi.getFileWithAnnotations(fileId, userId);
-        console.log('Raw API Response:', response);
-        
-        // Initialize the base data structure with papers
+        console.log('Fetching file data from API...');
+        const response = await annotationApi.getFileWithAnnotations(fileId);
+        console.log('API Response:', response);
         data = {
-          papers: response.papers
+          papers: response.papers.map(paper => ({
+            ...paper,
+            events: paper.events.map(event => ({
+              ...event,
+              'Main Action': event['Main Action'] || '',
+              Arguments: event.Arguments || {
+                Agent: [],
+                Object: {
+                  'Base Object': [],
+                  'Base Modifier': [],
+                  'Attached Object': [],
+                  'Attached Modifier': []
+                },
+                Context: [],
+                Purpose: [],
+                Method: [],
+                Results: [],
+                Analysis: [],
+                Challenge: [],
+                Ethical: [],
+                Implications: [],
+                Contradictions: []
+              }
+            }))
+          })),
+          metadata: response.metadata
         };
   
-        // Merge annotations if they exist
-        if (response.annotations?.length > 0) {
-          console.log(`Processing ${response.annotations.length} annotations...`);
-          
-          response.annotations.forEach(annotation => {
-            const { paperIndex, eventIndex, fieldPath, answer } = annotation;
-            
-            // Ensure the paper and event exist
-            if (data.papers[paperIndex]?.events[eventIndex]) {
-              const event = data.papers[paperIndex].events[eventIndex];
-              
-              // Handle different types of annotations
-              if (fieldPath === 'Main Action') {
-                event['Main Action'] = answer;
-              } else if (fieldPath.startsWith('Arguments.')) {
-                // Initialize Arguments object if it doesn't exist
-                if (!event.Arguments) {
-                  event.Arguments = {};
-                }
-                
-                // Handle Object-type arguments
-                if (fieldPath.startsWith('Arguments.Object.')) {
-                  if (!event.Arguments.Object) {
-                    event.Arguments.Object = {};
-                  }
-                  const objectField = fieldPath.replace('Arguments.Object.', '');
-                  event.Arguments.Object[objectField] = answer;
-                } else {
-                  // Handle regular arguments
-                  const argField = fieldPath.replace('Arguments.', '');
-                  event.Arguments[argField] = answer;
-                }
-              } else if (ANNOTATION_FIELDS.EVENT_TYPES.includes(fieldPath)) {
-                event[fieldPath] = answer;
-              }
-            }
-          });
-  
-          console.log('Merged annotations into papers data');
-        }
-  
         if (data?.papers) {
+          console.log('Setting file data to cache...');
           fileCache.set(fileId, data);
-          console.log('Data saved to cache');
         }
       }
   
@@ -405,7 +365,7 @@ function useAnnotation(fileId, navigate, userId) {
       }
   
       const lastPosition = safeStorage.get(`last-position-${fileId}`);
-      
+  
       safeSetState(prev => ({
         ...prev,
         fileData: data,
@@ -413,16 +373,6 @@ function useAnnotation(fileId, navigate, userId) {
         loading: false,
         error: null
       }));
-  
-      const progress = await calculateProgress();
-      if (mountedRef.current) {
-        safeSetState(prev => ({ 
-          ...prev, 
-          progress,
-          isComplete: progress === 100
-        }));
-      }
-  
     } catch (error) {
       console.error('Error loading file data:', error);
       if (mountedRef.current) {
@@ -435,7 +385,7 @@ function useAnnotation(fileId, navigate, userId) {
     } finally {
       loadingRef.current = false;
     }
-  }, [fileId, userId, calculateProgress, safeSetState, ANNOTATION_FIELDS.EVENT_TYPES]);
+  }, [fileId, userId, safeSetState]);
 
   const isFirstField = useCallback(() => {
     const { paperIndex, eventIndex } = state.currentPosition;
@@ -470,26 +420,21 @@ function useAnnotation(fileId, navigate, userId) {
     
     return () => {
       mountedRef.current = false;
-      if (progressDebounceRef.current) {
-        clearTimeout(progressDebounceRef.current);
-      }
     };
   }, [loadFileData, userId]);
 
   useEffect(() => {
-    if (state.currentPosition && !state.isComplete) {
+    if (state.currentPosition) {
       safeStorage.set(`last-position-${fileId}`, state.currentPosition);
     }
-  }, [fileId, state.currentPosition, state.isComplete]);
+  }, [fileId, state.currentPosition]);
 
   return {
     currentPosition: state.currentPosition,
     fileData: state.fileData,
-    progress: state.progress,
     loading: state.loading,
     saving: state.saving,
     error: state.error,
-    isComplete: state.isComplete,
     moveNext,
     movePrevious,
     loadFileData,
@@ -498,7 +443,7 @@ function useAnnotation(fileId, navigate, userId) {
     isLastField: isLastField(),
     getCurrentEvent,
     getCurrentPaper,
-    ANNOTATION_FIELDS,
+    ANNOTATION_FIELDS: AnnotationTypes,
     FIELD_TYPES
   };
 }
@@ -506,7 +451,6 @@ function useAnnotation(fileId, navigate, userId) {
 export {
   useAnnotation as default,
   FIELD_TYPES,
-  ANNOTATION_FIELDS,
   fileCache,
   safeStorage
 };

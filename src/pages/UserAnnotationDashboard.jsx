@@ -1,20 +1,23 @@
 import React, { useEffect, useCallback, memo, useRef, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUser, useAuth } from '@clerk/clerk-react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import useAnnotation, { ANNOTATION_FIELDS } from '../hooks/useAnnotation';  // Add ANNOTATION_FIELDS import
+import { ChevronDown, ChevronUp, HelpCircle, Info, Save } from 'lucide-react';
+import TutorialDialog from '../components/annotation/TutorialDialog';
+import useAnnotation from '../hooks/useAnnotation';
+import { AnnotationTypes } from '../models/Annotation';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { useSnackbar } from '../hooks/useSnackbar';
 import JsonViewer from '../components/annotation/JsonViewer';
 import TextAnnotationPanel from '../components/annotation/TextAnnotationPanel';
+import SummaryInput from '../components/annotation/SummaryInput';
 
+// Memoized components
 const LoadingView = memo(() => (
   <div className="flex justify-center items-center h-screen bg-gray-50">
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
   </div>
 ));
 
-// Error Component 
 const ErrorView = memo(({ error, onBack }) => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-4">
     <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6">
@@ -29,21 +32,25 @@ const ErrorView = memo(({ error, onBack }) => (
   </div>
 ));
 
-const AnnotationDashboard = ({ mode }) => {
+const UserAnnotationDashboard = ({ mode }) => {
   const mountedRef = useRef(true);
   const navigate = useNavigate();
   const { fileId } = useParams();
   const { user } = useUser();
   const { isLoaded, isSignedIn } = useAuth();
   const { showSnackbar, SnackbarComponent } = useSnackbar();
+  
+  // Component state
   const [selectedText, setSelectedText] = useState(null);
   const [isAbstractOpen, setIsAbstractOpen] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
-  
+  const [summaryInput, setSummaryInput] = useState('');
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
+
   const {
     currentPosition,
     fileData,
-    progress,
     loading,
     error,
     moveNext,
@@ -52,105 +59,222 @@ const AnnotationDashboard = ({ mode }) => {
     getCurrentEvent,
     getCurrentPaper,
     isFirstField,
-    isLastField,
-    ANNOTATION_FIELDS
+    isLastField
   } = useAnnotation(fileId, navigate, user?.id);
 
-  const { syncStatus, syncAnnotation, finalizeSync } = useAnnotationSync(fileId, user?.id);
+  const { finalizeSync } = useAnnotationSync(fileId, user?.id);
 
-  // Memoized values
+  // Get current event and paper
   const currentEvent = useMemo(() => getCurrentEvent(), [getCurrentEvent]);
   const currentPaper = useMemo(() => getCurrentPaper(), [getCurrentPaper]);
+  
+  // Fixed event type detection to match MongoDB structure
   const eventType = useMemo(() => {
     if (!currentEvent) return null;
-    return ANNOTATION_FIELDS.EVENT_TYPES.find(type => currentEvent[type] !== undefined);
-  }, [currentEvent, ANNOTATION_FIELDS.EVENT_TYPES]);
-
-  // Process event data for display
-  const { cleanedEvent, displayAnnotations } = useMemo(() => {
-    if (!currentEvent) return { cleanedEvent: null, displayAnnotations: [] };
-
-    // Create cleaned event with only relevant fields
-    const cleaned = {
-      Text: currentEvent.Text,
-      [eventType]: currentEvent[eventType] || '',
-      'Main Action': currentEvent['Main Action'] || '',
-      Arguments: currentEvent.Arguments || {}
-    };
-
-    // Process annotations for text highlighting
-    const annotations = [];
-    const text = currentEvent.Text || '';
-
-    // Process Main Action
-    if (currentEvent['Main Action']) {
-      const start = text.indexOf(currentEvent['Main Action']);
-      if (start !== -1) {
-        annotations.push({
-          start,
-          end: start + currentEvent['Main Action'].length,
-          text: currentEvent['Main Action'],
-          type: 'Main_Action'
-        });
-      }
+    
+    // First find if any event type already has content
+    let activeType = AnnotationTypes.EVENT_TYPE.find(type => 
+      currentEvent[type] && currentEvent[type].trim() !== ''
+    );
+  
+    // If no event type has content yet, find which one exists in the event
+    if (!activeType) {
+      activeType = AnnotationTypes.EVENT_TYPE.find(type => 
+        type in currentEvent && currentEvent[type] !== undefined
+      );
     }
+  
+    return activeType;
+  }, [currentEvent]);
 
-    // Process Arguments
+  // Process event data
+  const { cleanedEvent, displayAnnotations } = useMemo(() => {
+    if (!currentEvent || !eventType) {
+      return { cleanedEvent: null, displayAnnotations: [] };
+    }
+  
+    // Initialize cleaned event with the correct event type
+    const cleaned = {
+      Text: currentEvent.Text || '',
+      [eventType]: currentEvent[eventType] || '',  // Keep original event type
+      'Main Action': currentEvent['Main Action'] || '',
+      Arguments: {
+        Agent: Array.isArray(currentEvent.Arguments?.Agent) ? 
+          currentEvent.Arguments.Agent : [],
+        Object: {
+          'Base Object': Array.isArray(currentEvent.Arguments?.Object?.['Base Object']) ?
+            currentEvent.Arguments.Object['Base Object'] : [],
+          'Base Modifier': Array.isArray(currentEvent.Arguments?.Object?.['Base Modifier']) ?
+            currentEvent.Arguments.Object['Base Modifier'] : [],
+          'Attached Object': Array.isArray(currentEvent.Arguments?.Object?.['Attached Object']) ?
+            currentEvent.Arguments.Object['Attached Object'] : [],
+          'Attached Modifier': Array.isArray(currentEvent.Arguments?.Object?.['Attached Modifier']) ?
+            currentEvent.Arguments.Object['Attached Modifier'] : []
+        },
+        Context: Array.isArray(currentEvent.Arguments?.Context) ? 
+          currentEvent.Arguments.Context : [],
+        Purpose: Array.isArray(currentEvent.Arguments?.Purpose) ? 
+          currentEvent.Arguments.Purpose : [],
+        Method: Array.isArray(currentEvent.Arguments?.Method) ? 
+          currentEvent.Arguments.Method : [],
+        Results: Array.isArray(currentEvent.Arguments?.Results) ? 
+          currentEvent.Arguments.Results : [],
+        Analysis: Array.isArray(currentEvent.Arguments?.Analysis) ? 
+          currentEvent.Arguments.Analysis : [],
+        Challenge: Array.isArray(currentEvent.Arguments?.Challenge) ? 
+          currentEvent.Arguments.Challenge : [],
+        Ethical: Array.isArray(currentEvent.Arguments?.Ethical) ? 
+          currentEvent.Arguments.Ethical : [],
+        Implications: Array.isArray(currentEvent.Arguments?.Implications) ? 
+          currentEvent.Arguments.Implications : [],
+        Contradictions: Array.isArray(currentEvent.Arguments?.Contradictions) ? 
+          currentEvent.Arguments.Contradictions : []
+      }
+    };
+  
+    const annotations = [];
+  
+    // Handle Main Action annotations
+    if (currentEvent['Main Action']) {
+      annotations.push({
+        text: currentEvent['Main Action'],
+        type: 'Main Action',
+        start: 0,
+        end: currentEvent['Main Action'].length
+      });
+    }
+  
+    // Handle Arguments annotations
     if (currentEvent.Arguments) {
-      Object.entries(currentEvent.Arguments).forEach(([key, value]) => {
-        if (!value) return;
-
-        if (key === 'Object') {
-          Object.entries(value).forEach(([objKey, objValue]) => {
-            if (!objValue) return;
-            const start = text.indexOf(objValue);
-            if (start !== -1) {
-              annotations.push({
-                start,
-                end: start + objValue.length,
-                text: objValue,
-                type: `Object.${objKey.replace(' ', '_')}`
-              });
-            }
-          });
-        } else if (value) {
-          const start = text.indexOf(value);
-          if (start !== -1) {
+      // Handle Object arguments
+      Object.entries(currentEvent.Arguments.Object || {}).forEach(([objKey, spans]) => {
+        if (Array.isArray(spans)) {
+          spans.forEach((span, index) => {
             annotations.push({
-              start,
-              end: start + value.length,
-              text: value,
-              type: key
+              ...span,
+              type: `Arguments.Object.${objKey}`,
+              index
             });
-          }
+          });
+        }
+      });
+  
+      // Handle other arguments
+      Object.entries(currentEvent.Arguments).forEach(([key, value]) => {
+        if (key !== 'Object' && Array.isArray(value)) {
+          value.forEach((span, index) => {
+            annotations.push({
+              ...span,
+              type: `Arguments.${key}`,
+              index
+            });
+          });
         }
       });
     }
-
+  
     return {
       cleanedEvent: cleaned,
       displayAnnotations: annotations.sort((a, b) => a.start - b.start)
     };
   }, [currentEvent, eventType]);
 
-  // Authentication check
-  useEffect(() => {
-    if (isLoaded && !isSignedIn) {
-      navigate('/sign-in');
-    }
-  }, [isLoaded, isSignedIn, navigate]);
-
-  // Cleanup effect
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-    };
+  // Callbacks
+  const openAnnotationGuide = useCallback(() => {
+    window.open('/docs/annotation_guide.pdf', '_blank');
   }, []);
+
+  const handleTextSelect = useCallback((selection) => {
+    if (!selection) {
+      setSelectedText(null);
+      return;
+    }
+    setSelectedText({
+      text: selection.text,
+      start: selection.start,
+      end: selection.end
+    });
+  }, []);
+
+  const handleAnnotationSelect = useCallback(async (type, answer) => {
+    if (!selectedText || !currentPosition) return;
+  
+    try {
+      const indices = {
+        paperIndex: Number(currentPosition.paperIndex),
+        eventIndex: Number(currentPosition.eventIndex)
+      };
+  
+      let payload;
+      if (type === 'Main Action') {
+        // For Main Action
+        payload = selectedText.text;
+      } else if (type.startsWith('Arguments.') || type.startsWith('Object.')) {
+        // For Arguments - send answer as an array of spans
+        payload = [{
+          text: selectedText.text,
+          start: selectedText.start,
+          end: selectedText.end
+        }];
+      } else {
+        // For event types (Background/Introduction etc)
+        payload = selectedText.text;
+      }
+  
+      await handleAnnotationSave(type, payload, { indices });
+      setSelectedText(null);
+      setLastSaved(new Date());
+      showSnackbar('Annotation saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving annotation:', error);
+      showSnackbar('Failed to save annotation', 'error');
+    }
+  }, [selectedText, currentPosition, handleAnnotationSave, showSnackbar]);
+
+  const handleAnnotationDelete = useCallback(async (type, index) => {
+    if (!currentPosition) return;
+
+    try {
+      await handleAnnotationSave(type, null, {
+        paperIndex: Number(currentPosition.paperIndex),
+        eventIndex: Number(currentPosition.eventIndex),
+        isDelete: true,
+        index
+      });
+
+      setLastSaved(new Date());
+      showSnackbar('Annotation deleted successfully', 'success');
+    } catch (error) {
+      console.error('Error deleting annotation:', error);
+      showSnackbar('Failed to delete annotation', 'error');
+    }
+  }, [currentPosition, handleAnnotationSave, showSnackbar]);
+
 
   const handleBack = useCallback(() => {
     if (isCompleting) return;
     navigate('/', { replace: true });
   }, [navigate, isCompleting]);
+
+  // In handleSummaryChange
+const handleSummaryChange = useCallback(async (newValue) => {
+  if (!eventType || !currentPosition || mode === 'view') return;
+  
+  try {
+    // If empty string, treat as delete
+    const isDelete = !newValue || newValue.trim() === '';
+    await handleAnnotationSave(eventType, isDelete ? '' : newValue, {
+      paperIndex: Number(currentPosition.paperIndex),
+      eventIndex: Number(currentPosition.eventIndex),
+      isDelete: isDelete
+    });
+    setLastSaved(new Date());
+    showSnackbar('Summary saved successfully', 'success');
+  } catch (error) {
+    console.error('Error saving summary:', error);
+    showSnackbar('Failed to save summary', 'error');
+  }
+}, [eventType, currentPosition, mode, handleAnnotationSave, showSnackbar]);
 
   const handleCompletion = useCallback(async () => {
     if (!mountedRef.current || isCompleting) return;
@@ -178,55 +302,56 @@ const AnnotationDashboard = ({ mode }) => {
     }
   }, [finalizeSync, navigate, showSnackbar, isCompleting]);
 
-  const handleTextSelect = useCallback((selection) => {
-    setSelectedText(selection);
+  // Effects
+  useEffect(() => {
+    setSummaryInput(currentEvent?.[eventType] || '');
+  }, [currentEvent, eventType]);
+
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      navigate('/sign-in');
+    }
+  }, [isLoaded, isSignedIn, navigate]);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (selectedText) {
+          setSelectedText(null);
+        }
+        if (showTutorial) {
+          setShowTutorial(false);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedText, showTutorial]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
-  const handleAnnotationSelect = useCallback((annotationType) => {
-    if (!selectedText || !currentPosition) return;
-    
-    let field;
-    let value = selectedText.text;
-
-    if (annotationType.startsWith('Object.')) {
-      field = `Arguments.Object.${annotationType.split('.')[1]}`;
-    } else if (annotationType === 'Main_Action') {
-      field = 'Main Action';
-    } else {
-      field = `Arguments.${annotationType}`;
-    }
-
-    handleAnnotationSave(field, value, {
-      paperIndex: Number(currentPosition.paperIndex),
-      eventIndex: Number(currentPosition.eventIndex)
-    });
-    
-    setSelectedText(null);
-  }, [selectedText, currentPosition, handleAnnotationSave]);
-
-  const handleSummaryChange = useCallback((e) => {
-    if (!eventType || !currentPosition) return;
-    
-    handleAnnotationSave(eventType, e.target.value, {
-      paperIndex: Number(currentPosition.paperIndex),
-      eventIndex: Number(currentPosition.eventIndex)
-    });
-  }, [eventType, currentPosition, handleAnnotationSave]);
-
-  // Early returns
+  // Early returns for various states
   if (!isLoaded || !user) return <LoadingView />;
   if (!isSignedIn) return null;
   if (loading) return <LoadingView />;
-  if (error) return <ErrorView error={error} onBack={handleBack} />;
+  if (error) return <ErrorView error={error} onBack={handleBack} />; // Now handleBack is defined
   if (!currentEvent || !currentPaper) {
     return <ErrorView error="No data available for annotation." onBack={handleBack} />;
   }
 
-  // Disable editing if in view mode
   const isViewMode = mode === 'view';
+  const progress = ((currentPosition.paperIndex * currentPaper.events.length + currentPosition.eventIndex) /
+    (fileData.papers.length * currentPaper.events.length)) * 100;
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <TutorialDialog isOpen={showTutorial} onClose={() => setShowTutorial(false)} />
+      
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-20">
         <div className="max-w-7xl mx-auto p-4">
@@ -241,9 +366,36 @@ const AnnotationDashboard = ({ mode }) => {
               <h1 className="text-xl font-bold text-gray-900">
                 {currentPaper.paper_code}
               </h1>
+              {lastSaved && (
+                <span className="text-sm text-gray-500 flex items-center gap-1">
+                  <Save className="w-4 h-4" />
+                  Last saved: {new Intl.DateTimeFormat('en-US', {
+                    hour: 'numeric',
+                    minute: 'numeric',
+                  }).format(lastSaved)}
+                </span>
+              )}
             </div>
             
             <div className="flex items-center gap-4">
+              {/* Help Icons */}
+              <div className="flex items-center gap-3 mr-4">
+                <button
+                  onClick={openAnnotationGuide}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                  aria-label="View annotation guide"
+                >
+                  <Info className="w-5 h-5 text-blue-600" />
+                </button>
+                <button
+                  onClick={() => setShowTutorial(true)}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                  aria-label="View tutorial"
+                >
+                  <HelpCircle className="w-5 h-5 text-blue-600" />
+                </button>
+              </div>
+
               <span className="text-sm font-medium text-gray-600">
                 Paper {currentPosition.paperIndex + 1} of {fileData.papers.length}
               </span>
@@ -253,6 +405,7 @@ const AnnotationDashboard = ({ mode }) => {
             </div>
           </div>
 
+          {/* Progress bar */}
           <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
             <div 
               className="h-full bg-blue-600 transition-all duration-300"
@@ -265,117 +418,138 @@ const AnnotationDashboard = ({ mode }) => {
       {/* Main content */}
       <main className="pt-24 pb-20 px-4">
         <div className="max-w-[95%] mx-auto space-y-6">
-          {/* Abstract Section */}
+          {/* Abstract section */}
           {currentPaper?.abstract && (
             <div className="w-full bg-white rounded-xl shadow-lg">
               <button
                 onClick={() => setIsAbstractOpen(!isAbstractOpen)}
                 className="w-full flex items-center justify-between p-4 hover:bg-gray-50 
-                         transition-colors rounded-t-xl"
+                transition-colors rounded-t-xl"
                 aria-expanded={isAbstractOpen}
               >
                 <h2 className="text-xl font-semibold text-gray-900">Abstract</h2>
                 {isAbstractOpen ? (
-                  <ChevronUp className="w-5 h-5 text-gray-500" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-gray-500" />
-                )}
-              </button>
-              
-              <div className={`transition-all duration-300 ${
-                isAbstractOpen ? 'max-h-96 overflow-y-auto' : 'max-h-0 overflow-hidden'
-              }`}>
-                <div className="p-6 border-t border-gray-100">
-                  <p className="text-gray-700 whitespace-pre-wrap">
-                    {currentPaper.abstract}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+                                    <ChevronUp className="w-5 h-5 text-gray-500" />
+                                  ) : (
+                                    <ChevronDown className="w-5 h-5 text-gray-500" />
+                                  )}
+                                </button>
+                                
+                                <div className={`transition-all duration-300 ${
+                                  isAbstractOpen ? 'max-h-96 overflow-y-auto' : 'max-h-0 overflow-hidden'
+                                }`}>
+                                  <div className="p-6 border-t border-gray-100">
+                                    <p className="text-gray-700 whitespace-pre-wrap">
+                                      {currentPaper.abstract}
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                  
+                            {/* Main content grid */}
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                              {/* Left column: Text and Annotations */}
+                              <div className="col-span-1">
+                                <div className="bg-white rounded-xl shadow-lg p-6">
+                                  <div className="mb-4">
+                                    <h2 className="text-xl font-semibold text-gray-900">
+                                      Event Type: <span className="text-blue-600">{eventType}</span>
+                                    </h2>
+                                  </div>
+                                  
+                                  <TextAnnotationPanel
+                                    text={cleanedEvent?.Text}
+                                    annotations={displayAnnotations}
+                                    onTextSelect={isViewMode ? null : handleTextSelect}
+                                    selectedText={selectedText}
+                                    onAnnotationSelect={isViewMode ? null : handleAnnotationSelect}
+                                    onAnnotationDelete={isViewMode ? null : handleAnnotationDelete}
+                                    eventType={eventType}
+                                    readOnly={isViewMode}
+                                  />
+                                </div>
+                              </div>
+                  
+                              {/* Right column: Summary and JSON Viewer */}
+                              <div className="col-span-1 space-y-4">
+                                {/* Summarization Input */}
+                                <div className="bg-white rounded-xl shadow-lg p-6">
+                                  <SummaryInput 
+                                    value={summaryInput}
+                                    onChange={handleSummaryChange}
+                                    eventType={eventType}
+                                    disabled={isViewMode}
+                                    maxLength={100}
+                                    placeholder="Add a brief summary..."
+                                  />
+                                </div>
+                  
+                                {/* JSON Viewer */}
+                                <div className="flex-1">
+                                <JsonViewer 
+                                  data={cleanedEvent}
+                                  onRemoveAnnotation={(field, index) => {
+                                    if (!currentPosition) return;
+                                    
+                                    let payload = null;
+                                    const isEventType = AnnotationTypes.EVENT_TYPE.includes(field);
+                                    
+                                    if (field === 'Main Action' || isEventType) {
+                                      payload = '';  // Empty string for Main Action and Event Types
+                                    } else if (field.startsWith('Arguments.') || field.startsWith('Object.')) {
+                                      payload = [];  // Empty array for arguments
+                                    }
 
-          {/* Two Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Left Column: Text Annotation */}
-            <div className="col-span-1">
-              <div className="bg-white rounded-xl shadow-lg p-6">
-                <div className="mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    Event Type: <span className="text-blue-600">{eventType}</span>
-                  </h2>
-                </div>
-                
-                <TextAnnotationPanel
-                  text={cleanedEvent?.Text}
-                  annotations={displayAnnotations}
-                  onTextSelect={isViewMode ? null : handleTextSelect}
-                  selectedText={selectedText}
-                  onAnnotationSelect={isViewMode ? null : handleAnnotationSelect}
-                  readOnly={isViewMode}
-                />
-              </div>
-            </div>
-
-            {/* Right Column: Summary + JSON */}
-            <div className="col-span-1 space-y-4">
-              {/* Summarization Input */}
-              <div className="bg-white rounded-xl shadow-lg p-6">
-                <h3 className="text-xl font-semibold mb-2">Summarization</h3>
-                <textarea
-                  className="w-full p-2 border border-gray-300 rounded-lg h-12 
-                           resize-none text-sm"
-                  placeholder="Add a brief summary (max 10 words)..."
-                  value={cleanedEvent?.[eventType] || ''}
-                  onChange={handleSummaryChange}
-                  maxLength={100}
-                  disabled={isViewMode}
-                />
-              </div>
-
-              {/* JSON Viewer */}
-              <div className="flex-1">
-                <JsonViewer 
-                  data={cleanedEvent}
-                  onRemoveAnnotation={isViewMode ? null : handleAnnotationSave}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* Navigation Footer */}
-      {!isViewMode && (
-        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-4">
-          <div className="max-w-7xl mx-auto flex justify-center gap-4">
-            <button
-              onClick={movePrevious}
-              disabled={isFirstField || isCompleting}
-              className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 
-                       disabled:opacity-50 flex items-center gap-2"
-            >
-              Previous
-            </button>
-            
-            <button
-              onClick={isLastField ? handleCompletion : moveNext}
-              disabled={isCompleting}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 
-                       disabled:opacity-50 flex items-center gap-2"
-            >
-              {isCompleting ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white" />
-              ) : (
-                isLastField ? 'Complete' : 'Next'
-              )}
-            </button>
-          </div>
-        </footer>
-      )}
-
-      {SnackbarComponent}
-    </div>
-  );
-};
-
-export default memo(AnnotationDashboard);
+                                    handleAnnotationSave(field, payload, {
+                                      paperIndex: Number(currentPosition.paperIndex),
+                                      eventIndex: Number(currentPosition.eventIndex),
+                                      isDelete: true,
+                                      index
+                                    });
+                                    setLastSaved(new Date());
+                                  }}
+                                  readOnly={isViewMode}
+                                />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </main>
+                  
+                        {/* Footer navigation */}
+                        {!isViewMode && (
+                          <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-4">
+                            <div className="max-w-7xl mx-auto flex justify-center gap-4">
+                              <button
+                                onClick={movePrevious}
+                                disabled={isFirstField || isCompleting}
+                                className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 
+                                         disabled:opacity-50 flex items-center gap-2"
+                              >
+                                Previous
+                              </button>
+                              
+                              <button
+                                onClick={isLastField ? handleCompletion : moveNext}
+                                disabled={isCompleting}
+                                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 
+                                         disabled:opacity-50 flex items-center gap-2"
+                              >
+                                {isCompleting ? (
+                                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white" />
+                                ) : (
+                                  isLastField ? 'Complete' : 'Next'
+                                )}
+                              </button>
+                            </div>
+                          </footer>
+                        )}
+                  
+                        {/* Toast notifications */}
+                        {SnackbarComponent}
+                      </div>
+                    );
+                  };
+                  
+                  export default memo(UserAnnotationDashboard);
