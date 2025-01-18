@@ -2,27 +2,10 @@
 import { api } from '../lib/api';
 import { AnnotationTypes } from '../models/Annotation';
 
-const FIELD_TYPES = {
-  EVENT_TYPE: 'EVENT_TYPE',
-  MAIN_ACTION: 'MAIN_ACTION',
-  ARGUMENT: 'ARGUMENT',
-  OBJECT: 'OBJECT'
-};
-
-const ANNOTATION_FIELDS = {
-  EVENT_TYPES: AnnotationTypes.EVENT_TYPE,
-  MAIN_ACTION: AnnotationTypes.MAIN_ACTION,
-  ARGUMENTS: AnnotationTypes.ARGUMENT_FIELDS,
-  OBJECT: AnnotationTypes.ARGUMENT_FIELDS.OBJECT
-};
-
-const isArgumentField = (fieldPath) => {
-  return fieldPath.startsWith('Arguments.') || fieldPath.startsWith('Object.');
-};
-
+// Helper to normalize field paths for consistency
 const normalizeFieldPath = (fieldPath) => {
   if (fieldPath.startsWith('Arguments.Object.')) {
-    return fieldPath.replace('Arguments.Object.', 'Object.');
+    return fieldPath;
   } else if (fieldPath.startsWith('Object.')) {
     return `Arguments.${fieldPath}`;
   }
@@ -30,24 +13,6 @@ const normalizeFieldPath = (fieldPath) => {
 };
 
 class AnnotationApi {
-  determineFieldType(field) {
-    if (!field) throw new Error('Field is required');
-
-    if (AnnotationTypes.EVENT_TYPE.includes(field)) {
-      return FIELD_TYPES.EVENT_TYPE;
-    }
-    if (field === AnnotationTypes.MAIN_ACTION) {
-      return FIELD_TYPES.MAIN_ACTION;
-    }
-    if (field.startsWith('Object.')) {
-      return FIELD_TYPES.OBJECT;
-    }
-    if (Object.values(AnnotationTypes.ARGUMENT_FIELDS).includes(field)) {
-      return FIELD_TYPES.ARGUMENT;
-    }
-    throw new Error(`Invalid field type: ${field}`);
-  }
-
   async getFileWithAnnotations(fileId) {
     try {
       const fileResponse = await api.files.get(fileId);
@@ -60,14 +25,16 @@ class AnnotationApi {
       const papers = fileResponse.papers.map(paper => ({
         ...paper,
         events: paper.events.map(event => {
-          // Determine the event type
+          // Find event type
           const eventType = AnnotationTypes.EVENT_TYPE.find(
             type => event[type] !== undefined
           );
   
-          // Build the event object with only the relevant event type
-          const cleanedEvent = {
+          // Initialize clean event structure
+          return {
             ...event,
+            [eventType]: event[eventType] || '',
+            'Main Action': '',
             Arguments: {
               Agent: [],
               Object: {
@@ -85,51 +52,45 @@ class AnnotationApi {
               Ethical: [],
               Implications: [],
               Contradictions: []
-            },
-            'Main Action': '' // Treat Main Action as a string
+            }
           };
-  
-          // Only include the relevant event type
-          if (eventType) {
-            cleanedEvent[eventType] = event[eventType] || '';
-          }
-  
-          return cleanedEvent;
         })
       }));
   
+      // Apply annotations if they exist
       if (annotationsResponse?.annotations) {
         annotationsResponse.annotations.forEach(annotation => {
           const { paperIndex, eventIndex, fieldPath, answer } = annotation;
           if (!papers[paperIndex]?.events[eventIndex]) return;
   
           const normalizedPath = normalizeFieldPath(fieldPath);
-  
+          
           if (normalizedPath === 'Main Action') {
-            papers[paperIndex].events[eventIndex]['Main Action'] = answer || ''; // Treat as string
-          } else if (isArgumentField(normalizedPath)) {
-            if (normalizedPath.startsWith('Arguments.Object.')) {
-              const objectField = normalizedPath.replace('Arguments.Object.', '');
-              papers[paperIndex].events[eventIndex].Arguments.Object[objectField] =
+            papers[paperIndex].events[eventIndex]['Main Action'] = answer || '';
+          } else if (normalizedPath.startsWith('Arguments.')) {
+            const [, category, ...rest] = normalizedPath.split('.');
+            if (rest.length > 0) {
+              // Handle Object annotations
+              const objectField = rest.join('.');
+              papers[paperIndex].events[eventIndex].Arguments.Object[objectField] = 
                 Array.isArray(answer) ? answer : [];
-            } else if (normalizedPath.startsWith('Arguments.')) {
-              const argField = normalizedPath.replace('Arguments.', '');
-              papers[paperIndex].events[eventIndex].Arguments[argField] =
+            } else {
+              // Handle regular arguments
+              papers[paperIndex].events[eventIndex].Arguments[category] = 
                 Array.isArray(answer) ? answer : [];
             }
           } else {
+            // Handle event type annotations
             papers[paperIndex].events[eventIndex][normalizedPath] = answer || '';
           }
         });
       }
   
-      console.log('Processed file data with annotations:', papers); // Log for debugging
       return {
         ...fileResponse,
         papers
       };
     } catch (error) {
-      console.error('Error fetching file with annotations:', error);
       throw this.formatError(error);
     }
   }
@@ -140,9 +101,8 @@ class AnnotationApi {
       paperIndex, 
       eventIndex, 
       fieldPath, 
-      answer, 
-      isDelete,
-      index 
+      answer,
+      isDelete = false
     } = annotation;
   
     if (!fileId || paperIndex === undefined || eventIndex === undefined || !fieldPath) {
@@ -151,74 +111,35 @@ class AnnotationApi {
   
     try {
       const normalizedPath = normalizeFieldPath(fieldPath);
-      let newAnswer;
-  
-      if (normalizedPath === 'Main Action') {
-        if (typeof answer === 'string') {
-          newAnswer = answer.trim();
-        } else if (answer && typeof answer === 'object') {
-          newAnswer = answer.text || '';
-        } else {
-          newAnswer = '';
-        }
-      } else if (isArgumentField(normalizedPath)) {
-        try {
-          const currentAnnotation = await api.annotations.get(fileId, {
-            paperIndex: Number(paperIndex),
-            eventIndex: Number(eventIndex),
-            fieldPath: normalizedPath
-          });
-  
-          if (isDelete) {
-            if (index !== undefined && Array.isArray(currentAnnotation?.answer)) {
-              newAnswer = currentAnnotation.answer.filter((_, i) => i !== index);
-            } else {
-              newAnswer = [];
-            }
-          } else {
-            const currentSpans = Array.isArray(currentAnnotation?.answer) ? 
-              currentAnnotation.answer : [];
-            
-            const newSpan = {
-              text: answer.text,
-              start: answer.start,
-              end: answer.end
-            };
-            
-            newAnswer = [...currentSpans, newSpan]
-              .sort((a, b) => a.start - b.start)
-              .filter(span => span.text && 
-                            typeof span.start === 'number' && 
-                            typeof span.end === 'number');
-          }
-        } catch (error) {
-          if (!isDelete) {
-            newAnswer = [{
-              text: answer.text,
-              start: answer.start,
-              end: answer.end
-            }];
-          } else {
-            newAnswer = [];
-          }
-        }
+      let processedAnswer;
+
+      if (isDelete) {
+        // Handle deletion
+        processedAnswer = normalizedPath.startsWith('Arguments.') ? [] : '';
       } else {
-        newAnswer = isDelete ? '' : answer;
+        // Process answer based on field type
+        if (normalizedPath === 'Main Action' || AnnotationTypes.EVENT_TYPE.includes(normalizedPath)) {
+          processedAnswer = String(answer || '').trim();
+        } else if (normalizedPath.startsWith('Arguments.')) {
+          processedAnswer = Array.isArray(answer) ? answer : [];
+        }
       }
-  
+
       const payload = {
         fileId,
         paperIndex: Number(paperIndex),
         eventIndex: Number(eventIndex),
         fieldPath: normalizedPath,
-        answer: newAnswer,
-        isDelete: Boolean(isDelete)
+        answer: processedAnswer
       };
   
       const response = await api.annotations.save(payload);
       return response.annotation;
     } catch (error) {
-      console.error('Error in saveAnnotation:', { error, annotation });
+      // Handle specific validation errors from the model
+      if (error.name === 'ValidationError') {
+        throw new Error(Object.values(error.errors)[0].message);
+      }
       throw this.formatError(error);
     }
   }
@@ -229,29 +150,11 @@ class AnnotationApi {
     }
 
     try {
-      const processedAnnotations = annotations.map(ann => {
-        const normalizedPath = normalizeFieldPath(ann.fieldPath);
-
-        if (normalizedPath === 'Main Action') {
-          return {
-            ...ann,
-            answer: {
-              text: ann.answer?.trim() || '',
-              spans: ann.answer?.trim() ? [{
-                text: ann.answer.trim(),
-                start: 0,
-                end: ann.answer.trim().length
-              }] : []
-            }
-          };
-        } else if (isArgumentField(normalizedPath)) {
-          return {
-            ...ann,
-            answer: Array.isArray(ann.answer) ? ann.answer : []
-          };
-        }
-        return ann;
-      });
+      const processedAnnotations = annotations.map(ann => ({
+        ...ann,
+        fieldPath: normalizeFieldPath(ann.fieldPath),
+        answer: ann.answer
+      }));
 
       return await api.annotations.sync(fileId, { 
         annotations: processedAnnotations 
@@ -262,6 +165,14 @@ class AnnotationApi {
   }
 
   formatError(error) {
+    if (error.name === 'ValidationError') {
+      return {
+        message: Object.values(error.errors)[0].message,
+        status: 400,
+        details: error.errors
+      };
+    }
+    
     return {
       message: error.message || 'An error occurred',
       status: error.status || 500,
@@ -271,4 +182,3 @@ class AnnotationApi {
 }
 
 export const annotationApi = new AnnotationApi();
-export { FIELD_TYPES, ANNOTATION_FIELDS };

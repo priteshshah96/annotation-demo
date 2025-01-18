@@ -5,11 +5,21 @@ import dotenv from 'dotenv';
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import { User } from './src/models/User.js';
 import { File } from './src/models/File.js';
-import { Annotation } from './src/models/Annotation.js';
+import { Annotation, AnnotationTypes } from './src/models/Annotation.js';
 import { connectDB } from './src/lib/db.js';
 
 // Load environment variables
 dotenv.config();
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
 
 // Initialize express app
 const app = express();
@@ -273,7 +283,6 @@ app.delete('/api/files/:fileId', authenticateAndSync, async (req, res) => {
   }
 });
 
-
 // ---------- ANNOTATION ROUTES ----------
 // Get annotations for a file
 app.get('/api/annotations/:fileId', authenticateAndSync, async (req, res) => {
@@ -304,44 +313,61 @@ app.get('/api/annotations/:fileId', authenticateAndSync, async (req, res) => {
 // Save single annotation
 app.post('/api/annotations', authenticateAndSync, async (req, res) => {
   try {
-    let { fileId, paperIndex, eventIndex, fieldPath, answer, isDelete } = req.body;
-    console.log('Received annotation save request:', {
-      fileId, paperIndex, eventIndex, fieldPath, answer, isDelete
+    const { fileId, paperIndex, eventIndex, fieldPath, answer, isDelete } = req.body;
+
+    // Debugging: Log the payload received from the client
+    console.log('Received annotation payload:', {
+      fileId,
+      paperIndex,
+      eventIndex,
+      fieldPath,
+      answer,
+      isDelete,
     });
 
-    const mongoUserId = req.user._id;
-
-    // Convert indices to numbers
-    paperIndex = Number(paperIndex);
-    eventIndex = Number(eventIndex);
-
-    if (isNaN(paperIndex) || isNaN(eventIndex) || paperIndex < 0 || eventIndex < 0) {
+    // Validate required fields
+    if (!fileId || paperIndex === undefined || eventIndex === undefined) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid indices',
-        details: 'Paper or event index out of bounds'
+        error: 'Invalid payload',
+        details: 'fileId, paperIndex, and eventIndex are required.',
       });
     }
 
-    // Verify file exists and user has access
-    const file = await File.findOne({
-      _id: fileId,
-      userId: mongoUserId
-    });
+    // Validate fieldPath
+    if (!fieldPath || typeof fieldPath !== 'string' || !fieldPath.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid fieldPath',
+        details: 'fieldPath must be a non-empty string.',
+      });
+    }
+
+    // Validate answer type based on fieldPath
+    if (fieldPath === 'Main Action' && typeof answer !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid answer for Main Action',
+        details: 'Answer for Main Action must be a string.',
+      });
+    }
+
+    if (fieldPath.startsWith('Arguments.') && !Array.isArray(answer)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid answer for Arguments',
+        details: 'Answer for Arguments must be an array.',
+      });
+    }
+
+    // Check if the file exists and user has access
+    const mongoUserId = req.user._id;
+    const file = await File.findOne({ _id: fileId, userId: mongoUserId });
 
     if (!file) {
       return res.status(404).json({
         success: false,
-        error: 'File not found'
-      });
-    }
-
-    // Verify event exists
-    if (!file.papers[paperIndex]?.events[eventIndex]) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid indices',
-        details: 'Paper or event index out of bounds'
+        error: 'File not found',
       });
     }
 
@@ -350,177 +376,82 @@ app.post('/api/annotations', authenticateAndSync, async (req, res) => {
       await Annotation.findOneAndDelete({
         fileId,
         userId: mongoUserId,
-        paperIndex,
-        eventIndex,
-        fieldPath
+        paperIndex: Number(paperIndex),
+        eventIndex: Number(eventIndex),
+        fieldPath,
       });
 
       return res.json({
         success: true,
-        message: 'Annotation deleted successfully'
+        message: 'Annotation deleted successfully.',
       });
     }
 
-    // Process and validate annotation based on field type
-    const isEventType = AnnotationTypes.EVENT_TYPE.includes(fieldPath);
-    const isMainAction = fieldPath === AnnotationTypes.MAIN_ACTION;
-    const isArgument = fieldPath.startsWith('Arguments.') || fieldPath.startsWith('Object.');
-
-    let processedAnswer;
-
-    if (isEventType) {
-      // Event types must be strings
-      if (typeof answer !== 'string') {
-        return res.status(400).json({
-          success: false,
-          error: 'Validation Error',
-          details: `${fieldPath} must be a string`
-        });
-      }
-      processedAnswer = answer.trim();
-    } 
-    else if (isMainAction) {
-      // Main Action should have text and spans
-      if (!answer || typeof answer.text !== 'string' || !Array.isArray(answer.spans)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Validation Error',
-          details: 'Main Action must include text and spans array'
-        });
-      }
-
-      // Validate each span
-      for (const span of answer.spans) {
-        if (!span.text || typeof span.start !== 'number' || typeof span.end !== 'number' ||
-            span.start < 0 || span.end <= span.start) {
-          return res.status(400).json({
-            success: false,
-            error: 'Validation Error',
-            details: 'Invalid span format in Main Action'
-          });
-        }
-      }
-
-      processedAnswer = {
-        text: answer.text.trim(),
-        spans: answer.spans
-          .map(span => ({
-            text: span.text,
-            start: Number(span.start),
-            end: Number(span.end)
-          }))
-          .sort((a, b) => a.start - b.start)
-      };
-    } 
-    else if (isArgument) {
-      // Arguments should have spans array
-      if (!Array.isArray(answer) || answer.length === 0 || 
-          !answer.every(span => 
-            span.text && 
-            typeof span.start === 'number' && 
-            typeof span.end === 'number' &&
-            span.start >= 0 && 
-            span.end > span.start
-          )) {
-        return res.status(400).json({
-          success: false,
-          error: 'Validation Error',
-          details: 'Arguments require valid span data array'
-        });
-      }
-
-      // Get existing annotation to handle multiple spans
-      const existingAnnotation = await Annotation.findOne({
+    // Treat empty answers as delete
+    if (answer === '' || answer === null || answer === undefined) {
+      await Annotation.findOneAndDelete({
         fileId,
         userId: mongoUserId,
-        paperIndex,
-        eventIndex,
-        fieldPath
+        paperIndex: Number(paperIndex),
+        eventIndex: Number(eventIndex),
+        fieldPath,
       });
 
-      let spans = [];
-      if (existingAnnotation?.answer?.spans) {
-        spans = [...existingAnnotation.answer.spans];
-      }
-
-      // Add new span
-      spans.push({
-        text: answer.text,
-        start: Number(answer.start),
-        end: Number(answer.end)
-      });
-
-      // Sort spans by start position
-      spans.sort((a, b) => a.start - b.start);
-
-      // Check for overlapping spans
-      for (let i = 0; i < spans.length - 1; i++) {
-        if (spans[i].end > spans[i + 1].start) {
-          return res.status(400).json({
-            success: false,
-            error: 'Validation Error',
-            details: 'Spans cannot overlap'
-          });
-        }
-      }
-
-      processedAnswer = {
-        text: spans.map(s => s.text).join(' '),
-        spans
-      };
-    } 
-    else {
-      return res.status(400).json({
-        success: false,
-        error: 'Validation Error',
-        details: 'Invalid field path'
+      return res.json({
+        success: true,
+        message: 'Empty annotation removed successfully.',
       });
     }
 
-    // Save or update the annotation
+    // Save the annotation
+    const annotationDoc = new Annotation({
+      userId: mongoUserId,
+      fileId,
+      paperIndex: Number(paperIndex),
+      eventIndex: Number(eventIndex),
+      fieldPath,
+      answer,
+      timestamp: new Date(),
+    });
+
+    // Debugging: Log the annotation document before saving
+    console.log('Annotation document to be saved:', annotationDoc);
+
     const annotation = await Annotation.findOneAndUpdate(
       {
-        fileId,
         userId: mongoUserId,
-        paperIndex,
-        eventIndex,
-        fieldPath
+        fileId,
+        paperIndex: Number(paperIndex),
+        eventIndex: Number(eventIndex),
+        fieldPath,
       },
-      {
-        $set: {
-          answer: processedAnswer,
-          timestamp: new Date()
-        }
-      },
-      {
-        new: true,
-        upsert: true,
-        runValidators: true
-      }
+      { $set: annotationDoc.toObject() },
+      { new: true, upsert: true, runValidators: true }
     );
 
+    // Debugging: Log the saved annotation
     console.log('Saved annotation:', annotation);
 
     res.json({
       success: true,
-      annotation
+      annotation,
     });
-
   } catch (error) {
     console.error('Annotation save error:', error);
 
+    // Handle validation errors
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         success: false,
         error: 'Validation Error',
-        details: Object.values(error.errors).map(e => e.message)
+        details: Object.values(error.errors).map((e) => e.message),
       });
     }
 
     res.status(500).json({
       success: false,
       error: 'Failed to save annotation',
-      details: error.message
+      details: error.message,
     });
   }
 });
@@ -572,6 +503,9 @@ app.post('/api/annotations/:fileId/sync', authenticateAndSync, async (req, res) 
     const { fileId } = req.params;
     const { annotations = [] } = req.body;
     const mongoUserId = req.user._id;
+
+    // Debugging: Log the annotations being processed
+    console.log('Annotations being synced:', annotations);
 
     const operations = annotations.map(ann => ({
       updateOne: {
@@ -670,24 +604,24 @@ app.use((err, req, res, next) => {
 const startServer = async () => {
   try {
     await connectDB();
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
       console.log(`Server running on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
+    });
+
+    // Graceful shutdown
+    process.on('SIGINT', async () => {
+      console.log('Shutting down server...');
+      server.close(async () => {
+        await mongoose.connection.close();
+        console.log('Server and database connections closed.');
+        process.exit(0);
+      });
     });
   } catch (error) {
     console.error('Server startup error:', error);
     process.exit(1);
   }
 };
-
-process.on('SIGINT', async () => {
-  try {
-    await mongoose.connection.close();
-    process.exit(0);
-  } catch (err) {
-    console.error('Error during shutdown:', err);
-    process.exit(1);
-  }
-});
 
 startServer();

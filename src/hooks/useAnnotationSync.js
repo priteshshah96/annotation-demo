@@ -52,7 +52,7 @@ const storageUtils = {
             
             // Normalize the answer based on field type
             const isEventType = AnnotationTypes.EVENT_TYPE.includes(fieldPath);
-            const isMainAction = fieldPath === AnnotationTypes.MAIN_ACTION;
+            const isMainAction = fieldPath === 'Main Action';  // Use string literal
             const isArgument = fieldPath.startsWith('Arguments.') || fieldPath.startsWith('Object.');
 
             let normalizedAnswer;
@@ -152,7 +152,7 @@ export function useAnnotationSync(fileId, userId) {
       `Arguments.${annotation.fieldPath}` : annotation.fieldPath;
 
     const isEventType = AnnotationTypes.EVENT_TYPE.includes(fieldPath);
-    const isMainAction = fieldPath === AnnotationTypes.MAIN_ACTION;
+    const isMainAction = fieldPath === 'Main Action';  // Use string literal
     const isArgument = fieldPath.startsWith('Arguments.');
 
     // Process the answer based on field type

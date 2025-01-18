@@ -2,47 +2,16 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { annotationApi } from '../services/annotationApi';
 import { AnnotationTypes } from '../models/Annotation';
 
-const FIELD_TYPES = {
-  EVENT: 'event',
-  MAIN_ACTION: 'main_action',
-  ARGUMENT: 'argument'
-};
-
-const createInitialEventState = () => ({
-  'Background/Introduction': '',
-  'Methods/Approach': '',
-  'Results/Findings': '',
-  'Conclusions/Implications': '',
-  'Main Action': '',
-  Arguments: {
-    Agent: [],
-    Context: [],
-    Purpose: [],
-    Method: [],
-    Results: [],
-    Analysis: [],
-    Challenge: [],
-    Ethical: [],
-    Implications: [],
-    Contradictions: [],
-    Object: {
-      'Base Object': [],
-      'Base Modifier': [],
-      'Attached Object': [],
-      'Attached Modifier': []
-    }
-  }
-});
-
+// Simple cache implementation with TTL
 class FileCache {
-  constructor(ttl = 1000 * 60 * 30) {
+  constructor(ttl = 1000 * 60 * 30) { // 30 minutes TTL
     this.cache = new Map();
     this.ttl = ttl;
   }
 
-  set(key, answer) {
+  set(key, value) {
     this.cache.set(key, {
-      answer,
+      value: JSON.parse(JSON.stringify(value)), // Deep clone to prevent mutations
       timestamp: Date.now()
     });
   }
@@ -54,41 +23,52 @@ class FileCache {
       this.cache.delete(key);
       return null;
     }
-    return item.answer;
+    return JSON.parse(JSON.stringify(item.value)); // Return deep clone
   }
 
-  delete(key) {
-    this.cache.delete(key);
+  // Add method to update specific event in cache
+  updateEvent(fileId, paperIndex, eventIndex, updatedEvent) {
+    const cachedFile = this.get(fileId);
+    if (!cachedFile) return false;
+
+    const paper = cachedFile.papers[paperIndex];
+    if (!paper || !paper.events[eventIndex]) return false;
+
+    paper.events[eventIndex] = updatedEvent;
+    this.set(fileId, cachedFile);
+    return true;
+  }
+
+  // Add method to invalidate cache for specific file
+  invalidate(fileId) {
+    this.cache.delete(fileId);
+  }
+
+  // Add method to clear entire cache
+  clear() {
+    this.cache.clear();
   }
 }
 
 const fileCache = new FileCache();
 
+// Local storage wrapper with error handling
 const safeStorage = {
   get: (key) => {
     try {
-      const answer = localStorage.getItem(key);
-      return answer ? JSON.parse(answer) : null;
+      const value = localStorage.getItem(key);
+      return value ? JSON.parse(value) : null;
     } catch (error) {
-      console.error(`Error reading from localStorage: ${key}`, error);
+      console.error(`Storage read error: ${key}`, error);
       return null;
     }
   },
-  set: (key, answer) => {
+  set: (key, value) => {
     try {
-      localStorage.setItem(key, JSON.stringify(answer));
+      localStorage.setItem(key, JSON.stringify(value));
       return true;
     } catch (error) {
-      console.error(`Error writing to localStorage: ${key}`, error);
-      return false;
-    }
-  },
-  remove: (key) => {
-    try {
-      localStorage.removeItem(key);
-      return true;
-    } catch (error) {
-      console.error(`Error removing from localStorage: ${key}`, error);
+      console.error(`Storage write error: ${key}`, error);
       return false;
     }
   }
@@ -98,6 +78,7 @@ function useAnnotation(fileId, navigate, userId) {
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
 
+  // State management
   const [state, setState] = useState({
     currentPosition: {
       paperIndex: 0,
@@ -109,6 +90,7 @@ function useAnnotation(fileId, navigate, userId) {
     saving: false
   });
 
+  // Safe state updates for async operations
   const safeSetState = useCallback((updater) => {
     if (!mountedRef.current) return;
     setState(prev => {
@@ -117,136 +99,107 @@ function useAnnotation(fileId, navigate, userId) {
     });
   }, []);
 
+  // Handle annotation saves
   const handleAnnotationSave = useCallback(async (field, answer, options = {}) => {
     if (!mountedRef.current) return;
-    
-    const { indices = null, isDelete = false, span = null } = options;
+  
+    const { indices = null, isDelete = false } = options;
     const { paperIndex, eventIndex } = indices || state.currentPosition;
   
+    if (!field || typeof field !== 'string') {
+      throw new Error('Invalid fieldPath. Please provide a valid annotation type.');
+    }
+  
     try {
-      safeSetState(prev => ({ ...prev, saving: true }));
+      safeSetState((prev) => ({ ...prev, saving: true }));
   
-      const numericPaperIndex = Number(paperIndex);
-      const numericEventIndex = Number(eventIndex);
-  
-      if (isNaN(numericPaperIndex) || isNaN(numericEventIndex) || 
-          numericPaperIndex < 0 || numericEventIndex < 0) {
-        throw new Error('Invalid indices. Must be non-negative integers');
-      }
-  
-      const currentEvent = state.fileData.papers[numericPaperIndex].events[numericEventIndex];
-      let currentSpans = [];
-      let processedField = field;
-      
-      if (field.startsWith('Object.')) {
-        processedField = `Arguments.${field}`;
-      }
-
-      const isEventType = AnnotationTypes.EVENT_TYPE.includes(field);
-      const isMainAction = field === AnnotationTypes.MAIN_ACTION;
-      const isArgument = processedField.startsWith('Arguments.');
-
-      let processedAnswer;
-
-      if (isEventType || isMainAction) {
-        if (typeof answer !== 'string') {
-          throw new Error(`${field} must be a string`);
-        }
-        processedAnswer = answer.trim();
-        
-      } else if (isArgument) {
-        if (processedField.startsWith('Arguments.Object.')) {
-          const objectField = processedField.replace('Arguments.Object.', '');
-          currentSpans = currentEvent.Arguments?.Object?.[objectField] || [];
-        } else {
-          const argField = processedField.replace('Arguments.', '');
-          currentSpans = currentEvent.Arguments?.[argField] || [];
-        }
-
-        if (isDelete) {
-          if (span) {
-            processedAnswer = currentSpans.filter(s => 
-              s.start !== span.start || s.end !== span.end || s.text !== span.text
-            );
-          } else {
-            processedAnswer = [];
-          }
-        } else if (span) {
-          processedAnswer = [...currentSpans, span]
-            .sort((a, b) => a.start - b.start)
-            .filter(s => s.text && typeof s.start === 'number' && typeof s.end === 'number');
-        } else {
-          processedAnswer = currentSpans;
-        }
-      }
-
-      const result = await annotationApi.saveAnnotation({
+      const payload = {
         fileId,
-        paperIndex: numericPaperIndex,
-        eventIndex: numericEventIndex,
-        fieldPath: processedField,
-        answer: isDelete && !span ? null : processedAnswer,
-        isDelete: isDelete && !span
-      });
+        paperIndex: Number(paperIndex),
+        eventIndex: Number(eventIndex),
+        fieldPath: field,
+        answer,
+        isDelete,
+      };
+
+      // Make API call first
+      const result = await annotationApi.saveAnnotation(payload);
+      
+      if (!result) throw new Error('Failed to save annotation');
   
-      safeSetState(prev => {
-        const newFileData = JSON.parse(JSON.stringify(prev.fileData));
-        const currentEvent = newFileData.papers[numericPaperIndex].events[numericEventIndex];
-  
-        if (!currentEvent.Arguments) currentEvent.Arguments = {};
-        if (!currentEvent.Arguments.Object) currentEvent.Arguments.Object = {};
-  
-        if (isDelete && !span) {
-          if (isEventType) {
-            currentEvent[field] = '';
-          } else if (isMainAction) {
-            currentEvent['Main Action'] = '';
-          } else if (processedField.startsWith('Arguments.Object.')) {
-            const objectField = processedField.replace('Arguments.Object.', '');
-            currentEvent.Arguments.Object[objectField] = [];
-          } else if (processedField.startsWith('Arguments.')) {
-            const argField = processedField.replace('Arguments.', '');
-            currentEvent.Arguments[argField] = [];
-          }
-        } else {
-          if (isEventType) {
-            currentEvent[field] = processedAnswer;
-          } else if (isMainAction) {
-            currentEvent['Main Action'] = processedAnswer;
-          } else if (processedField.startsWith('Arguments.Object.')) {
-            const objectField = processedField.replace('Arguments.Object.', '');
-            currentEvent.Arguments.Object[objectField] = processedAnswer;
-          } else if (processedField.startsWith('Arguments.')) {
-            const argField = processedField.replace('Arguments.', '');
-            currentEvent.Arguments[argField] = processedAnswer;
-          }
+      // If successful, update local state
+      safeSetState((prev) => {
+        const updatedFileData = JSON.parse(JSON.stringify(prev.fileData));
+        const event = updatedFileData.papers?.[paperIndex]?.events?.[eventIndex];
+        
+        if (!event) {
+          console.error('Invalid fileData structure:', prev.fileData);
+          return prev;
         }
   
-        return { 
-          ...prev, 
-          fileData: newFileData,
-          lastUpdate: Date.now()
+        if (field === 'Main Action') {
+          event['Main Action'] = answer || '';
+        } else if (field.startsWith('Arguments.')) {
+          const path = field.split('.');
+          let target = event.Arguments || {};
+          
+          // Ensure Arguments object exists
+          if (!event.Arguments) {
+            event.Arguments = {};
+          }
+          
+          // Navigate to the correct nested location
+          for (let i = 1; i < path.length - 1; i++) {
+            if (!target[path[i]]) {
+              target[path[i]] = {};
+            }
+            target = target[path[i]];
+          }
+          
+          // Handle deletion
+          if (isDelete) {
+            if (path.length === 2) {
+              target[path[1]] = [];
+            } else {
+              target[path[path.length - 1]] = [];
+            }
+          } else {
+            // Handle array answers
+            if (Array.isArray(answer)) {
+              if (path.length === 2) {
+                target[path[1]] = answer;
+              } else {
+                target[path[path.length - 1]] = answer;
+              }
+            } else {
+              target[path[path.length - 1]] = [];
+            }
+          }
+        } else if (AnnotationTypes.EVENT_TYPE.includes(field)) {
+          event[field] = answer || '';
+        }
+
+        // Update cache with the new event data
+        fileCache.updateEvent(fileId, paperIndex, eventIndex, event);
+  
+        return {
+          ...prev,
+          fileData: updatedFileData,
         };
       });
   
-      const storageKey = `annotation-${fileId}-${numericPaperIndex}-${numericEventIndex}-${processedField}`;
-      if (isDelete && !span) {
-        safeStorage.remove(storageKey);
-      } else {
-        safeStorage.set(storageKey, {
-          answer: processedAnswer,
-          timestamp: Date.now()
-        });
-      }
-  
+      return result;
     } catch (error) {
-      console.error('Error saving annotation:', error);
+      console.error('Annotation save error:', error);
+      // Invalidate cache on error to force fresh data on next load
+      fileCache.invalidate(fileId);
       throw error;
     } finally {
-      safeSetState(prev => ({ ...prev, saving: false }));
+      safeSetState((prev) => ({ ...prev, saving: false }));
     }
-  }, [fileId, state.currentPosition, state.fileData, safeSetState]);
-
+  }, [fileId, state.currentPosition, safeSetState]);
+  
+  // Navigation helpers
   const moveNext = useCallback(() => {
     if (!state.fileData?.papers) return;
 
@@ -277,7 +230,7 @@ function useAnnotation(fileId, navigate, userId) {
 
       return prev;
     });
-  }, [state.fileData]);
+  }, [state.fileData, safeSetState]);
 
   const movePrevious = useCallback(() => {
     if (!state.fileData?.papers) return;
@@ -309,8 +262,9 @@ function useAnnotation(fileId, navigate, userId) {
 
       return prev;
     });
-  }, [state.fileData]);
+  }, [state.fileData, safeSetState]);
 
+  // Load file data
   const loadFileData = useCallback(async () => {
     if (!fileId || loadingRef.current || !mountedRef.current || !userId) return;
   
@@ -321,40 +275,13 @@ function useAnnotation(fileId, navigate, userId) {
       let data = fileCache.get(fileId);
   
       if (!data) {
-        console.log('Fetching file data from API...');
         const response = await annotationApi.getFileWithAnnotations(fileId);
-        console.log('API Response:', response);
         data = {
-          papers: response.papers.map(paper => ({
-            ...paper,
-            events: paper.events.map(event => ({
-              ...event,
-              'Main Action': event['Main Action'] || '',
-              Arguments: event.Arguments || {
-                Agent: [],
-                Object: {
-                  'Base Object': [],
-                  'Base Modifier': [],
-                  'Attached Object': [],
-                  'Attached Modifier': []
-                },
-                Context: [],
-                Purpose: [],
-                Method: [],
-                Results: [],
-                Analysis: [],
-                Challenge: [],
-                Ethical: [],
-                Implications: [],
-                Contradictions: []
-              }
-            }))
-          })),
+          papers: response.papers,
           metadata: response.metadata
         };
   
         if (data?.papers) {
-          console.log('Setting file data to cache...');
           fileCache.set(fileId, data);
         }
       }
@@ -374,7 +301,7 @@ function useAnnotation(fileId, navigate, userId) {
         error: null
       }));
     } catch (error) {
-      console.error('Error loading file data:', error);
+      fileCache.invalidate(fileId);
       if (mountedRef.current) {
         safeSetState(prev => ({
           ...prev,
@@ -387,6 +314,7 @@ function useAnnotation(fileId, navigate, userId) {
     }
   }, [fileId, userId, safeSetState]);
 
+  // Position helpers
   const isFirstField = useCallback(() => {
     const { paperIndex, eventIndex } = state.currentPosition;
     return paperIndex === 0 && eventIndex === 0;
@@ -394,30 +322,32 @@ function useAnnotation(fileId, navigate, userId) {
 
   const isLastField = useCallback(() => {
     if (!state.fileData) return false;
-
     const { papers } = state.fileData;
     const { paperIndex, eventIndex } = state.currentPosition;
-    const lastPaperIndex = papers.length - 1;
-    
-    return paperIndex === lastPaperIndex && 
-           eventIndex === papers[lastPaperIndex].events.length - 1;
+    return paperIndex === papers.length - 1 && 
+           eventIndex === papers[paperIndex].events.length - 1;
   }, [state.fileData, state.currentPosition]);
 
+  // Current item getters
   const getCurrentEvent = useCallback(() => {
     if (!state.fileData || !state.currentPosition) return null;
     const { paperIndex, eventIndex } = state.currentPosition;
-    return state.fileData.papers[paperIndex]?.events[eventIndex] || null;
+    const event = state.fileData.papers[paperIndex]?.events[eventIndex] || null;
+    console.log('Current Event:', event); // Debugging
+    return event;
   }, [state.fileData, state.currentPosition]);
-
+  
   const getCurrentPaper = useCallback(() => {
     if (!state.fileData || !state.currentPosition) return null;
-    return state.fileData.papers[state.currentPosition.paperIndex] || null;
+    const paper = state.fileData.papers[state.currentPosition.paperIndex] || null;
+    console.log('Current Paper:', paper); // Debugging
+    return paper;
   }, [state.fileData, state.currentPosition]);
 
+  // Effects
   useEffect(() => {
     mountedRef.current = true;
     if (userId) loadFileData();
-    
     return () => {
       mountedRef.current = false;
     };
@@ -443,14 +373,11 @@ function useAnnotation(fileId, navigate, userId) {
     isLastField: isLastField(),
     getCurrentEvent,
     getCurrentPaper,
-    ANNOTATION_FIELDS: AnnotationTypes,
-    FIELD_TYPES
+    invalidateCache: () => fileCache.invalidate(fileId)
   };
 }
-
 export {
   useAnnotation as default,
-  FIELD_TYPES,
   fileCache,
   safeStorage
 };

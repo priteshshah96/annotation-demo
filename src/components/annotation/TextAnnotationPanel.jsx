@@ -1,6 +1,6 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { X } from 'lucide-react';
-import Toast from './Toast';
+import { Alert } from '@/components/ui/alert';
 
 // Button color mapping for Tailwind classes
 const BUTTON_COLORS = {
@@ -19,22 +19,23 @@ const BUTTON_COLORS = {
 };
 
 // Highlight colors for different annotation types
+// Highlight colors for different annotation types
 const HIGHLIGHT_COLORS = {
-  'Main Action': 'bg-blue-200 hover:bg-blue-300',
-  'Arguments.Agent': 'bg-emerald-200 hover:bg-emerald-300',
-  'Arguments.Object.Base Object': 'bg-violet-200 hover:bg-violet-300',
-  'Arguments.Object.Base Modifier': 'bg-violet-200 hover:bg-violet-300',
-  'Arguments.Object.Attached Object': 'bg-violet-200 hover:bg-violet-300',
-  'Arguments.Object.Attached Modifier': 'bg-violet-200 hover:bg-violet-300',
-  'Arguments.Context': 'bg-amber-200 hover:bg-amber-300',
-  'Arguments.Purpose': 'bg-fuchsia-200 hover:bg-fuchsia-300',
-  'Arguments.Method': 'bg-purple-200 hover:bg-purple-300',
-  'Arguments.Results': 'bg-indigo-200 hover:bg-indigo-300',
-  'Arguments.Analysis': 'bg-sky-200 hover:bg-sky-300',
-  'Arguments.Challenge': 'bg-teal-200 hover:bg-teal-300',
-  'Arguments.Ethical': 'bg-yellow-200 hover:bg-yellow-300',
-  'Arguments.Implications': 'bg-red-200 hover:bg-red-300',
-  'Arguments.Contradictions': 'bg-rose-200 hover:bg-rose-300'
+  'Main Action': 'highlight-main-action',
+  'Arguments.Agent': 'highlight-agent',
+  'Arguments.Object.Base Object': 'highlight-object',
+  'Arguments.Object.Base Modifier': 'highlight-object',
+  'Arguments.Object.Attached Object': 'highlight-object',
+  'Arguments.Object.Attached Modifier': 'highlight-object',
+  'Arguments.Context': 'highlight-context',
+  'Arguments.Purpose': 'highlight-purpose',
+  'Arguments.Method': 'highlight-method',
+  'Arguments.Results': 'highlight-results',
+  'Arguments.Analysis': 'highlight-analysis',
+  'Arguments.Challenge': 'highlight-challenge',
+  'Arguments.Ethical': 'highlight-ethical',
+  'Arguments.Implications': 'highlight-implications',
+  'Arguments.Contradictions': 'highlight-contradictions'
 };
 
 // Annotation buttons configuration
@@ -86,164 +87,181 @@ const TextAnnotationPanel = ({
   readOnly = false
 }) => {
   const textRef = useRef(null);
-  const [showObjectMenu, setShowObjectMenu] = useState(false);
   const [hoveredAnnotation, setHoveredAnnotation] = useState(null);
-  const [showToast, setShowToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
-  const [localSelection, setLocalSelection] = useState(null);
+  const [error, setError] = useState('');
 
   // Check if Main Action exists
   const hasMainAction = useMemo(() => 
     annotations.some(annotation => 
       annotation.type === 'Main Action' && 
-      annotation.text
+      annotation.text?.trim().length > 0
     ),
     [annotations]
   );
 
-  // Get Object-related and main buttons
-  const { objectButtons, mainButtons } = useMemo(() => ({
-    objectButtons: ANNOTATION_BUTTONS.filter(button => button.type.startsWith('Object.')),
-    mainButtons: ANNOTATION_BUTTONS.filter(button => !button.type.startsWith('Object.'))
-  }), []);
-
   // Handle text selection
-  const handleMouseUp = (e) => {
-    if (readOnly) return;
-    
+  const handleTextSelection = useCallback(() => {
+    if (readOnly || !onTextSelect) return;
+
     const selection = window.getSelection();
-    const selectedText = selection.toString().trim();
-    
-    if (selectedText) {
-      const range = selection.getRangeAt(0);
-      const preCaretRange = range.cloneRange();
-      preCaretRange.selectNodeContents(textRef.current);
-      preCaretRange.setEnd(range.startContainer, range.startOffset);
-      const selectedStart = preCaretRange.toString().length;
-      
-      // Check for overlapping spans
-      const isOverlapping = annotations.some(annotation => 
-        (selectedStart >= annotation.start && selectedStart < annotation.end) ||
-        (selectedStart + selectedText.length > annotation.start && 
-         selectedStart + selectedText.length <= annotation.end) ||
-        (selectedStart <= annotation.start && 
-         selectedStart + selectedText.length >= annotation.end)
-      );
+    const selectedStr = selection?.toString().trim();
 
-      if (isOverlapping) {
-        setShowToast(true);
-        setToastMessage('Selection overlaps with existing annotation');
-        return;
-      }
-
-      const span = {
-        text: selectedText,
-        start: selectedStart,
-        end: selectedStart + selectedText.length
-      };
-
-      setLocalSelection(span);
-      onTextSelect(span);
+    if (!selectedStr) {
+      setError('Please select some text first');
+      return;
     }
-  };
 
-  // Handle annotation selection
-  const handleAnnotationClick = (type) => {
-    if (!localSelection) {
-      setShowToast(true);
-      setToastMessage('Please select text first');
+    if (!selection?.rangeCount) {
+      setError('Invalid selection');
       return;
     }
 
     try {
-      if (type === 'Object') {
-        setShowObjectMenu(true);
+      const containerNode = textRef.current;
+      if (!containerNode) {
+        setError('Text container not found');
         return;
       }
 
-      if (type !== 'Main Action' && !hasMainAction) {
-        setShowToast(true);
-        setToastMessage('Please annotate Main Action first');
+      const range = selection.getRangeAt(0);
+
+      // Ensure selection is within our container
+      if (!containerNode.contains(range.startContainer) || 
+          !containerNode.contains(range.endContainer)) {
+        setError('Please select text within the content area');
         return;
       }
 
+      // Calculate selection position
+      const preCaretRange = range.cloneRange();
+      preCaretRange.selectNodeContents(containerNode);
+      preCaretRange.setEnd(range.startContainer, range.startOffset);
+      const start = preCaretRange.toString().length;
+
+      // Check for overlapping annotations
+      const isOverlapping = annotations.some(annotation => 
+        (start >= annotation.start && start < annotation.end) ||
+        (start + selectedStr.length > annotation.start && 
+         start + selectedStr.length <= annotation.end) ||
+        (start <= annotation.start && 
+         start + selectedStr.length >= annotation.end)
+      );
+
+      if (isOverlapping) {
+        setError('Selection overlaps with existing annotation');
+        return;
+      }
+
+      onTextSelect({
+        text: selectedStr,
+        start,
+        end: start + selectedStr.length
+      });
+      setError('');
+    } catch (error) {
+      console.error('Selection error:', error);
+      setError('Error processing text selection');
+    }
+  }, [readOnly, onTextSelect, annotations]);
+
+  // Handle annotation button click
+  const handleAnnotationClick = useCallback(async (type) => {
+    if (!selectedText) {
+      setError('Please select text first');
+      return;
+    }
+
+    if (type !== 'Main Action' && !hasMainAction) {
+      setError('Please annotate Main Action first');
+      return;
+    }
+
+    try {
       const selection = {
-        text: localSelection.text,
-        start: localSelection.start,
-        end: localSelection.end
+        text: selectedText.text,
+        start: selectedText.start,
+        end: selectedText.end
       };
 
-      if (type === 'Main Action') {
-        onAnnotationSelect(type, selection);
+      if (type.startsWith('Object.')) {
+        await onAnnotationSelect(`Arguments.${type}`, [selection]);
       } else {
-        const finalType = type.startsWith('Object.') ? 
-          `Arguments.Object.${type.slice(7)}` : 
-          `Arguments.${type}`;
-          
-        onAnnotationSelect(finalType, selection);
+        const isMainAction = type === 'Main Action';
+        await onAnnotationSelect(
+          isMainAction ? type : `Arguments.${type}`,
+          isMainAction ? selection.text : [selection]
+        );
       }
 
-      setShowObjectMenu(false);
-      setLocalSelection(null);
-      if (onTextSelect) {
-        onTextSelect(null);
-        window.getSelection()?.removeAllRanges();
-      }
+      window.getSelection()?.removeAllRanges();
     } catch (error) {
-      console.error('Error handling annotation:', error);
-      setShowToast(true);
-      setToastMessage('Failed to create annotation. Please try again.');
+      setError(error.message || 'Failed to create annotation');
     }
-  };
+  }, [selectedText, hasMainAction, onAnnotationSelect]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-      const key = e.key.toLowerCase();
+      if (readOnly || !selectedText || 
+          e.target.tagName === 'INPUT' || 
+          e.target.tagName === 'TEXTAREA') return;
 
       if (e.key === 'Escape') {
         e.preventDefault();
-        setLocalSelection(null);
-        onTextSelect(null);
         window.getSelection()?.removeAllRanges();
+        onTextSelect(null);
         return;
       }
 
-      if (localSelection) {
-        Object.entries(KEYBOARD_SHORTCUTS).forEach(([type, shortcut]) => {
-          if (shortcut === key) {
-            e.preventDefault();
-            if (type === 'Main Action' || hasMainAction) {
-              handleAnnotationClick(type);
-            } else {
-              setShowToast(true);
-              setToastMessage('Please annotate Main Action first');
-            }
-          }
-        });
+      const shortcut = e.key.toLowerCase();
+      const button = ANNOTATION_BUTTONS.find(btn => 
+        KEYBOARD_SHORTCUTS[btn.type]?.toLowerCase() === shortcut
+      );
+
+      if (button) {
+        e.preventDefault();
+        handleAnnotationClick(button.type);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [localSelection, hasMainAction, onTextSelect, handleAnnotationClick]);
+  }, [selectedText, readOnly, onTextSelect, handleAnnotationClick]);
 
-  // Update local selection when prop changes
+  // Mouse event handlers
   useEffect(() => {
-    setLocalSelection(selectedText);
-  }, [selectedText]);
+    const textContainer = textRef.current;
+    if (!textContainer || readOnly) return;
 
-  // Clean up selection on unmount or event type change
-  useEffect(() => {
-    return () => {
-      if (window.getSelection) {
-        window.getSelection().removeAllRanges();
-      }
-      setLocalSelection(null);
+    let mouseIsDown = false;
+
+    const handleMouseDown = () => {
+      mouseIsDown = true;
     };
-  }, [eventType]);
+
+    const handleMouseUp = () => {
+      if (mouseIsDown) {
+        handleTextSelection();
+      }
+      mouseIsDown = false;
+    };
+
+    textContainer.addEventListener('mousedown', handleMouseDown);
+    textContainer.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      textContainer.removeEventListener('mousedown', handleMouseDown);
+      textContainer.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [readOnly, handleTextSelection]);
+
+  // Clear error message timer
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Render highlighted text
   const renderedHighlightedText = useMemo(() => {
@@ -256,29 +274,23 @@ const TextAnnotationPanel = ({
     sortedAnnotations.forEach((annotation, index) => {
       if (annotation.start > lastIndex) {
         result.push(
-          <span key={`text-${index}`}>
-            {text.slice(lastIndex, annotation.start)}
-          </span>
+          <span key={`text-${index}`}>{text.slice(lastIndex, annotation.start)}</span>
         );
       }
 
+      const highlightColor = HIGHLIGHT_COLORS[annotation.type];
+      
       result.push(
         <mark
           key={`annotation-${index}`}
-          className={`${HIGHLIGHT_COLORS[annotation.type]} relative cursor-help transition-colors duration-150 group`}
+          className={`${highlightColor} relative cursor-help transition-colors duration-150 group`}
           onMouseEnter={() => setHoveredAnnotation(index)}
           onMouseLeave={() => setHoveredAnnotation(null)}
-          role="mark"
-          aria-label={`${annotation.type} annotation: ${text.slice(annotation.start, annotation.end)}`}
-          tabIndex="0"
         >
           {text.slice(annotation.start, annotation.end)}
           {hoveredAnnotation === index && (
-            <div 
-              className="absolute bottom-full left-1/2 transform -translate-x-1/2 px-2 py-1 
-                       bg-gray-800 text-white text-xs rounded z-10 whitespace-nowrap mb-1"
-              role="tooltip"
-            >
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 px-2 py-1 
+                          bg-gray-800 text-white text-xs rounded z-10 whitespace-nowrap mb-1">
               {annotation.type}
             </div>
           )}
@@ -291,7 +303,6 @@ const TextAnnotationPanel = ({
               className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 
                        bg-white rounded-full p-0.5 shadow-sm border border-gray-200
                        transition-opacity duration-200"
-              aria-label={`Remove ${annotation.type} annotation`}
             >
               <X className="w-3 h-3 text-gray-500 hover:text-red-500" />
             </button>
@@ -303,154 +314,85 @@ const TextAnnotationPanel = ({
     });
 
     if (lastIndex < text.length) {
-      result.push(
-        <span key="text-end">
-          {text.slice(lastIndex)}
-        </span>
-      );
+      result.push(<span key="text-end">{text.slice(lastIndex)}</span>);
     }
 
     return result;
   }, [text, annotations, hoveredAnnotation, readOnly, onAnnotationDelete]);
 
-  // Helper function for button classes
-  const getButtonClasses = (button, isDisabled) => {
-    return `px-3 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 
-      ${isDisabled
-        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-        : `${BUTTON_COLORS[button.baseColor]} focus:ring-offset-2`
-      }`;
-  };
-
   return (
     <div className="space-y-6">
-      {/* Main Action Warning */}
       {!hasMainAction && !readOnly && (
-        <div className="mb-4 p-3 bg-yellow-100 rounded-lg border border-yellow-200" role="alert">
+        <div className="mb-4 p-3 bg-yellow-100 rounded-lg border border-yellow-200">
           <span className="text-sm text-yellow-800 font-medium">
             ⚠️ Please annotate the Main Action first before adding other annotations
           </span>
         </div>
       )}
-      
+
       {/* Selected Text Indicator */}
-      {localSelection && (
-        <div className="mb-4 p-3 bg-blue-100 rounded-lg" role="status">
-          <span className="text-sm text-blue-800 font-medium">
-            Selected text: <strong>"{localSelection.text}"</strong>
-            <br />
-            <span className="text-xs text-blue-600">Press ESC to clear selection</span>
-          </span>
+      {selectedText && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-100 rounded-lg">
+          <p className="text-sm">
+            <span className="font-medium text-gray-700">Selected text: </span>
+            <span className="text-blue-600 font-medium">"{selectedText.text}"</span>
+          </p>
+          <p className="text-xs text-blue-600 mt-1">
+            Press ESC to clear selection
+          </p>
         </div>
+      )}
+
+      {/* Error Alert */}
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          {error}
+        </Alert>
       )}
 
       {/* Text Content */}
       <div
         ref={textRef}
-        className="prose max-w-none text-gray-800 leading-relaxed select-text mb-6"
-        onMouseUp={handleMouseUp}
-        style={{ fontSize: '1.125rem', lineHeight: '1.8' }}
-        role="textbox"
-        aria-label="Annotatable text content"
-        tabIndex="0"
+        className="prose max-w-none text-gray-800 leading-relaxed text-container"
+        style={{ 
+          fontSize: '1.125rem', 
+          lineHeight: '1.8'
+        }}
       >
-        {renderedHighlightedText}
+        {renderedHighlightedText || text}
       </div>
 
       {/* Annotation Buttons */}
       {!readOnly && (
         <div className="border-t border-gray-200 pt-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-3" id="annotation-buttons-label">
-            {showObjectMenu ? (
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setShowObjectMenu(false)}
-                  className="text-blue-600 hover:text-blue-700"
-                >
-                  ← Back
-                </button>
-                <span>Select Object Type</span>
-              </div>
-            ) : (
-              <>
-                Select text and choose annotation type
-                <br />
-                <span className="text-xs text-gray-500">
-                  Use keyboard shortcuts shown on buttons or select with mouse
-                </span>
-              </>
-            )}
-          </h3>
-          
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2" 
-               role="toolbar" 
-               aria-label="Annotation options">
-            {showObjectMenu ? (
-              // Object type buttons
-              objectButtons.map(button => {
-                const isDisabled = !hasMainAction;
-                const shortcut = KEYBOARD_SHORTCUTS[button.type];
-                
-                return (
-                  <button
-                    key={button.type}
-                    onClick={() => handleAnnotationClick(button.type)}
-                    disabled={isDisabled}
-                    className={getButtonClasses(button, isDisabled)}
-                    title={isDisabled
-                      ? 'Please annotate Main Action first'
-                      : `${button.description} (Shortcut: ${shortcut})`
-                    }
-                  >
-                    <span>{button.label}</span>
-                    <span className="ml-2 text-xs text-gray-500">{shortcut}</span>
-                  </button>
-                );
-              })
-            ) : (
-              // Main annotation buttons + Object button
-              <>
-                {mainButtons.map(button => {
-                  const isDisabled = button.type !== 'Main Action' && !hasMainAction;
-                  const shortcut = KEYBOARD_SHORTCUTS[button.type];
-                  
-                  return (
-                    <button
-                      key={button.type}
-                      onClick={() => handleAnnotationClick(button.type)}
-                      disabled={isDisabled}
-                      className={getButtonClasses(button, isDisabled)}
-                      title={isDisabled
-                        ? 'Please annotate Main Action first'
-                        : `${button.description} (Shortcut: ${shortcut})`
-                      }
-                    >
-                      <span>{button.label}</span>
-                      <span className="ml-2 text-xs text-gray-500">{shortcut}</span>
-                    </button>
-                  );
-                })}
-
-                {/* Object Menu Button */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {ANNOTATION_BUTTONS.map(button => {
+              const isDisabled = button.type !== 'Main Action' && !hasMainAction;
+              const shortcut = KEYBOARD_SHORTCUTS[button.type];
+              
+              return (
                 <button
-                  onClick={() => handleAnnotationClick('Object')}
-                  disabled={!hasMainAction}
-                  className={!hasMainAction 
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed px-3 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2'
-                    : 'bg-violet-200 hover:bg-violet-300 focus:ring-violet-500 focus:ring-offset-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2'
-                  }
-                  title={!hasMainAction ? 'Please annotate Main Action first' : 'Object-related annotations'}
+                  key={button.type}
+                  onClick={() => handleAnnotationClick(button.type)}
+                  disabled={isDisabled}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isDisabled
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : BUTTON_COLORS[button.baseColor]
+                  }`}
+                  title={`${button.description} (Shortcut: ${shortcut})`}
                 >
-                  Object ↓
+                  <span>{button.label}</span>
+                  <span className="ml-2 text-xs text-gray-500">{shortcut}</span>
                 </button>
-              </>
-            )}
+              );
+            })}
           </div>
 
-          {/* Keyboard shortcuts help */}
+          {/* Keyboard Navigation Help */}
           <div className="mt-4 text-sm text-gray-600">
             <p>
-              <strong>Keyboard navigation:</strong>
+              <strong>Keyboard shortcuts:</strong>
               <br />
               • Use Tab to move between buttons
               <br />
@@ -458,21 +400,13 @@ const TextAnnotationPanel = ({
               <br />
               • Use number keys 1-9 and letters (r,a,c,e,i,d) for quick annotation
               <br />
-              • Press ESC to clear text selection
+              • Press ESC to clear selection
             </p>
           </div>
         </div>
-      )}
-
-      {/* Toast notifications */}
-      {showToast && (
-        <Toast 
-          message={toastMessage} 
-          onClose={() => setShowToast(false)} 
-        />
       )}
     </div>
   );
 };
 
-export default TextAnnotationPanel;
+export default React.memo(TextAnnotationPanel);

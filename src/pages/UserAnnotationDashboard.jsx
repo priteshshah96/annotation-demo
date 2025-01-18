@@ -33,21 +33,41 @@ const ErrorView = memo(({ error, onBack }) => (
 ));
 
 const UserAnnotationDashboard = ({ mode }) => {
+  // Refs and routing
   const mountedRef = useRef(true);
   const navigate = useNavigate();
   const { fileId } = useParams();
+  
+  // Auth and user state
   const { user } = useUser();
   const { isLoaded, isSignedIn } = useAuth();
   const { showSnackbar, SnackbarComponent } = useSnackbar();
-  
-  // Component state
-  const [selectedText, setSelectedText] = useState(null);
-  const [isAbstractOpen, setIsAbstractOpen] = useState(false);
-  const [isCompleting, setIsCompleting] = useState(false);
-  const [summaryInput, setSummaryInput] = useState('');
-  const [showTutorial, setShowTutorial] = useState(false);
-  const [lastSaved, setLastSaved] = useState(null);
 
+  // Component state
+  const [state, setState] = useState({
+    selectedText: null,
+    isAbstractOpen: false,
+    isCompleting: false,
+    summaryInput: '',
+    showTutorial: false,
+    lastSaved: null,
+    annotations: [],
+    displayData: null
+  });
+
+  // Destructure state for convenience
+  const {
+    selectedText,
+    isAbstractOpen,
+    isCompleting,
+    summaryInput,
+    showTutorial,
+    lastSaved,
+    annotations,
+    displayData
+  } = state;
+
+  // Custom hooks
   const {
     currentPosition,
     fileData,
@@ -59,253 +79,368 @@ const UserAnnotationDashboard = ({ mode }) => {
     getCurrentEvent,
     getCurrentPaper,
     isFirstField,
-    isLastField
+    isLastField,
   } = useAnnotation(fileId, navigate, user?.id);
 
-  const { finalizeSync } = useAnnotationSync(fileId, user?.id);
+  const { syncAnnotation, finalizeSync } = useAnnotationSync(fileId, user?.id);
 
-  // Get current event and paper
-  const currentEvent = useMemo(() => getCurrentEvent(), [getCurrentEvent]);
-  const currentPaper = useMemo(() => getCurrentPaper(), [getCurrentPaper]);
-  
-  // Fixed event type detection to match MongoDB structure
-  const eventType = useMemo(() => {
-    if (!currentEvent) return null;
+  // Process and update event data
+  const processAndUpdateState = useCallback((event) => {
+    if (!event) return;
     
-    // First find if any event type already has content
-    let activeType = AnnotationTypes.EVENT_TYPE.find(type => 
-      currentEvent[type] && currentEvent[type].trim() !== ''
+    // Find active event type
+    const activeType = AnnotationTypes.EVENT_TYPE.find(
+      (type) => event[type] && event[type].trim() !== ''
+    ) || AnnotationTypes.EVENT_TYPE.find(
+      (type) => type in event && event[type] !== undefined
     );
-  
-    // If no event type has content yet, find which one exists in the event
-    if (!activeType) {
-      activeType = AnnotationTypes.EVENT_TYPE.find(type => 
-        type in currentEvent && currentEvent[type] !== undefined
-      );
-    }
-  
-    return activeType;
-  }, [currentEvent]);
 
-  // Process event data
-  const { cleanedEvent, displayAnnotations } = useMemo(() => {
-    if (!currentEvent || !eventType) {
-      return { cleanedEvent: null, displayAnnotations: [] };
-    }
-  
-    // Initialize cleaned event with the correct event type
+    if (!activeType) return;
+
+    // Process event data
     const cleaned = {
-      Text: currentEvent.Text || '',
-      [eventType]: currentEvent[eventType] || '',  // Keep original event type
-      'Main Action': currentEvent['Main Action'] || '',
+      Text: event.Text || '',
+      [activeType]: event[activeType] || '',
+      'Main Action': event['Main Action'] || '',
       Arguments: {
-        Agent: Array.isArray(currentEvent.Arguments?.Agent) ? 
-          currentEvent.Arguments.Agent : [],
+        Agent: event.Arguments?.Agent || [],
         Object: {
-          'Base Object': Array.isArray(currentEvent.Arguments?.Object?.['Base Object']) ?
-            currentEvent.Arguments.Object['Base Object'] : [],
-          'Base Modifier': Array.isArray(currentEvent.Arguments?.Object?.['Base Modifier']) ?
-            currentEvent.Arguments.Object['Base Modifier'] : [],
-          'Attached Object': Array.isArray(currentEvent.Arguments?.Object?.['Attached Object']) ?
-            currentEvent.Arguments.Object['Attached Object'] : [],
-          'Attached Modifier': Array.isArray(currentEvent.Arguments?.Object?.['Attached Modifier']) ?
-            currentEvent.Arguments.Object['Attached Modifier'] : []
+          'Base Object': event.Arguments?.Object?.['Base Object'] || [],
+          'Base Modifier': event.Arguments?.Object?.['Base Modifier'] || [],
+          'Attached Object': event.Arguments?.Object?.['Attached Object'] || [],
+          'Attached Modifier': event.Arguments?.Object?.['Attached Modifier'] || [],
         },
-        Context: Array.isArray(currentEvent.Arguments?.Context) ? 
-          currentEvent.Arguments.Context : [],
-        Purpose: Array.isArray(currentEvent.Arguments?.Purpose) ? 
-          currentEvent.Arguments.Purpose : [],
-        Method: Array.isArray(currentEvent.Arguments?.Method) ? 
-          currentEvent.Arguments.Method : [],
-        Results: Array.isArray(currentEvent.Arguments?.Results) ? 
-          currentEvent.Arguments.Results : [],
-        Analysis: Array.isArray(currentEvent.Arguments?.Analysis) ? 
-          currentEvent.Arguments.Analysis : [],
-        Challenge: Array.isArray(currentEvent.Arguments?.Challenge) ? 
-          currentEvent.Arguments.Challenge : [],
-        Ethical: Array.isArray(currentEvent.Arguments?.Ethical) ? 
-          currentEvent.Arguments.Ethical : [],
-        Implications: Array.isArray(currentEvent.Arguments?.Implications) ? 
-          currentEvent.Arguments.Implications : [],
-        Contradictions: Array.isArray(currentEvent.Arguments?.Contradictions) ? 
-          currentEvent.Arguments.Contradictions : []
-      }
+        Context: event.Arguments?.Context || [],
+        Purpose: event.Arguments?.Purpose || [],
+        Method: event.Arguments?.Method || [],
+        Results: event.Arguments?.Results || [],
+        Analysis: event.Arguments?.Analysis || [],
+        Challenge: event.Arguments?.Challenge || [],
+        Ethical: event.Arguments?.Ethical || [],
+        Implications: event.Arguments?.Implications || [],
+        Contradictions: event.Arguments?.Contradictions || [],
+      },
     };
-  
-    const annotations = [];
-  
-    // Handle Main Action annotations
-    if (currentEvent['Main Action']) {
-      annotations.push({
-        text: currentEvent['Main Action'],
+
+    // Process annotations
+    const newAnnotations = [];
+
+    // Handle Main Action
+    if (event['Main Action']) {
+      newAnnotations.push({
+        text: event['Main Action'],
         type: 'Main Action',
         start: 0,
-        end: currentEvent['Main Action'].length
+        end: event['Main Action'].length,
       });
     }
-  
-    // Handle Arguments annotations
-    if (currentEvent.Arguments) {
-      // Handle Object arguments
-      Object.entries(currentEvent.Arguments.Object || {}).forEach(([objKey, spans]) => {
+
+    // Handle Arguments
+    if (event.Arguments) {
+      // Process Object arguments
+      Object.entries(event.Arguments.Object || {}).forEach(([objKey, spans]) => {
         if (Array.isArray(spans)) {
           spans.forEach((span, index) => {
-            annotations.push({
+            newAnnotations.push({
               ...span,
               type: `Arguments.Object.${objKey}`,
-              index
+              index,
             });
           });
         }
       });
-  
-      // Handle other arguments
-      Object.entries(currentEvent.Arguments).forEach(([key, value]) => {
+
+      // Process other arguments
+      Object.entries(event.Arguments).forEach(([key, value]) => {
         if (key !== 'Object' && Array.isArray(value)) {
           value.forEach((span, index) => {
-            annotations.push({
+            newAnnotations.push({
               ...span,
               type: `Arguments.${key}`,
-              index
+              index,
             });
           });
         }
       });
     }
-  
-    return {
-      cleanedEvent: cleaned,
-      displayAnnotations: annotations.sort((a, b) => a.start - b.start)
-    };
-  }, [currentEvent, eventType]);
+
+    setState(prev => ({
+      ...prev,
+      displayData: cleaned,
+      annotations: newAnnotations.sort((a, b) => a.start - b.start)
+    }));
+  }, []);
 
   // Callbacks
-  const openAnnotationGuide = useCallback(() => {
-    window.open('/docs/annotation_guide.pdf', '_blank');
+  const handleStateUpdate = useCallback((updates) => {
+    if (mountedRef.current) {
+      setState(prev => ({ ...prev, ...updates }));
+    }
   }, []);
 
   const handleTextSelect = useCallback((selection) => {
-    if (!selection) {
-      setSelectedText(null);
-      return;
-    }
-    setSelectedText({
+    handleStateUpdate({ selectedText: selection ? {
       text: selection.text,
       start: selection.start,
-      end: selection.end
-    });
-  }, []);
+      end: selection.end,
+    } : null });
+  }, [handleStateUpdate]);
 
-  const handleAnnotationSelect = useCallback(async (type, answer) => {
-    if (!selectedText || !currentPosition) return;
-  
+  const handleAnnotationSaveWrapper = useCallback(async (type, payload, options) => {
     try {
-      const indices = {
-        paperIndex: Number(currentPosition.paperIndex),
-        eventIndex: Number(currentPosition.eventIndex)
-      };
-  
-      let payload;
+      const currentEvent = getCurrentEvent();
+      if (!currentEvent) return;
+
+      // Prepare optimistic updates
+      const updatedDisplayData = JSON.parse(JSON.stringify(displayData));
+      let newAnnotations = [...annotations];
+
       if (type === 'Main Action') {
-        // For Main Action
-        payload = selectedText.text;
-      } else if (type.startsWith('Arguments.') || type.startsWith('Object.')) {
-        // For Arguments - send answer as an array of spans
-        payload = [{
-          text: selectedText.text,
-          start: selectedText.start,
-          end: selectedText.end
-        }];
-      } else {
-        // For event types (Background/Introduction etc)
-        payload = selectedText.text;
+        newAnnotations = newAnnotations.filter(a => a.type !== 'Main Action');
+        if (payload) {
+          newAnnotations.push({
+            text: payload,
+            type: 'Main Action',
+            start: 0,
+            end: payload.length,
+          });
+        }
+        updatedDisplayData['Main Action'] = payload || '';
+      } else if (type.startsWith('Arguments.')) {
+        const annotationType = type;
+        newAnnotations = newAnnotations.filter(a => a.type !== annotationType);
+        
+        if (Array.isArray(payload)) {
+          payload.forEach((item, index) => {
+            newAnnotations.push({
+              ...item,
+              type: annotationType,
+              index,
+            });
+          });
+          
+          const path = type.split('.');
+          let target = updatedDisplayData;
+          for (let i = 0; i < path.length - 1; i++) {
+            if (!target[path[i]]) {
+              target[path[i]] = {};
+            }
+            target = target[path[i]];
+          }
+          target[path[path.length - 1]] = payload.map(p => p.text);
+        }
       }
-  
-      await handleAnnotationSave(type, payload, { indices });
-      setSelectedText(null);
-      setLastSaved(new Date());
+
+      // Apply optimistic updates
+      handleStateUpdate({
+        annotations: newAnnotations.sort((a, b) => a.start - b.start),
+        displayData: updatedDisplayData
+      });
+
+      // Sync with backend
+      await syncAnnotation({
+        paperIndex: options.paperIndex,
+        eventIndex: options.eventIndex,
+        fieldPath: type,
+        value: payload,
+        isDelete: options.isDelete,
+        span: !Array.isArray(payload) && payload?.text ? {
+          text: payload.text,
+          start: payload.start,
+          end: payload.end
+        } : undefined,
+        spans: Array.isArray(payload) ? payload : undefined
+      });
+
+      handleStateUpdate({
+        lastSaved: new Date()
+      });
       showSnackbar('Annotation saved successfully', 'success');
     } catch (error) {
       console.error('Error saving annotation:', error);
       showSnackbar('Failed to save annotation', 'error');
+      
+      // Revert optimistic update on error
+      const currentEvent = getCurrentEvent();
+      if (currentEvent) {
+        processAndUpdateState(currentEvent);
+      }
     }
-  }, [selectedText, currentPosition, handleAnnotationSave, showSnackbar]);
+  }, [displayData, annotations, getCurrentEvent, syncAnnotation, handleStateUpdate, showSnackbar, processAndUpdateState]);
+
+  const handleAnnotationSelect = useCallback(async (type, answer) => {
+    if (!selectedText || !currentPosition) return;
+
+    try {
+      const indices = {
+        paperIndex: Number(currentPosition.paperIndex),
+        eventIndex: Number(currentPosition.eventIndex),
+      };
+
+      const payload = type === 'Main Action' 
+        ? answer?.text || answer 
+        : (type.startsWith('Arguments.') || type.startsWith('Object.'))
+          ? Array.isArray(answer) ? answer : [answer]
+          : answer;
+
+      await handleAnnotationSaveWrapper(type, payload, indices);
+      handleStateUpdate({ selectedText: null });
+      window.getSelection()?.removeAllRanges();
+    } catch (error) {
+      console.error('Error in handleAnnotationSelect:', error);
+      showSnackbar('Failed to save annotation', 'error');
+    }
+  }, [selectedText, currentPosition, handleAnnotationSaveWrapper, handleStateUpdate, showSnackbar]);
 
   const handleAnnotationDelete = useCallback(async (type, index) => {
     if (!currentPosition) return;
 
     try {
-      await handleAnnotationSave(type, null, {
+      // Optimistic update
+      const updatedDisplayData = JSON.parse(JSON.stringify(displayData));
+      let newAnnotations = annotations.filter((a, i) => 
+        !(a.type === type && (index === undefined || i === index))
+      );
+
+      if (type === 'Main Action') {
+        updatedDisplayData['Main Action'] = '';
+      } else if (type.startsWith('Arguments.')) {
+        const path = type.split('.');
+        let target = updatedDisplayData;
+        for (let i = 0; i < path.length - 1; i++) {
+          if (!target[path[i]]) {
+            target[path[i]] = {};
+          }
+          target = target[path[i]];
+        }
+        if (index !== undefined) {
+          target[path[path.length - 1]] = target[path[path.length - 1]]
+            .filter((_, i) => i !== index);
+        } else {
+          target[path[path.length - 1]] = [];
+        }
+      }
+
+      handleStateUpdate({
+        annotations: newAnnotations,
+        displayData: updatedDisplayData
+      });
+
+      await syncAnnotation({
         paperIndex: Number(currentPosition.paperIndex),
         eventIndex: Number(currentPosition.eventIndex),
+        fieldPath: type,
         isDelete: true,
         index
       });
 
-      setLastSaved(new Date());
+      handleStateUpdate({ lastSaved: new Date() });
       showSnackbar('Annotation deleted successfully', 'success');
     } catch (error) {
       console.error('Error deleting annotation:', error);
       showSnackbar('Failed to delete annotation', 'error');
+      
+      const currentEvent = getCurrentEvent();
+      if (currentEvent) {
+        processAndUpdateState(currentEvent);
+      }
     }
-  }, [currentPosition, handleAnnotationSave, showSnackbar]);
+  }, [currentPosition, annotations, displayData, syncAnnotation, getCurrentEvent, handleStateUpdate, showSnackbar, processAndUpdateState]);
 
+  const handleSummaryChange = useCallback(async (newValue) => {
+    if (!displayData || !currentPosition || mode === 'view') return;
 
-  const handleBack = useCallback(() => {
-    if (isCompleting) return;
-    navigate('/', { replace: true });
-  }, [navigate, isCompleting]);
+    try {
+      const eventType = Object.keys(displayData).find(key => 
+        key !== 'Text' && key !== 'Main Action' && key !== 'Arguments'
+      );
 
-  // In handleSummaryChange
-const handleSummaryChange = useCallback(async (newValue) => {
-  if (!eventType || !currentPosition || mode === 'view') return;
-  
-  try {
-    // If empty string, treat as delete
-    const isDelete = !newValue || newValue.trim() === '';
-    await handleAnnotationSave(eventType, isDelete ? '' : newValue, {
-      paperIndex: Number(currentPosition.paperIndex),
-      eventIndex: Number(currentPosition.eventIndex),
-      isDelete: isDelete
-    });
-    setLastSaved(new Date());
-    showSnackbar('Summary saved successfully', 'success');
-  } catch (error) {
-    console.error('Error saving summary:', error);
-    showSnackbar('Failed to save summary', 'error');
-  }
-}, [eventType, currentPosition, mode, handleAnnotationSave, showSnackbar]);
+      if (!eventType) return;
+
+      const isDelete = !newValue || newValue.trim() === '';
+      
+      // Optimistic update
+      handleStateUpdate({
+        displayData: {
+          ...displayData,
+          [eventType]: isDelete ? '' : newValue
+        },
+        summaryInput: newValue
+      });
+
+      await syncAnnotation({
+        paperIndex: Number(currentPosition.paperIndex),
+        eventIndex: Number(currentPosition.eventIndex),
+        fieldPath: eventType,
+        value: isDelete ? '' : newValue,
+        isDelete
+      });
+
+      handleStateUpdate({ lastSaved: new Date() });
+      showSnackbar('Summary saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving summary:', error);
+      showSnackbar('Failed to save summary', 'error');
+      
+      const currentEvent = getCurrentEvent();
+      if (currentEvent) {
+        processAndUpdateState(currentEvent);
+      }
+    }
+  }, [displayData, currentPosition, mode, syncAnnotation, handleStateUpdate, showSnackbar, getCurrentEvent, processAndUpdateState]);
 
   const handleCompletion = useCallback(async () => {
     if (!mountedRef.current || isCompleting) return;
-    
+
     try {
-      setIsCompleting(true);
+      handleStateUpdate({ isCompleting: true });
       showSnackbar('Finalizing annotations...', 'info');
-      
+
       const success = await finalizeSync();
-      
+
       if (!success || !mountedRef.current) return;
-      
+
       showSnackbar('Annotations completed!', 'success');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
       if (mountedRef.current) {
         navigate('/', { replace: true });
       }
     } catch (error) {
       console.error('Completion error:', error);
       if (mountedRef.current) {
-        setIsCompleting(false);
+        handleStateUpdate({ isCompleting: false });
         showSnackbar('Error completing annotations. Please try again.', 'error');
       }
     }
-  }, [finalizeSync, navigate, showSnackbar, isCompleting]);
+  }, [finalizeSync, navigate, showSnackbar, isCompleting, handleStateUpdate]);
+
+  const handleBack = useCallback(() => {
+    if (!isCompleting) {
+      navigate('/', { replace: true });
+    }
+  }, [navigate, isCompleting]);
 
   // Effects
+  const currentPaper = useMemo(() => getCurrentPaper(), [getCurrentPaper]);
+
   useEffect(() => {
-    setSummaryInput(currentEvent?.[eventType] || '');
-  }, [currentEvent, eventType]);
+    const currentEvent = getCurrentEvent();
+    if (currentEvent) {
+      processAndUpdateState(currentEvent);
+    }
+  }, [getCurrentEvent, processAndUpdateState]);
+
+  useEffect(() => {
+    if (displayData) {
+      const eventType = Object.keys(displayData).find(key => 
+        key !== 'Text' && key !== 'Main Action' && key !== 'Arguments'
+      );
+      handleStateUpdate({
+        summaryInput: displayData[eventType] || ''
+      });
+    }
+  }, [displayData, handleStateUpdate]);
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
@@ -317,17 +452,17 @@ const handleSummaryChange = useCallback(async (newValue) => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (selectedText) {
-          setSelectedText(null);
+          handleStateUpdate({ selectedText: null });
         }
         if (showTutorial) {
-          setShowTutorial(false);
+          handleStateUpdate({ showTutorial: false });
         }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedText, showTutorial]);
+  }, [selectedText, showTutorial, handleStateUpdate]);
 
   useEffect(() => {
     return () => {
@@ -335,27 +470,36 @@ const handleSummaryChange = useCallback(async (newValue) => {
     };
   }, []);
 
-  // Early returns for various states
+  // Early returns
   if (!isLoaded || !user) return <LoadingView />;
   if (!isSignedIn) return null;
   if (loading) return <LoadingView />;
-  if (error) return <ErrorView error={error} onBack={handleBack} />; // Now handleBack is defined
-  if (!currentEvent || !currentPaper) {
+  if (error) return <ErrorView error={error} onBack={handleBack} />;
+  if (!displayData || !currentPaper) {
     return <ErrorView error="No data available for annotation." onBack={handleBack} />;
   }
 
+  // Derived state
   const isViewMode = mode === 'view';
+  const eventType = Object.keys(displayData).find(key => 
+    key !== 'Text' && key !== 'Main Action' && key !== 'Arguments'
+  );
   const progress = ((currentPosition.paperIndex * currentPaper.events.length + currentPosition.eventIndex) /
     (fileData.papers.length * currentPaper.events.length)) * 100;
 
+  // Render
   return (
     <div className="min-h-screen bg-gray-50">
-      <TutorialDialog isOpen={showTutorial} onClose={() => setShowTutorial(false)} />
+      <TutorialDialog 
+        isOpen={showTutorial} 
+        onClose={() => handleStateUpdate({ showTutorial: false })} 
+      />
       
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-20">
         <div className="max-w-7xl mx-auto p-4">
           <div className="flex justify-between items-center mb-2">
+            {/* Left section */}
             <div className="flex items-center gap-4">
               <button
                 onClick={handleBack}
@@ -376,26 +520,25 @@ const handleSummaryChange = useCallback(async (newValue) => {
                 </span>
               )}
             </div>
-            
+
+            {/* Right section */}
             <div className="flex items-center gap-4">
-              {/* Help Icons */}
               <div className="flex items-center gap-3 mr-4">
                 <button
-                  onClick={openAnnotationGuide}
+                  onClick={() => window.open('/docs/annotation_guide.pdf', '_blank')}
                   className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                   aria-label="View annotation guide"
                 >
                   <Info className="w-5 h-5 text-blue-600" />
                 </button>
                 <button
-                  onClick={() => setShowTutorial(true)}
+                  onClick={() => handleStateUpdate({ showTutorial: true })}
                   className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                   aria-label="View tutorial"
                 >
                   <HelpCircle className="w-5 h-5 text-blue-600" />
                 </button>
               </div>
-
               <span className="text-sm font-medium text-gray-600">
                 Paper {currentPosition.paperIndex + 1} of {fileData.papers.length}
               </span>
@@ -407,7 +550,7 @@ const handleSummaryChange = useCallback(async (newValue) => {
 
           {/* Progress bar */}
           <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div 
+            <div
               className="h-full bg-blue-600 transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
@@ -422,134 +565,114 @@ const handleSummaryChange = useCallback(async (newValue) => {
           {currentPaper?.abstract && (
             <div className="w-full bg-white rounded-xl shadow-lg">
               <button
-                onClick={() => setIsAbstractOpen(!isAbstractOpen)}
+                onClick={() => handleStateUpdate({ isAbstractOpen: !isAbstractOpen })}
                 className="w-full flex items-center justify-between p-4 hover:bg-gray-50 
-                transition-colors rounded-t-xl"
+                          transition-colors rounded-t-xl"
                 aria-expanded={isAbstractOpen}
               >
                 <h2 className="text-xl font-semibold text-gray-900">Abstract</h2>
                 {isAbstractOpen ? (
-                                    <ChevronUp className="w-5 h-5 text-gray-500" />
-                                  ) : (
-                                    <ChevronDown className="w-5 h-5 text-gray-500" />
-                                  )}
-                                </button>
-                                
-                                <div className={`transition-all duration-300 ${
-                                  isAbstractOpen ? 'max-h-96 overflow-y-auto' : 'max-h-0 overflow-hidden'
-                                }`}>
-                                  <div className="p-6 border-t border-gray-100">
-                                    <p className="text-gray-700 whitespace-pre-wrap">
-                                      {currentPaper.abstract}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                  
-                            {/* Main content grid */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                              {/* Left column: Text and Annotations */}
-                              <div className="col-span-1">
-                                <div className="bg-white rounded-xl shadow-lg p-6">
-                                  <div className="mb-4">
-                                    <h2 className="text-xl font-semibold text-gray-900">
-                                      Event Type: <span className="text-blue-600">{eventType}</span>
-                                    </h2>
-                                  </div>
-                                  
-                                  <TextAnnotationPanel
-                                    text={cleanedEvent?.Text}
-                                    annotations={displayAnnotations}
-                                    onTextSelect={isViewMode ? null : handleTextSelect}
-                                    selectedText={selectedText}
-                                    onAnnotationSelect={isViewMode ? null : handleAnnotationSelect}
-                                    onAnnotationDelete={isViewMode ? null : handleAnnotationDelete}
-                                    eventType={eventType}
-                                    readOnly={isViewMode}
-                                  />
-                                </div>
-                              </div>
-                  
-                              {/* Right column: Summary and JSON Viewer */}
-                              <div className="col-span-1 space-y-4">
-                                {/* Summarization Input */}
-                                <div className="bg-white rounded-xl shadow-lg p-6">
-                                  <SummaryInput 
-                                    value={summaryInput}
-                                    onChange={handleSummaryChange}
-                                    eventType={eventType}
-                                    disabled={isViewMode}
-                                    maxLength={100}
-                                    placeholder="Add a brief summary..."
-                                  />
-                                </div>
-                  
-                                {/* JSON Viewer */}
-                                <div className="flex-1">
-                                <JsonViewer 
-                                  data={cleanedEvent}
-                                  onRemoveAnnotation={(field, index) => {
-                                    if (!currentPosition) return;
-                                    
-                                    let payload = null;
-                                    const isEventType = AnnotationTypes.EVENT_TYPE.includes(field);
-                                    
-                                    if (field === 'Main Action' || isEventType) {
-                                      payload = '';  // Empty string for Main Action and Event Types
-                                    } else if (field.startsWith('Arguments.') || field.startsWith('Object.')) {
-                                      payload = [];  // Empty array for arguments
-                                    }
+                  <ChevronUp className="w-5 h-5 text-gray-500" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-500" />
+                )}
+              </button>
+              <div
+                className={`transition-all duration-300 ${
+                  isAbstractOpen ? 'max-h-96 overflow-y-auto' : 'max-h-0 overflow-hidden'
+                }`}
+              >
+                <div className="p-6 border-t border-gray-100">
+                  <p className="text-gray-700 whitespace-pre-wrap">
+                    {currentPaper.abstract}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
-                                    handleAnnotationSave(field, payload, {
-                                      paperIndex: Number(currentPosition.paperIndex),
-                                      eventIndex: Number(currentPosition.eventIndex),
-                                      isDelete: true,
-                                      index
-                                    });
-                                    setLastSaved(new Date());
-                                  }}
-                                  readOnly={isViewMode}
-                                />
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </main>
-                  
-                        {/* Footer navigation */}
-                        {!isViewMode && (
-                          <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-4">
-                            <div className="max-w-7xl mx-auto flex justify-center gap-4">
-                              <button
-                                onClick={movePrevious}
-                                disabled={isFirstField || isCompleting}
-                                className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 
-                                         disabled:opacity-50 flex items-center gap-2"
-                              >
-                                Previous
-                              </button>
-                              
-                              <button
-                                onClick={isLastField ? handleCompletion : moveNext}
-                                disabled={isCompleting}
-                                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 
-                                         disabled:opacity-50 flex items-center gap-2"
-                              >
-                                {isCompleting ? (
-                                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white" />
-                                ) : (
-                                  isLastField ? 'Complete' : 'Next'
-                                )}
-                              </button>
-                            </div>
-                          </footer>
-                        )}
-                  
-                        {/* Toast notifications */}
-                        {SnackbarComponent}
-                      </div>
-                    );
-                  };
-                  
-                  export default memo(UserAnnotationDashboard);
+          {/* Main grid layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Left column - Text annotation */}
+            <div className="col-span-1">
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <div className="mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Event Type: <span className="text-blue-600">{eventType}</span>
+                  </h2>
+                </div>
+                <TextAnnotationPanel
+                  key={`${currentPosition.paperIndex}-${currentPosition.eventIndex}`}
+                  text={displayData?.Text}
+                  annotations={annotations}
+                  onTextSelect={isViewMode ? null : handleTextSelect}
+                  selectedText={selectedText}
+                  onAnnotationSelect={isViewMode ? null : handleAnnotationSelect}
+                  onAnnotationDelete={isViewMode ? null : handleAnnotationDelete}
+                  eventType={eventType}
+                  readOnly={isViewMode}
+                />
+              </div>
+            </div>
+
+            {/* Right column - Summary and JSON viewer */}
+            <div className="col-span-1 space-y-4">
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <SummaryInput
+                  value={summaryInput}
+                  onChange={handleSummaryChange}
+                  eventType={eventType}
+                  disabled={isViewMode}
+                  maxLength={100}
+                  placeholder="Add a brief summary..."
+                />
+              </div>
+              <div className="flex-1">
+                <JsonViewer
+                  data={displayData}
+                  onRemoveAnnotation={isViewMode ? null : handleAnnotationDelete}
+                  readOnly={isViewMode}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Footer navigation */}
+      {!isViewMode && (
+        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-4">
+          <div className="max-w-7xl mx-auto flex justify-center gap-4">
+            <button
+              onClick={movePrevious}
+              disabled={isFirstField || isCompleting}
+              className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 
+                        disabled:opacity-50 flex items-center gap-2"
+            >
+              Previous
+            </button>
+            <button
+              onClick={isLastField ? handleCompletion : moveNext}
+              disabled={isCompleting}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 
+                        disabled:opacity-50 flex items-center gap-2"
+            >
+              {isCompleting ? (
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white" />
+              ) : isLastField ? (
+                'Complete'
+              ) : (
+                'Next'
+              )}
+            </button>
+          </div>
+        </footer>
+      )}
+
+      {/* Snackbar notifications */}
+      {SnackbarComponent}
+    </div>
+  );
+};
+
+export default memo(UserAnnotationDashboard);
