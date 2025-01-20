@@ -115,33 +115,49 @@ const TextAnnotationPanel = ({
     const selectedText = selection.toString().trim();
     
     if (selectedText) {
+      // Get the text node and its parent element
       const range = selection.getRangeAt(0);
-      const preCaretRange = range.cloneRange();
-      preCaretRange.selectNodeContents(textRef.current);
-      preCaretRange.setEnd(range.startContainer, range.startOffset);
-      const selectedStart = preCaretRange.toString().length;
+      const textNode = range.startContainer;
+      
+      // Calculate the absolute start position within the entire text
+      let absoluteStart = 0;
+      const treeWalker = document.createTreeWalker(
+        textRef.current,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+      );
+      
+      let node;
+      while ((node = treeWalker.nextNode()) !== null) {
+        if (node === textNode) {
+          absoluteStart += range.startOffset;
+          break;
+        }
+        absoluteStart += node.length;
+      }
       
       // Check for overlapping spans
       const isOverlapping = annotations.some(annotation => 
-        (selectedStart >= annotation.start && selectedStart < annotation.end) ||
-        (selectedStart + selectedText.length > annotation.start && 
-         selectedStart + selectedText.length <= annotation.end) ||
-        (selectedStart <= annotation.start && 
-         selectedStart + selectedText.length >= annotation.end)
+        (absoluteStart >= annotation.start && absoluteStart < annotation.end) ||
+        (absoluteStart + selectedText.length > annotation.start && 
+         absoluteStart + selectedText.length <= annotation.end) ||
+        (absoluteStart <= annotation.start && 
+         absoluteStart + selectedText.length >= annotation.end)
       );
-
+  
       if (isOverlapping) {
         setShowToast(true);
         setToastMessage('Selection overlaps with existing annotation');
         return;
       }
-
+  
       const span = {
         text: selectedText,
-        start: selectedStart,
-        end: selectedStart + selectedText.length
+        start: absoluteStart,
+        end: absoluteStart + selectedText.length
       };
-
+  
       setLocalSelection(span);
       onTextSelect(span);
     }

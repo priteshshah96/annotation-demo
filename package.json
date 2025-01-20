@@ -1,14 +1,14 @@
 {
   "name": "annotation-demo",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
+    "predev": "kill-port 3000 5173 5174 5175",
     "dev:client": "vite",
     "dev:server": "node server.js",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "build": "vite build",
-    "start": "node server.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -46,6 +46,7 @@
     "eslint": "^9.13.0",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^5.0.0",
+    "kill-port": "^2.0.1",
     "vite": "^5.4.10"
   }
 }

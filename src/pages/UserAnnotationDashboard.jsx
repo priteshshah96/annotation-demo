@@ -93,48 +93,52 @@ const UserAnnotationDashboard = ({ mode }) => {
       return { cleanedEvent: null, displayAnnotations: [] };
     }
   
-    // Initialize cleaned event with the correct event type
+    // Initialize cleaned event with the correct structure
     const cleaned = {
       Text: currentEvent.Text || '',
-      [eventType]: currentEvent[eventType] || '',  // Keep original event type
+      [eventType]: currentEvent[eventType] || '',
       'Main Action': currentEvent['Main Action'] || '',
       Arguments: {
-        Agent: Array.isArray(currentEvent.Arguments?.Agent) ? 
-          currentEvent.Arguments.Agent : [],
+        Agent: { spans: [] },
         Object: {
-          'Base Object': Array.isArray(currentEvent.Arguments?.Object?.['Base Object']) ?
-            currentEvent.Arguments.Object['Base Object'] : [],
-          'Base Modifier': Array.isArray(currentEvent.Arguments?.Object?.['Base Modifier']) ?
-            currentEvent.Arguments.Object['Base Modifier'] : [],
-          'Attached Object': Array.isArray(currentEvent.Arguments?.Object?.['Attached Object']) ?
-            currentEvent.Arguments.Object['Attached Object'] : [],
-          'Attached Modifier': Array.isArray(currentEvent.Arguments?.Object?.['Attached Modifier']) ?
-            currentEvent.Arguments.Object['Attached Modifier'] : []
+          'Base Object': { spans: [] },
+          'Base Modifier': { spans: [] },
+          'Attached Object': { spans: [] },
+          'Attached Modifier': { spans: [] }
         },
-        Context: Array.isArray(currentEvent.Arguments?.Context) ? 
-          currentEvent.Arguments.Context : [],
-        Purpose: Array.isArray(currentEvent.Arguments?.Purpose) ? 
-          currentEvent.Arguments.Purpose : [],
-        Method: Array.isArray(currentEvent.Arguments?.Method) ? 
-          currentEvent.Arguments.Method : [],
-        Results: Array.isArray(currentEvent.Arguments?.Results) ? 
-          currentEvent.Arguments.Results : [],
-        Analysis: Array.isArray(currentEvent.Arguments?.Analysis) ? 
-          currentEvent.Arguments.Analysis : [],
-        Challenge: Array.isArray(currentEvent.Arguments?.Challenge) ? 
-          currentEvent.Arguments.Challenge : [],
-        Ethical: Array.isArray(currentEvent.Arguments?.Ethical) ? 
-          currentEvent.Arguments.Ethical : [],
-        Implications: Array.isArray(currentEvent.Arguments?.Implications) ? 
-          currentEvent.Arguments.Implications : [],
-        Contradictions: Array.isArray(currentEvent.Arguments?.Contradictions) ? 
-          currentEvent.Arguments.Contradictions : []
+        Context: { spans: [] },
+        Purpose: { spans: [] },
+        Method: { spans: [] },
+        Results: { spans: [] },
+        Analysis: { spans: [] },
+        Challenge: { spans: [] },
+        Ethical: { spans: [] },
+        Implications: { spans: [] },
+        Contradictions: { spans: [] }
       }
     };
   
+    // Fill in existing annotations
+    if (currentEvent.Arguments) {
+      // Handle Object arguments
+      Object.entries(currentEvent.Arguments.Object || {}).forEach(([key, value]) => {
+        if (value?.spans) {
+          cleaned.Arguments.Object[key].spans = value.spans;
+        }
+      });
+  
+      // Handle other arguments
+      Object.entries(currentEvent.Arguments).forEach(([key, value]) => {
+        if (key !== 'Object' && value?.spans) {
+          cleaned.Arguments[key].spans = value.spans;
+        }
+      });
+    }
+  
+    // Build display annotations array
     const annotations = [];
   
-    // Handle Main Action annotations
+    // Add Main Action annotation
     if (currentEvent['Main Action']) {
       annotations.push({
         text: currentEvent['Main Action'],
@@ -144,30 +148,34 @@ const UserAnnotationDashboard = ({ mode }) => {
       });
     }
   
-    // Handle Arguments annotations
+    // Add Arguments annotations
     if (currentEvent.Arguments) {
-      // Handle Object arguments
-      Object.entries(currentEvent.Arguments.Object || {}).forEach(([objKey, spans]) => {
-        if (Array.isArray(spans)) {
-          spans.forEach((span, index) => {
-            annotations.push({
-              ...span,
-              type: `Arguments.Object.${objKey}`,
-              index
-            });
+      // Process Object arguments
+      Object.entries(currentEvent.Arguments.Object || {}).forEach(([objKey, value]) => {
+        if (value?.spans) {
+          value.spans.forEach((span, index) => {
+            if (span.text && typeof span.start === 'number' && typeof span.end === 'number') {
+              annotations.push({
+                ...span,
+                type: `Arguments.Object.${objKey}`,
+                index
+              });
+            }
           });
         }
       });
   
-      // Handle other arguments
+      // Process other arguments
       Object.entries(currentEvent.Arguments).forEach(([key, value]) => {
-        if (key !== 'Object' && Array.isArray(value)) {
-          value.forEach((span, index) => {
-            annotations.push({
-              ...span,
-              type: `Arguments.${key}`,
-              index
-            });
+        if (key !== 'Object' && value?.spans) {
+          value.spans.forEach((span, index) => {
+            if (span.text && typeof span.start === 'number' && typeof span.end === 'number') {
+              annotations.push({
+                ...span,
+                type: `Arguments.${key}`,
+                index
+              });
+            }
           });
         }
       });
@@ -210,12 +218,14 @@ const UserAnnotationDashboard = ({ mode }) => {
         // For Main Action
         payload = selectedText.text;
       } else if (type.startsWith('Arguments.') || type.startsWith('Object.')) {
-        // For Arguments - send answer as an array of spans
-        payload = [{
-          text: selectedText.text,
-          start: selectedText.start,
-          end: selectedText.end
-        }];
+        // For Arguments - send answer as spans with proper structure
+        payload = {
+          spans: [{
+            text: selectedText.text,
+            start: selectedText.start,
+            end: selectedText.end
+          }]
+        };
       } else {
         // For event types (Background/Introduction etc)
         payload = selectedText.text;
@@ -233,15 +243,19 @@ const UserAnnotationDashboard = ({ mode }) => {
 
   const handleAnnotationDelete = useCallback(async (type, index) => {
     if (!currentPosition) return;
-
+  
     try {
-      await handleAnnotationSave(type, null, {
+      // For Arguments, send proper delete structure
+      const isArgument = type.startsWith('Arguments.') || type.startsWith('Object.');
+      const payload = isArgument ? { spans: [] } : '';
+      
+      await handleAnnotationSave(type, payload, {
         paperIndex: Number(currentPosition.paperIndex),
         eventIndex: Number(currentPosition.eventIndex),
         isDelete: true,
         index
       });
-
+  
       setLastSaved(new Date());
       showSnackbar('Annotation deleted successfully', 'success');
     } catch (error) {
@@ -257,24 +271,27 @@ const UserAnnotationDashboard = ({ mode }) => {
   }, [navigate, isCompleting]);
 
   // In handleSummaryChange
-const handleSummaryChange = useCallback(async (newValue) => {
-  if (!eventType || !currentPosition || mode === 'view') return;
+  const handleSummaryChange = useCallback(async (newValue) => {
+    if (!eventType || !currentPosition || mode === 'view') return;
+    
+    try {
+      // Only save if there's actual content
+      const trimmedValue = newValue?.trim();
+      if (!trimmedValue) {
+        return;
+      }
   
-  try {
-    // If empty string, treat as delete
-    const isDelete = !newValue || newValue.trim() === '';
-    await handleAnnotationSave(eventType, isDelete ? '' : newValue, {
-      paperIndex: Number(currentPosition.paperIndex),
-      eventIndex: Number(currentPosition.eventIndex),
-      isDelete: isDelete
-    });
-    setLastSaved(new Date());
-    showSnackbar('Summary saved successfully', 'success');
-  } catch (error) {
-    console.error('Error saving summary:', error);
-    showSnackbar('Failed to save summary', 'error');
-  }
-}, [eventType, currentPosition, mode, handleAnnotationSave, showSnackbar]);
+      await handleAnnotationSave(eventType, trimmedValue, {
+        paperIndex: Number(currentPosition.paperIndex),
+        eventIndex: Number(currentPosition.eventIndex)
+      });
+      setLastSaved(new Date());
+      showSnackbar('Summary saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving summary:', error);
+      showSnackbar('Failed to save summary', 'error');
+    }
+  }, [eventType, currentPosition, mode, handleAnnotationSave, showSnackbar]);
 
   const handleCompletion = useCallback(async () => {
     if (!mountedRef.current || isCompleting) return;
