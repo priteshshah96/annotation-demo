@@ -47,6 +47,7 @@ class AnnotationApi {
         ...paper,
         events: paper.events.map(event => ({
           ...event,
+          ArgumentPositions: {},  // Add this to store span positions
           Arguments: {
             Agent: [],
             Object: {
@@ -65,7 +66,7 @@ class AnnotationApi {
             Implications: [],
             Contradictions: []
           },
-          'Main Action': ''
+          'Main Action': null
         }))
       }));
 
@@ -75,16 +76,53 @@ class AnnotationApi {
           const { paperIndex, eventIndex, fieldPath, answer } = annotation;
           if (!papers[paperIndex]?.events[eventIndex]) return;
 
+          const event = papers[paperIndex].events[eventIndex];
+          
+          // Get the text content from the answer
+          const textContent = answer?.text || answer;
+          
+          // Get the span information
+          const span = answer?.span || null;
+
+          // Store the span position if it exists
+          if (span) {
+            event.ArgumentPositions[fieldPath] = event.ArgumentPositions[fieldPath] || [];
+            event.ArgumentPositions[fieldPath].push(span);
+          }
+
           if (fieldPath === 'Main Action') {
-            papers[paperIndex].events[eventIndex]['Main Action'] = answer;
-          } else if (fieldPath.startsWith('Arguments.Object.')) {
+            event['Main Action'] = textContent;
+          } 
+          else if (fieldPath.startsWith('Arguments.Object.')) {
             const objectField = fieldPath.replace('Arguments.Object.', '');
-            papers[paperIndex].events[eventIndex].Arguments.Object[objectField] = answer;
-          } else if (fieldPath.startsWith('Arguments.')) {
+            const currentValue = event.Arguments.Object[objectField];
+            
+            if (currentValue && currentValue.length > 0) {
+              if (Array.isArray(currentValue)) {
+                event.Arguments.Object[objectField].push(textContent);
+              } else {
+                event.Arguments.Object[objectField] = [currentValue, textContent];
+              }
+            } else {
+              event.Arguments.Object[objectField] = textContent;
+            }
+          } 
+          else if (fieldPath.startsWith('Arguments.')) {
             const argField = fieldPath.replace('Arguments.', '');
-            papers[paperIndex].events[eventIndex].Arguments[argField] = answer;
+            const currentValue = event.Arguments[argField];
+            
+            if (currentValue && currentValue.length > 0) {
+              if (Array.isArray(currentValue)) {
+                event.Arguments[argField].push(textContent);
+              } else {
+                event.Arguments[argField] = [currentValue, textContent];
+              }
+            } else {
+              event.Arguments[argField] = textContent;
+            }
           } else {
-            papers[paperIndex].events[eventIndex][fieldPath] = answer;
+            // For event types (Background/Introduction, etc.)
+            event[fieldPath] = textContent;
           }
         });
       }
@@ -101,21 +139,31 @@ class AnnotationApi {
 
   async saveAnnotation(annotation) {
     const { fileId, paperIndex, eventIndex, fieldPath, answer, isDelete } = annotation;
-
+  
     if (!fileId || paperIndex === undefined || eventIndex === undefined || !fieldPath) {
       throw new Error('Missing required fields');
     }
-
+  
     try {
+      // Get existing annotations count for arrayIndex
+      const existingResponse = await api.annotations.get(fileId, {
+        paperIndex: Number(paperIndex),
+        eventIndex: Number(eventIndex),
+        fieldPath
+      });
+  
+      const arrayIndex = existingResponse?.annotations?.length || 0;
+  
       const response = await api.annotations.save({
         fileId,
         paperIndex: Number(paperIndex),
         eventIndex: Number(eventIndex),
         fieldPath,
         answer,
+        arrayIndex,
         isDelete: Boolean(isDelete)
       });
-
+  
       return response.annotation;
     } catch (error) {
       console.error('Error in saveAnnotation:', { error, annotation });
@@ -127,9 +175,15 @@ class AnnotationApi {
     if (!fileId || !Array.isArray(annotations) || annotations.length === 0) {
       throw new Error('Invalid sync parameters');
     }
-
+  
     try {
-      return await api.annotations.sync(fileId, { annotations });
+      // Add arrayIndex to each annotation if not present
+      const annotationsWithIndex = annotations.map((ann, index) => ({
+        ...ann,
+        arrayIndex: ann.arrayIndex ?? index
+      }));
+  
+      return await api.annotations.sync(fileId, { annotations: annotationsWithIndex });
     } catch (error) {
       throw this.formatError(error);
     }
@@ -143,6 +197,5 @@ class AnnotationApi {
     };
   }
 }
-
 export const annotationApi = new AnnotationApi();
 export { FIELD_TYPES, ANNOTATION_FIELDS };

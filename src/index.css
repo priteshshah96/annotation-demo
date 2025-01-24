@@ -2,6 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Disable text selection globally */
+* {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Enable text selection specifically for the text panel */
+.selectable-text {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+  cursor: text;
+}
+
+/* Keep text selection enabled for any content within the panel */
+.selectable-text * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
 /* Custom styles for annotation interface */
 .prose {
   max-width: none !important;
@@ -9,7 +34,7 @@
 
 /* Selection styles */
 ::selection {
-  @apply bg-blue-100;
+  background-color: rgb(219 234 254); /* bg-blue-100 */
 }
 
 /* Animation utilities */
@@ -29,19 +54,55 @@
   transition-duration: 300ms;
 }
 
-/* Annotation highlights */
-.highlight-main-action {
-  @apply bg-blue-100 hover:bg-blue-200 transition-colors;
+/* Ensure marks remain selectable */
+mark {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+  border-radius: 0.25rem;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
 }
 
-.highlight-agent {
-  @apply bg-green-100 hover:bg-green-200 transition-colors;
+/* Toast animation */
+@keyframes slideIn {
+  from {
+    transform: translateY(-100%) translateX(-50%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) translateX(-50%);
+    opacity: 1;
+  }
 }
 
-.highlight-object {
-  @apply bg-violet-100 hover:bg-violet-200 transition-colors;
+.toast-enter {
+  animation: slideIn 0.3s ease-out forwards;
 }
 
-.highlight-context {
-  @apply bg-orange-100 hover:bg-orange-200 transition-colors;
+/* Custom scrollbar styles */
+.custom-scrollbar {
+  scrollbar-width: thin;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background-color: rgb(229 231 235); /* bg-gray-200 */
+  border-radius: 0.25rem;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(156 163 175); /* bg-gray-400 */
+  border-radius: 0.25rem;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(107 114 128); /* bg-gray-500 */
 }

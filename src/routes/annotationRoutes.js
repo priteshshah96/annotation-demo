@@ -1,11 +1,34 @@
 import express from 'express';
 import { Annotation } from '../models/Annotation.js';
 import { File } from '../models/File.js';
-import { processAnnotationAnswer, validateAnnotationFields, hasOverlappingSpans } from '../utils/annotationUtils.js';
 
 const router = express.Router();
 
-// Get annotations for a file
+const processAnnotationAnswer = (answer) => {
+  if (!answer) return null;
+  if (typeof answer === 'string') return { text: answer };
+  if (answer.span && typeof answer.text === 'string') {
+    return {
+      text: answer.text,
+      span: {
+        start: Number(answer.span.start),
+        end: Number(answer.span.end)
+      }
+    };
+  }
+  if (typeof answer.text === 'string' && 
+      (typeof answer.start === 'number' || typeof answer.end === 'number')) {
+    return {
+      text: answer.text,
+      span: {
+        start: Number(answer.start),
+        end: Number(answer.end)
+      }
+    };
+  }
+  return null;
+};
+
 router.get('/:fileId', async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -14,7 +37,7 @@ router.get('/:fileId', async (req, res) => {
     const annotations = await Annotation.find({
       fileId,
       userId: mongoUserId
-    }).lean();
+    }).sort({ arrayIndex: 1 }).lean();  // Changed from index to arrayIndex
 
     res.json({
       success: true,
@@ -31,31 +54,21 @@ router.get('/:fileId', async (req, res) => {
   }
 });
 
-// Save single annotation
 router.post('/', async (req, res) => {
   try {
-    let { fileId, paperIndex, eventIndex, fieldPath, answer, isDelete } = req.body;
-    console.log('Received annotation save request:', {
-      fileId, paperIndex, eventIndex, fieldPath, answer, isDelete
-    });
-
+    let { fileId, paperIndex, eventIndex, fieldPath, answer, isDelete, arrayIndex } = req.body;
     const mongoUserId = req.user._id;
 
-    // Convert indices to numbers
     paperIndex = Number(paperIndex);
     eventIndex = Number(eventIndex);
 
-    // Validate basic fields
-    const validationErrors = validateAnnotationFields(fileId, paperIndex, eventIndex, fieldPath);
-    if (validationErrors.length > 0) {
+    if (!fileId || paperIndex == null || eventIndex == null || !fieldPath) {
       return res.status(400).json({
         success: false,
-        error: 'Validation Error',
-        details: validationErrors
+        error: 'Missing required fields'
       });
     }
 
-    // Verify file exists and user has access
     const file = await File.findOne({
       _id: fileId,
       userId: mongoUserId
@@ -68,74 +81,69 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Verify event exists
     if (!file.papers[paperIndex]?.events[eventIndex]) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid indices',
-        details: 'Paper or event index out of bounds'
+        error: 'Invalid paper or event index'
       });
     }
 
-    // Handle deletion
     if (isDelete) {
-      await Annotation.findOneAndDelete({
+      const query = {
         fileId,
         userId: mongoUserId,
         paperIndex,
         eventIndex,
         fieldPath
-      });
+      };
 
-      return res.json({
-        success: true,
-        message: 'Annotation deleted successfully'
-      });
-    }
+      if (typeof arrayIndex === 'number') {
+        query.arrayIndex = arrayIndex;
+      }
 
-    // Process and validate the annotation answer
-    let processedAnswer;
-    try {
-      processedAnswer = processAnnotationAnswer(fieldPath, answer);
-      
-      // Check for overlapping spans if spans exist
-      if (processedAnswer.spans && hasOverlappingSpans(processedAnswer.spans)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Validation Error',
-          details: 'Spans cannot overlap'
+      await Annotation.findOneAndDelete(query);
+
+      // Reorder remaining annotations
+      const remainingAnnotations = await Annotation.find({
+        fileId,
+        userId: mongoUserId,
+        paperIndex,
+        eventIndex,
+        fieldPath,
+        arrayIndex: { $gt: arrayIndex }
+      }).sort({ arrayIndex: 1 });
+
+      // Update arrayIndices
+      for (const annotation of remainingAnnotations) {
+        await Annotation.findByIdAndUpdate(annotation._id, {
+          $inc: { arrayIndex: -1 }
         });
       }
-    } catch (error) {
-      return res.status(400).json({
-        success: false,
-        error: 'Validation Error',
-        details: error.message
-      });
+
+      return res.json({ success: true });
     }
 
-    // Save or update the annotation
-    const annotation = await Annotation.findOneAndUpdate(
-      {
-        fileId,
-        userId: mongoUserId,
-        paperIndex,
-        eventIndex,
-        fieldPath
-      },
-      {
-        $set: {
-          answer: processedAnswer,
-          timestamp: new Date()
-        }
-      },
-      {
-        new: true,
-        upsert: true
-      }
-    );
+    // Get next arrayIndex for this field
+    const prevAnnotation = await Annotation.findOne({
+      fileId,
+      userId: mongoUserId,
+      paperIndex,
+      eventIndex,
+      fieldPath
+    }).sort({ arrayIndex: -1 });
 
-    console.log('Saved annotation:', annotation);
+    const newArrayIndex = prevAnnotation ? prevAnnotation.arrayIndex + 1 : 0;
+
+    const annotation = await Annotation.create({
+      fileId,
+      userId: mongoUserId,
+      paperIndex,
+      eventIndex,
+      fieldPath,
+      answer: processAnnotationAnswer(answer),
+      arrayIndex: newArrayIndex,
+      timestamp: new Date()
+    });
 
     res.json({
       success: true,
@@ -152,48 +160,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Delete annotations for a file
-router.delete('/:fileId', async (req, res) => {
-  try {
-    const { fileId } = req.params;
-    const mongoUserId = req.user._id;
-
-    const file = await File.findOne({
-      _id: fileId,
-      userId: mongoUserId
-    });
-
-    if (!file) {
-      return res.status(404).json({
-        success: false,
-        error: 'File not found',
-        details: 'File does not exist or you do not have permission to access it'
-      });
-    }
-
-    await Annotation.deleteMany({
-      fileId,
-      userId: mongoUserId
-    });
-
-    await File.findByIdAndUpdate(fileId, {
-      $set: { progress: 0 }
-    });
-
-    res.json({
-      success: true,
-      message: 'All annotations reset successfully'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Failed to reset annotations',
-      details: error.message
-    });
-  }
-});
-
-// Sync annotations in batch
 router.post('/:fileId/sync', async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -207,11 +173,12 @@ router.post('/:fileId/sync', async (req, res) => {
           userId: mongoUserId,
           paperIndex: ann.paperIndex,
           eventIndex: ann.eventIndex,
-          fieldPath: ann.fieldPath
+          fieldPath: ann.fieldPath,
+          arrayIndex: ann.arrayIndex || 0
         },
         update: {
           $set: {
-            answer: ann.answer,
+            answer: processAnnotationAnswer(ann.answer),
             timestamp: new Date(ann.timestamp || Date.now())
           }
         },
@@ -246,7 +213,47 @@ router.post('/:fileId/sync', async (req, res) => {
   }
 });
 
-// Reset annotations
+// Keeping reset routes unchanged as they work with all annotations
+router.delete('/:fileId', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const mongoUserId = req.user._id;
+
+    const file = await File.findOne({
+      _id: fileId, 
+      userId: mongoUserId
+    });
+
+    if (!file) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found',
+        details: 'File does not exist or you do not have permission to access it'
+      });
+    }
+
+    await Annotation.deleteMany({
+      fileId,
+      userId: mongoUserId
+    });
+
+    await File.findByIdAndUpdate(fileId, {
+      $set: { progress: 0 }
+    });
+
+    res.json({
+      success: true,
+      message: 'All annotations reset successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reset annotations', 
+      details: error.message
+    });
+  }
+});
+
 router.post('/:fileId/reset', async (req, res) => {
   try {
     const { fileId } = req.params;

@@ -28,7 +28,6 @@ export const AnnotationTypes = {
   }
 };
 
-// Simplified schema that focuses on data storage
 const AnnotationSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -58,8 +57,16 @@ const AnnotationSchema = new mongoose.Schema({
     trim: true
   },
   answer: {
-    type: mongoose.Schema.Types.Mixed,
-    required: true
+    text: String,
+    span: {
+      start: Number,
+      end: Number
+    }
+  },
+  arrayIndex: {  // Changed from index to arrayIndex
+    type: Number,
+    required: true,
+    default: 0
   },
   timestamp: {
     type: Date,
@@ -67,13 +74,14 @@ const AnnotationSchema = new mongoose.Schema({
   }
 });
 
-// Add compound index for uniqueness
+// Modified compound index
 AnnotationSchema.index({
   userId: 1,
   fileId: 1,
   paperIndex: 1,
   eventIndex: 1,
-  fieldPath: 1
+  fieldPath: 1,
+  arrayIndex: 1  // Using arrayIndex instead of index
 }, { unique: true });
 
 export const Annotation = mongoose.models?.Annotation || 
