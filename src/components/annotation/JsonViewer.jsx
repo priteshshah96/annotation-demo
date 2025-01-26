@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Download, Trash2, ChevronRight, ChevronDown } from 'lucide-react';
 
-// Field ordering constants remain the same
 const FIELD_ORDER = [
   'Background/Introduction',
   'Methods/Approach',
-  'Results/Findings',
+  'Results/Findings', 
   'Conclusions/Implications',
   'Text',
   'Main Action',
@@ -92,10 +91,16 @@ const JsonViewer = ({
   onRemoveAnnotation,
   readOnly = false 
 }) => {
-  // Always initialize hooks at the top level
+  console.log('JsonViewer initialized with:', {
+    data,
+    readOnly,
+    argumentPositions: data?.ArgumentPositions,
+    hasMainAction: data?.['Main Action'],
+    hasArguments: data?.Arguments
+  });
+
   const [expandedPaths, setExpandedPaths] = useState(new Set(['Arguments', 'Arguments.Object']));
 
-  // Effect to handle path expansion
   useEffect(() => {
     const pathsToExpand = new Set(['Arguments', 'Arguments.Object']);
     
@@ -120,6 +125,7 @@ const JsonViewer = ({
   }, [data]);
 
   const togglePath = (path) => {
+    console.log('Toggling path:', path);
     setExpandedPaths(prev => {
       const newSet = new Set(prev);
       if (newSet.has(path)) {
@@ -131,8 +137,19 @@ const JsonViewer = ({
     });
   };
 
-  const renderValue = (value, path) => {
-    if (value === null || value === undefined) {
+  const renderValue = (value, path, index = 0) => {
+    console.log('Rendering value:', {
+      value,
+      path,
+      index,
+      type: typeof value,
+      isArray: Array.isArray(value),
+      positions: data?.ArgumentPositions?.[path],
+      readOnly,
+      parentData: data
+    });
+
+    if (value === null || value === undefined || value === '') {
       return <span className={SYNTAX_COLORS.string}>null</span>;
     }
 
@@ -142,14 +159,32 @@ const JsonViewer = ({
           {value.length === 0 ? (
             <span className={SYNTAX_COLORS.string}>[]</span>
           ) : (
-            value.map((item, index) => {
+            value.map((item, itemIndex) => {
               const displayText = typeof item === 'object' ? item?.text || JSON.stringify(item) : String(item);
+              const positions = data?.ArgumentPositions?.[path] || [];
+              const fullPath = path.startsWith('Arguments.') ? path : `Arguments.${path}`;
+              const annotationId = data?.ArgumentPositions?.[fullPath]?.[itemIndex]?.annotationId;
+              const isMainAction = path === 'Main Action';
+              const shouldShowTrash = !readOnly && !isMainAction && annotationId;
+
+              console.log('Array item:', {
+                path,
+                itemIndex,
+                displayText,
+                annotationId,
+                shouldShowTrash,
+                positions
+              });
+
               return (
-                <div key={index} className="flex items-center group py-0.5">
+                <div key={itemIndex} className="flex items-center group py-0.5">
                   <span className={SYNTAX_COLORS.string}>"{displayText || ''}"</span>
-                  {!readOnly && (
+                  {shouldShowTrash && (
                     <button
-                      onClick={() => onRemoveAnnotation?.(`${path}.${index}`)}
+                      onClick={() => {
+                        console.log('Delete clicked:', { path, annotationId });
+                        onRemoveAnnotation?.(path, annotationId);
+                      }}
                       className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-700 rounded ml-2
                                transition-opacity focus:opacity-100 focus:outline-none
                                focus:ring-1 focus:ring-red-500"
@@ -158,7 +193,7 @@ const JsonViewer = ({
                       <Trash2 className="w-3.5 h-3.5 text-red-400 hover:text-red-300" />
                     </button>
                   )}
-                  {index < value.length - 1 && <span className={SYNTAX_COLORS.comma}>,</span>}
+                  {itemIndex < value.length - 1 && <span className={SYNTAX_COLORS.comma}>,</span>}
                 </div>
               );
             })
@@ -171,12 +206,26 @@ const JsonViewer = ({
       return <span className={SYNTAX_COLORS.string}>{'{}'}</span>;
     }
 
+    const positions = data?.ArgumentPositions?.[path] || [];
+    const annotationId = positions[0]?.annotationId;
+
+    console.log('Single value:', {
+      path,
+      value,
+      annotationId,
+      positions,
+      shouldShowTrash: !readOnly && path !== 'Text' && annotationId
+    });
+
     return (
       <div className="flex items-center group">
         <span className={SYNTAX_COLORS.string}>"{String(value)}"</span>
-        {!readOnly && path !== 'Text' && (
+        {!readOnly && path !== 'Text' && annotationId && (
           <button
-            onClick={() => onRemoveAnnotation?.(path)}
+            onClick={() => {
+              console.log('Delete clicked:', { path, annotationId });
+              onRemoveAnnotation?.(path, annotationId);
+            }}
             className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-700 rounded ml-2
                      transition-opacity focus:opacity-100 focus:outline-none
                      focus:ring-1 focus:ring-red-500"
@@ -191,6 +240,17 @@ const JsonViewer = ({
 
   const renderField = (key, value, depth = 0, path = '') => {
     const currentPath = path ? `${path}.${key}` : key;
+    
+    console.log('Rendering field:', {
+      key,
+      depth,
+      path,
+      currentPath,
+      value,
+      hasPositions: !!data?.ArgumentPositions?.[currentPath],
+      positions: data?.ArgumentPositions?.[currentPath]
+    });
+
     const isExpanded = expandedPaths.has(currentPath);
     const isArgumentSection = currentPath === 'Arguments' || 
                             currentPath.startsWith('Arguments.') ||
@@ -242,9 +302,8 @@ const JsonViewer = ({
     );
   };
 
-  const safeData = data && typeof data === 'object' ? data : {};
-  
-  if (!data || Object.keys(safeData).length === 0) {
+  if (!data || Object.keys(data).length === 0) {
+    console.log('No data available');
     return (
       <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden border border-gray-800">
         <div className="bg-gray-800/50 px-4 py-3 flex justify-between items-center border-b border-gray-700">
@@ -273,11 +332,10 @@ const JsonViewer = ({
         )}
       </div>
 
-      <div className="p-4 text-sm overflow-auto max-h-[calc(100vh-24rem)]
-                     scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-900">
+      <div className="p-4 text-sm overflow-auto max-h-[calc(100vh-24rem)]">
         <div className={SYNTAX_COLORS.bracket}>{'{'}</div>
         <div className="ml-4">
-          {Object.entries(safeData)
+          {Object.entries(data || {})
             .sort((a, b) => FIELD_ORDER.indexOf(a[0]) - FIELD_ORDER.indexOf(b[0]))
             .map(([key, value], index, array) => (
               <React.Fragment key={key}>

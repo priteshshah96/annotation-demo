@@ -239,20 +239,28 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   }, []);
 
   // Process event data for display
-const { cleanedEvent, displayAnnotations } = useMemo(() => {
-  // Use localFileData instead of directly using currentEvent
+// Inside UserAnnotationDashboard.jsx, update the useMemo hook:
+const { cleanedEvent, displayAnnotations, annotationMap } = useMemo(() => {
   if (!localFileData?.papers) {
-    return { cleanedEvent: null, displayAnnotations: [] };
+    return { 
+      cleanedEvent: null, 
+      displayAnnotations: [],
+      annotationMap: new Map()
+    };
   }
 
   const currentPaper = localFileData.papers[currentPosition.paperIndex];
   const currentEvent = currentPaper?.events[currentPosition.eventIndex];
+  const annotationMap = new Map();
 
   if (!currentEvent || !eventType) {
-    return { cleanedEvent: null, displayAnnotations: [] };
+    return { 
+      cleanedEvent: null, 
+      displayAnnotations: [],
+      annotationMap: new Map()
+    };
   }
 
-  // Initialize the cleaned structure
   const cleaned = {
     Text: currentEvent.Text || '',
     [eventType]: currentEvent[eventType] || '',
@@ -274,32 +282,34 @@ const { cleanedEvent, displayAnnotations } = useMemo(() => {
       Ethical: [],
       Implications: [],
       Contradictions: []
-    }
+    },
+    ArgumentPositions: currentEvent.ArgumentPositions || {} // Add this
   };
 
   const annotations = [];
 
-  // Process Main Action annotation with positions
+  // Process Main Action
   const mainAction = currentEvent['Main Action'];
-  if (mainAction) {
+  if (mainAction && currentEvent.ArgumentPositions?.['Main Action']) {
     cleaned['Main Action'] = mainAction;
     
-    // Get position from ArgumentPositions
-    const mainActionPositions = currentEvent.ArgumentPositions?.['Main Action'] || [];
-    mainActionPositions.forEach((pos, idx) => {
-      if (pos) {
-        annotations.push({
+    currentEvent.ArgumentPositions['Main Action'].forEach((position, idx) => {
+      if (position) {
+        const annotation = {
           text: mainAction,
           type: 'Main Action',
-          start: pos.start,
-          end: pos.end,
-          id: `main-action-${idx}`
-        });
+          start: position.start,
+          end: position.end,
+          id: `main-action-${idx}`,
+          annotationId: position.annotationId
+        };
+        annotations.push(annotation);
+        annotationMap.set('Main Action', position.annotationId);
       }
     });
   }
 
-  // Process all Arguments including Objects
+  // Process Arguments
   if (currentEvent.Arguments) {
     Object.entries(currentEvent.Arguments).forEach(([key, value]) => {
       if (!value) return;
@@ -309,54 +319,49 @@ const { cleanedEvent, displayAnnotations } = useMemo(() => {
         Object.entries(value).forEach(([objKey, objValue]) => {
           if (!objValue) return;
 
-          // Ensure values are always arrays
           const values = Array.isArray(objValue) ? objValue : [objValue];
-          
-          // Update cleaned structure
           cleaned.Arguments.Object[objKey] = values.map(v => 
             typeof v === 'object' ? v.text || v : v
           );
 
-          // Get positions for this object type
           const positions = currentEvent.ArgumentPositions?.[`Arguments.Object.${objKey}`] || [];
-          
-          // Create annotations with positions
           values.forEach((v, idx) => {
             const position = positions[idx];
             if (position) {
-              annotations.push({
+              const annotation = {
                 text: typeof v === 'object' ? v.text : v,
                 type: `Arguments.Object.${objKey}`,
                 start: position.start,
                 end: position.end,
-                id: `object-${objKey}-${idx}`
-              });
+                id: `object-${objKey}-${idx}`,
+                annotationId: position.annotationId
+              };
+              annotations.push(annotation);
+              annotationMap.set(`Arguments.Object.${objKey}`, position.annotationId);
             }
           });
         });
       } else {
         // Handle regular arguments
         const values = Array.isArray(value) ? value : [value];
-        
-        // Update cleaned structure
         cleaned.Arguments[key] = values.map(v => 
           typeof v === 'object' ? v.text || v : v
         );
 
-        // Get positions for this argument type
         const positions = currentEvent.ArgumentPositions?.[`Arguments.${key}`] || [];
-        
-        // Create annotations with positions
         values.forEach((v, idx) => {
           const position = positions[idx];
           if (position) {
-            annotations.push({
+            const annotation = {
               text: typeof v === 'object' ? v.text : v,
               type: `Arguments.${key}`,
               start: position.start,
               end: position.end,
-              id: `${key.toLowerCase()}-${idx}`
-            });
+              id: `${key.toLowerCase()}-${idx}`,
+              annotationId: position.annotationId
+            };
+            annotations.push(annotation);
+            annotationMap.set(`Arguments.${key}`, position.annotationId);
           }
         });
       }
@@ -365,7 +370,8 @@ const { cleanedEvent, displayAnnotations } = useMemo(() => {
 
   return {
     cleanedEvent: cleaned,
-    displayAnnotations: annotations.sort((a, b) => a.start - b.start)
+    displayAnnotations: annotations.sort((a, b) => a.start - b.start),
+    annotationMap
   };
 }, [localFileData, currentPosition, eventType]);
   // Handlers
@@ -464,13 +470,8 @@ const { cleanedEvent, displayAnnotations } = useMemo(() => {
     if (!selection || !currentPosition) return;
   
     try {
-      const indices = {
-        paperIndex: Number(currentPosition.paperIndex),
-        eventIndex: Number(currentPosition.eventIndex),
-      };
-  
       if (type === 'Main Action' && currentEvent['Main Action']) {
-        showSnackbar("Main Action already exists", "error");
+        showSnackbar("Please delete existing Main Action before adding a new one", "error");
         return;
       }
   
@@ -478,7 +479,7 @@ const { cleanedEvent, displayAnnotations } = useMemo(() => {
         showSnackbar("Invalid selection", "error");
         return;
       }
-
+  
       const annotationData = {
         text: selection.text.trim(),
         span: {
@@ -486,31 +487,39 @@ const { cleanedEvent, displayAnnotations } = useMemo(() => {
           end: selection.end
         }
       };
-
-      // Save to DB first
-      const response = await syncAnnotation({
-        fieldPath: type,
-        answer: annotationData,
-        paperIndex: indices.paperIndex,
-        eventIndex: indices.eventIndex
-      });
-
-      if (!response.success) {
-        throw new Error('Failed to save to database');
+  
+      let fieldPath = type;
+      if (type.startsWith('Object.')) {
+        fieldPath = `Arguments.Object.${type.slice(7)}`;
+      } else if (!type.startsWith('Arguments.') && type !== 'Main Action') {
+        fieldPath = `Arguments.${type}`;
       }
-
-      // Update local state only after successful DB save
+  
+      const response = await syncAnnotation({
+        fieldPath,
+        answer: annotationData,
+        paperIndex: currentPosition.paperIndex,
+        eventIndex: currentPosition.eventIndex
+      });
+  
+      if (!response.success) throw new Error('Failed to save to database');
+  
       setLocalFileData(prev => {
         if (!prev?.papers) return prev;
         const newData = JSON.parse(JSON.stringify(prev));
-        const currentEvent = newData.papers[indices.paperIndex].events[indices.eventIndex];
+        const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
         
+        const spanWithId = { 
+          ...annotationData.span,
+          annotationId: response.data.annotationId
+        };
+  
         if (!currentEvent.Arguments) currentEvent.Arguments = {};
         if (!currentEvent.ArgumentPositions) currentEvent.ArgumentPositions = {};
-
+  
         if (type === 'Main Action') {
           currentEvent['Main Action'] = annotationData.text;
-          currentEvent.ArgumentPositions['Main Action'] = [annotationData.span];
+          currentEvent.ArgumentPositions['Main Action'] = [spanWithId];
         } else if (type.startsWith('Arguments.Object.')) {
           const [, , objectType] = type.split('.');
           if (!currentEvent.Arguments.Object) currentEvent.Arguments.Object = {};
@@ -519,87 +528,92 @@ const { cleanedEvent, displayAnnotations } = useMemo(() => {
           currentEvent.Arguments.Object[objectType].push(annotationData.text);
           currentEvent.ArgumentPositions[`Arguments.Object.${objectType}`] = 
             currentEvent.ArgumentPositions[`Arguments.Object.${objectType}`] || [];
-          currentEvent.ArgumentPositions[`Arguments.Object.${objectType}`].push(annotationData.span);
-          
+          currentEvent.ArgumentPositions[`Arguments.Object.${objectType}`].push(spanWithId);
         } else if (type.startsWith('Arguments.')) {
           const argumentType = type.replace('Arguments.', '');
           if (!currentEvent.Arguments[argumentType]) currentEvent.Arguments[argumentType] = [];
           
           currentEvent.Arguments[argumentType].push(annotationData.text);
-          currentEvent.ArgumentPositions[type] = currentEvent.ArgumentPositions[type] || [];
-          currentEvent.ArgumentPositions[type].push(annotationData.span);
+          currentEvent.ArgumentPositions[fieldPath] = currentEvent.ArgumentPositions[fieldPath] || [];
+          currentEvent.ArgumentPositions[fieldPath].push(spanWithId);
         }
-
+  
         return newData;
       });
-
+  
       setSelectedText(null);
       setLastSaved(new Date());
       showSnackbar("Annotation saved", "success");
-
+  
     } catch (error) {
       console.error("Failed to save:", error);
       showSnackbar("Save failed", "error");
-      // No need to revert state since we update after DB save
     }
-}, [currentPosition, currentEvent, syncAnnotation, showSnackbar, validateAnnotation]);
-
-const handleAnnotationDelete = useCallback(async (type, index) => {
-  if (!currentPosition) return;
-
-  try {
-    // Find exact annotation
-    const targetIndex = parseInt(index);
-    const targetAnnotation = displayAnnotations.find(ann => 
-      ann.type === type && parseInt(ann.id.split('-')[1]) === targetIndex
-    );
-
-    if (!targetAnnotation) {
-      showSnackbar('Annotation not found', 'error');
-      return;
+  }, [currentPosition, currentEvent, syncAnnotation, showSnackbar, validateAnnotation]);
+  
+  const handleAnnotationDelete = useCallback(async (type, annotationId) => {
+    if (!currentPosition) return;
+  
+    try {
+      const deleteRequest = {
+        fieldPath: type.startsWith('Object.') ? 
+          `Arguments.Object.${type.slice(7)}` : 
+          type.startsWith('Arguments.') ? type : type,
+        answer: null,
+        isDelete: true,
+        paperIndex: currentPosition.paperIndex,
+        eventIndex: currentPosition.eventIndex,
+        annotationId
+      };
+  
+      const response = await syncAnnotation(deleteRequest);
+      if (!response.success) throw new Error('Failed to delete');
+  
+      setLocalFileData(prev => {
+        if (!prev?.papers) return prev;
+        const newData = JSON.parse(JSON.stringify(prev));
+        const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
+  
+        if (!currentEvent) return prev;
+  
+        if (type === 'Main Action') {
+          currentEvent['Main Action'] = null;
+          delete currentEvent.ArgumentPositions?.['Main Action'];
+        } else {
+          const fieldPath = deleteRequest.fieldPath;
+          const positions = currentEvent.ArgumentPositions?.[fieldPath] || [];
+          const posIndex = positions.findIndex(p => p.annotationId === annotationId);
+  
+          if (posIndex > -1) {
+            positions.splice(posIndex, 1);
+            
+            if (type.startsWith('Arguments.Object.')) {
+              const objectKey = type.split('.').pop();
+              currentEvent.Arguments.Object[objectKey].splice(posIndex, 1);
+              if (currentEvent.Arguments.Object[objectKey].length === 0) {
+                delete currentEvent.Arguments.Object[objectKey];
+              }
+            } else {
+              const argType = type.replace('Arguments.', '');
+              currentEvent.Arguments[argType].splice(posIndex, 1);
+              if (currentEvent.Arguments[argType].length === 0) {
+                delete currentEvent.Arguments[argType];
+              }
+            }
+          }
+        }
+  
+        return newData;
+      });
+  
+      setLastSaved(new Date());
+      showSnackbar('Annotation deleted successfully', 'success');
+    } catch (error) {
+      console.error('Error deleting:', error);
+      showSnackbar('Failed to delete', 'error');
     }
-
-    // Delete from backend first
-    await syncAnnotation({
-      fieldPath: type,
-      answer: null,
-      isDelete: true,
-      arrayIndex: targetIndex,
-      paperIndex: currentPosition.paperIndex,
-      eventIndex: currentPosition.eventIndex
-    });
-
-    // Update local state
-    setLocalFileData(prev => {
-      const newData = JSON.parse(JSON.stringify(prev));
-      const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
-
-      if (type === 'Main Action') {
-        currentEvent['Main Action'] = null;
-        currentEvent.ArgumentPositions['Main Action'] = [];
-      } else if (type.startsWith('Arguments.Object.')) {
-        const [, , objectType] = type.split('.');
-        currentEvent.Arguments.Object[objectType].splice(targetIndex, 1);
-        currentEvent.ArgumentPositions[`Arguments.Object.${objectType}`].splice(targetIndex, 1);
-      } else if (type.startsWith('Arguments.')) {
-        const argumentType = type.replace('Arguments.', '');
-        currentEvent.Arguments[argumentType].splice(targetIndex, 1);
-        currentEvent.ArgumentPositions[type].splice(targetIndex, 1);
-      }
-
-      return newData;
-    });
-
-    setSelectedText(null);
-    showSnackbar('Annotation deleted successfully', 'success');
-
-  } catch (error) {
-    console.error('Error deleting annotation:', error);
-    showSnackbar('Failed to delete annotation', 'error');
-    setLocalFileData(fileData);
-  }
-}, [currentPosition, displayAnnotations, syncAnnotation, showSnackbar, fileData]);
-
+  }, [currentPosition, syncAnnotation, showSnackbar]);
+  
   const handleSummaryChange = useCallback(async (newValue) => {
     if (!eventType || !currentPosition || mode === 'view') return;
     

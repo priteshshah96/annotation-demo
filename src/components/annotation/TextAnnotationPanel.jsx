@@ -287,26 +287,46 @@ const TextAnnotationPanel = ({
   }, [localSelection, clearSelection, handleAnnotationClick]);
 
   // Calculate ranges outside renderedText
-const calculateRanges = useMemo(() => {
-  if (!text) return [];
+  const calculateRanges = useMemo(() => {
+    if (!text) return [];
+    
+    // Group annotations by type to track indices
+    const annotationsByType = {};
+    annotations.forEach(annotation => {
+      if (!annotationsByType[annotation.type]) {
+        annotationsByType[annotation.type] = [];
+      }
+      annotationsByType[annotation.type].push(annotation);
+    });
   
-  const allRanges = localSelection 
+    // Add indices within their type groups
+    const annotationsWithIndices = annotations.map(annotation => {
+      const typeIndex = annotationsByType[annotation.type].findIndex(a => 
+        a.start === annotation.start && a.end === annotation.end
+      );
+      return {
+        ...annotation,
+        typeIndex // Index within its own type group
+      };
+    });
+  
+    const allRanges = localSelection 
     ? [...annotations, { 
         start: localSelection.start, 
         end: localSelection.end, 
         type: 'current-selection',
-        id: 'selection' 
+        id: 'selection',
+        annotationId: 'selection'
       }]
     : annotations;
   
-  // Sort by start position, then by end position for overlapping ranges
   return [...allRanges].sort((a, b) => {
     if (a.start !== b.start) return a.start - b.start;
     return a.end - b.end;
   });
 }, [annotations, localSelection, text]);
 
-// Separate renderedText implementation
+
 const renderedText = useMemo(() => {
   if (!text) return null;
 
@@ -314,7 +334,6 @@ const renderedText = useMemo(() => {
   const result = [];
 
   calculateRanges.forEach((range, index) => {
-    // Add text before this range if there is any
     if (range.start > lastIndex) {
       result.push(
         <span key={`text-${index}`} className="whitespace-pre-wrap">
@@ -323,22 +342,20 @@ const renderedText = useMemo(() => {
       );
     }
 
-    // Get the text for this range
     const rangeText = text.slice(range.start, range.end);
 
     if (range.type === 'current-selection') {
-      // Render current selection
       result.push(
         <mark
           key={`selection-${index}`}
           className="bg-blue-100 text-blue-900 transition-colors duration-200 
                    inline whitespace-pre-wrap p-0 m-0"
+          onClick={(e) => e.stopPropagation()}
         >
           {rangeText}
         </mark>
       );
     } else {
-      // Render annotation
       result.push(
         <mark
           key={`annotation-${range.id}-${index}`}
@@ -346,6 +363,7 @@ const renderedText = useMemo(() => {
                     transition-colors duration-150 group inline whitespace-pre-wrap p-0 m-0`}
           onMouseEnter={() => setHoveredAnnotation(index)}
           onMouseLeave={() => setHoveredAnnotation(null)}
+          onClick={(e) => e.stopPropagation()}
         >
           {rangeText}
           {hoveredAnnotation === index && (
@@ -360,16 +378,18 @@ const renderedText = useMemo(() => {
           )}
           {!readOnly && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onAnnotationDelete?.(range.type, range.id);
-              }}
-              className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 
-                       bg-white rounded-full p-0.5 shadow-sm border border-gray-200
-                       transition-opacity duration-200"
-            >
-              <X className="w-3 h-3 text-gray-500 hover:text-red-500" />
-            </button>
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onAnnotationDelete?.(range.type, range.annotationId);
+            }}
+            className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 
+                      bg-white rounded-full p-0.5 shadow-sm border border-gray-200
+                      transition-opacity duration-200 z-20"
+            aria-label="Delete annotation"
+          >
+            <X className="w-3 h-3 text-gray-500 hover:text-red-500" />
+          </button>
           )}
         </mark>
       );
@@ -378,7 +398,6 @@ const renderedText = useMemo(() => {
     lastIndex = range.end;
   });
 
-  // Add any remaining text
   if (lastIndex < text.length) {
     result.push(
       <span key="text-end" className="whitespace-pre-wrap">

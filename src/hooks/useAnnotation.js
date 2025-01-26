@@ -160,75 +160,67 @@ function useAnnotation(fileId, navigate, userId) {
   const handleAnnotationSave = useCallback(async (field, answer, options = {}) => {
     if (!mountedRef.current) return;
     
-    const { indices = null, isDelete = false } = options;
+    const { indices = null, isDelete = false, annotationId } = options;
     const { paperIndex, eventIndex } = indices || state.currentPosition;
   
     try {
       safeSetState(prev => ({ ...prev, saving: true }));
-      const numericPaperIndex = Number(paperIndex);
-      const numericEventIndex = Number(eventIndex);
+      
+      let processedField = field.startsWith('Object.') ? 
+        `Arguments.Object.${field.replace('Object.', '')}` :
+        !field.startsWith('Arguments.') && 
+        !AnnotationTypes.EVENT_TYPE.includes(field) && 
+        field !== AnnotationTypes.MAIN_ACTION ? 
+          `Arguments.${field}` : field;
   
-      let processedField = field;
-      if (field.startsWith('Object.')) {
-        processedField = `Arguments.Object.${field.replace('Object.', '')}`;
-      } else if (!field.startsWith('Arguments.') && 
-                 !AnnotationTypes.EVENT_TYPE.includes(field) && 
-                 field !== AnnotationTypes.MAIN_ACTION) {
-        processedField = `Arguments.${field}`;
-      }
-  
-      const currentEvent = state.fileData?.papers[numericPaperIndex]?.events[numericEventIndex];
-      const currentAnnotations = currentEvent?.ArgumentPositions?.[processedField] || [];
-      const arrayIndex = options.index ?? currentAnnotations.length;
-  
-      // Save to API first
       const response = await annotationApi.saveAnnotation({
         fileId,
-        paperIndex: numericPaperIndex,
-        eventIndex: numericEventIndex,
+        paperIndex: Number(paperIndex),
+        eventIndex: Number(eventIndex),
         fieldPath: processedField,
         answer: isDelete ? null : answer,
         isDelete,
-        arrayIndex: isDelete ? options.index : arrayIndex
+        annotationId
       });
   
-      // Then update local state only if API call succeeds
       safeSetState(prev => {
         const newFileData = JSON.parse(JSON.stringify(prev.fileData));
-        const currentEvent = newFileData.papers[numericPaperIndex]?.events[numericEventIndex];
+        const currentEvent = newFileData.papers[paperIndex]?.events[eventIndex];
         
         if (!currentEvent) return prev;
   
         if (isDelete) {
-          if (Array.isArray(currentEvent[processedField])) {
-            currentEvent[processedField].splice(options.index, 1);
-            if (currentEvent.ArgumentPositions?.[processedField]) {
-              currentEvent.ArgumentPositions[processedField].splice(options.index, 1);
-            }
+          if (processedField === 'Main Action') {
+            currentEvent['Main Action'] = null;
+            delete currentEvent.ArgumentPositions?.['Main Action'];
           } else {
-            currentEvent[processedField] = null;
-            delete currentEvent.ArgumentPositions?.[processedField];
+            const textContent = answer?.text || answer;
+            const span = answer?.span;
+            const positions = currentEvent.ArgumentPositions?.[processedField] || [];
+            const existingIndex = positions.findIndex(p => p.annotationId === annotationId);
+  
+            if (existingIndex > -1) {
+              positions.splice(existingIndex, 1);
+              if (Array.isArray(currentEvent[processedField])) {
+                currentEvent[processedField].splice(existingIndex, 1);
+              }
+            }
           }
         } else {
           const textContent = answer?.text || answer;
-          const span = answer?.span;
+          const span = { ...answer?.span, annotationId: response.annotationId };
   
-          if (currentEvent[processedField] && Array.isArray(currentEvent[processedField])) {
-            if (arrayIndex < currentEvent[processedField].length) {
-              currentEvent[processedField][arrayIndex] = textContent;
-            } else {
-              currentEvent[processedField].push(textContent);
-            }
+          if (processedField === 'Main Action') {
+            currentEvent['Main Action'] = textContent;
+            currentEvent.ArgumentPositions['Main Action'] = [span];
           } else {
-            currentEvent[processedField] = textContent;
-          }
+            const currPositions = currentEvent.ArgumentPositions[processedField] || [];
+            currentEvent.ArgumentPositions[processedField] = [...currPositions, span];
   
-          if (span) {
-            currentEvent.ArgumentPositions = currentEvent.ArgumentPositions || {};
-            if (Array.isArray(currentEvent.ArgumentPositions[processedField])) {
-              currentEvent.ArgumentPositions[processedField][arrayIndex] = span;
+            if (Array.isArray(currentEvent[processedField])) {
+              currentEvent[processedField].push(textContent);
             } else {
-              currentEvent.ArgumentPositions[processedField] = [span];
+              currentEvent[processedField] = [textContent];
             }
           }
         }
@@ -243,7 +235,7 @@ function useAnnotation(fileId, navigate, userId) {
     } finally {
       safeSetState(prev => ({ ...prev, saving: false }));
     }
-  }, [fileId, state.currentPosition, state.fileData, safeSetState]);
+  }, [fileId, state.currentPosition, safeSetState]);
 
   const hasUnsavedChanges = useCallback(() => {
     return state.saving;

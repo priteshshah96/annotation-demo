@@ -290,13 +290,46 @@ app.delete('/api/files/:fileId', authenticateAndSync, asyncHandler(async (req, r
 }));
 
 // Mount annotation routes with error boundary
-app.use('/api/annotations', authenticateAndSync, (err, req, res, next) => {
+// After mounting routes
+app.use('/api/annotations', authenticateAndSync, annotationRoutes);
+
+// Log all registered routes, including mounted routes
+const listEndpoints = (app) => {
+  const routes = [];
+  app._router.stack.forEach((middleware) => {
+    if (middleware.route) { // routes registered directly on the app
+      routes.push({
+        path: middleware.route.path,
+        methods: Object.keys(middleware.route.methods)
+      });
+    } else if (middleware.name === 'router') { // router middleware
+      middleware.handle.stack.forEach((handler) => {
+        if (handler.route) {
+          routes.push({
+            path: '/api/annotations' + handler.route.path,
+            methods: Object.keys(handler.route.methods)
+          });
+        }
+      });
+    }
+  });
+  return routes;
+};
+
+console.log('All registered routes:', listEndpoints(app));
+
+// Add route-specific error handler for annotations
+app.use('/api/annotations', (err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
   console.error('Annotation route error:', err);
-  res.status(500).json({
+  res.status(err.status || 500).json({
+    success: false,
     error: 'Annotation processing failed',
     details: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
   });
-}, annotationRoutes);
+});
 
 // ---------- PRODUCTION SETUP ----------
 if (process.env.NODE_ENV === 'production') {

@@ -21,8 +21,7 @@ export function useAnnotationSync(fileId, userId, onRefreshNeeded) {
   const isOnlineRef = useRef(window.navigator.onLine);
   const pendingChangesRef = useRef(new Set());
   const annotationQueueRef = useRef([]);
-
-  // Update sync status
+ 
   const updateSyncStatus = useCallback((status, error = null) => {
     if (!mountedRef.current) return;
     
@@ -34,25 +33,24 @@ export function useAnnotationSync(fileId, userId, onRefreshNeeded) {
       lastSync: status === SYNC_STATES.SAVED ? new Date().toISOString() : prev.lastSync
     }));
   }, []);
-
-  // Process annotation queue
+ 
   const processQueue = useCallback(async () => {
     if (annotationQueueRef.current.length === 0 || isSyncing || !isOnlineRef.current) return;
-
+ 
     setIsSyncing(true);
     updateSyncStatus(SYNC_STATES.SAVING);
-
+ 
     try {
       while (annotationQueueRef.current.length > 0) {
         const annotation = annotationQueueRef.current[0];
         await annotationApi.saveAnnotation(annotation);
         annotationQueueRef.current.shift();
       }
-
+ 
       if (onRefreshNeeded) {
         await onRefreshNeeded();
       }
-
+ 
       updateSyncStatus(SYNC_STATES.SAVED);
     } catch (error) {
       console.error('Queue processing error:', error);
@@ -63,53 +61,53 @@ export function useAnnotationSync(fileId, userId, onRefreshNeeded) {
       }
     }
   }, [isSyncing, onRefreshNeeded, updateSyncStatus]);
-
-  // Add to queue
+ 
   const queueAnnotation = useCallback((annotation) => {
     annotationQueueRef.current.push(annotation);
     processQueue();
   }, [processQueue]);
-
-  // Sync annotation
-  // In useAnnotationSync.js
-
-const syncAnnotation = useCallback(async ({
-  fieldPath,
-  answer,
-  paperIndex,
-  eventIndex,
-  isDelete = false,
-  arrayIndex = 0
-}) => {
-  if (!fileId || !userId || !isOnlineRef.current) {
-    if (!isOnlineRef.current) {
-      pendingChangesRef.current.add({ fieldPath, answer, paperIndex, eventIndex, isDelete, arrayIndex });
-      updateSyncStatus(SYNC_STATES.OFFLINE);
-    }
-    return { success: false };
-  }
-
-  const annotation = {
-    fileId,
+ 
+  const syncAnnotation = useCallback(async ({
+    fieldPath,
+    answer,
     paperIndex,
     eventIndex,
-    fieldPath, 
-    answer,
-    isDelete,
-    arrayIndex
-  };
-
-  try {
-    const result = await annotationApi.saveAnnotation(annotation);
-    // Remove queueAnnotation call here since we're already saving directly
-    return { success: true, data: result };
-  } catch (error) {
-    console.error('Sync error:', error);
-    return { success: false, error };
-  }
-}, [fileId, userId, updateSyncStatus]);
-
-  // Monitor online status
+    isDelete = false,
+    annotationId
+  }) => {
+    if (!fileId || !userId) {
+      return { success: false, error: 'Missing fileId or userId' };
+    }
+  
+    const annotation = {
+      fileId,
+      paperIndex,
+      eventIndex,
+      fieldPath,
+      answer,
+      isDelete,
+      annotationId,
+      userId
+    };
+  
+    if (!isOnlineRef.current) {
+      queueAnnotation(annotation);
+      updateSyncStatus(SYNC_STATES.OFFLINE);
+      return { success: false, error: 'Offline - queued for sync' };
+    }
+  
+    try {
+      const result = await annotationApi.saveAnnotation(annotation);
+      updateSyncStatus(SYNC_STATES.SAVED);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('Sync error:', error);
+      queueAnnotation(annotation);
+      updateSyncStatus(SYNC_STATES.ERROR, error.message);
+      return { success: false, error };
+    }
+  }, [fileId, userId, updateSyncStatus, queueAnnotation]);
+ 
   useEffect(() => {
     const handleOnline = () => {
       isOnlineRef.current = true;
@@ -121,34 +119,32 @@ const syncAnnotation = useCallback(async ({
       isOnlineRef.current = false;
       updateSyncStatus(SYNC_STATES.OFFLINE, 'No internet connection');
     };
-
+ 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
+ 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, [updateSyncStatus, processQueue]);
-
-  // Process queue periodically
+ 
   useEffect(() => {
     const interval = setInterval(() => {
       if (annotationQueueRef.current.length > 0) {
         processQueue();
       }
     }, 1000);
-
+ 
     return () => clearInterval(interval);
   }, [processQueue]);
-
-  // Cleanup
+ 
   useEffect(() => {
     return () => {
       mountedRef.current = false;
     };
   }, []);
-
+ 
   return {
     syncStatus,
     isSyncing,
@@ -156,5 +152,5 @@ const syncAnnotation = useCallback(async ({
     isOnline: isOnlineRef.current,
     pendingChanges: annotationQueueRef.current.length + pendingChangesRef.current.size
   };
-}
+ }
 export default useAnnotationSync;

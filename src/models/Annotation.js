@@ -29,6 +29,12 @@ export const AnnotationTypes = {
 };
 
 const AnnotationSchema = new mongoose.Schema({
+  annotationId: {
+    type: String,
+    required: true,
+    unique: true,
+    default: () => new mongoose.Types.ObjectId().toString()
+  },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -41,49 +47,34 @@ const AnnotationSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  paperIndex: {
-    type: Number,
-    required: true,
-    min: 0
-  },
-  eventIndex: {
-    type: Number,
-    required: true,
-    min: 0
-  },
-  fieldPath: {
-    type: String,
-    required: true,
-    trim: true
-  },
+  paperIndex: { type: Number, required: true, min: 0 },
+  eventIndex: { type: Number, required: true, min: 0 },
+  fieldPath: { type: String, required: true, trim: true },
   answer: {
     text: String,
-    span: {
-      start: Number,
-      end: Number
+    span: { start: Number, end: Number }
+  },
+  arrayIndex: {
+    type: Number,
+    required: function() {
+      return this.fieldPath !== 'Main Action';
+    },
+    default: function() {
+      return this.fieldPath === 'Main Action' ? undefined : 0;
     }
   },
-  arrayIndex: {  // Changed from index to arrayIndex
-    type: Number,
-    required: true,
-    default: 0
-  },
-  timestamp: {
-    type: Date,
-    default: Date.now
-  }
+  timestamp: { type: Date, default: Date.now }
 });
 
-// Modified compound index
+// Updated compound index
 AnnotationSchema.index({
   userId: 1,
   fileId: 1,
   paperIndex: 1,
   eventIndex: 1,
   fieldPath: 1,
-  arrayIndex: 1  // Using arrayIndex instead of index
-}, { unique: true });
-
+  annotationId: 1
+});
 export const Annotation = mongoose.models?.Annotation || 
   mongoose.model('Annotation', AnnotationSchema);
 
