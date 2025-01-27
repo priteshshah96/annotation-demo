@@ -57,16 +57,15 @@ const AnnotationSchema = new mongoose.Schema({
   arrayIndex: {
     type: Number,
     required: function() {
-      return this.fieldPath !== 'Main Action';
+      return !AnnotationTypes.EVENT_TYPE.includes(this.fieldPath) && this.fieldPath !== 'Main Action';
     },
     default: function() {
-      return this.fieldPath === 'Main Action' ? undefined : 0;
+      return AnnotationTypes.EVENT_TYPE.includes(this.fieldPath) || this.fieldPath === 'Main Action' ? undefined : 0;
     }
   },
   timestamp: { type: Date, default: Date.now }
 });
 
-// Updated compound index
 AnnotationSchema.index({
   userId: 1,
   fileId: 1,
@@ -75,6 +74,7 @@ AnnotationSchema.index({
   fieldPath: 1,
   annotationId: 1
 });
+
 export const Annotation = mongoose.models?.Annotation || 
   mongoose.model('Annotation', AnnotationSchema);
 

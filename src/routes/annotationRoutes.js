@@ -1,7 +1,8 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { Annotation } from '../models/Annotation.js';
+import { Annotation, AnnotationTypes } from '../models/Annotation.js';
 import { File } from '../models/File.js';
+
 const router = express.Router();
 console.log('Setting up annotation routes');
 
@@ -14,32 +15,54 @@ router.stack?.forEach(middleware => {
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
+// Process annotation answer
 const processAnnotationAnswer = (answer) => {
-  if (!answer) return null;
-  if (typeof answer === 'string') return { text: answer };
-  if (answer.span && typeof answer.text === 'string') {
-    return {
-      text: answer.text,
-      span: {
-        start: Number(answer.span.start),
-        end: Number(answer.span.end)
-      }
-    };
+  // If empty/null/undefined, return null to trigger deletion
+  if (!answer || (typeof answer === 'string' && !answer.trim())) {
+    return null;
   }
-  if (typeof answer.text === 'string' && 
-      (typeof answer.start === 'number' || typeof answer.end === 'number')) {
+
+  // For string input (like summaries/event types)
+  if (typeof answer === 'string') {
+    const trimmed = answer.trim();
+    return trimmed ? { text: trimmed } : null;
+  }
+
+  // For object with text property (annotations with spans)
+  if (answer.text !== undefined) {
+    const trimmed = typeof answer.text === 'string' ? answer.text.trim() : '';
+    if (!trimmed) return null;
+
+    // With span info for annotation-type fields
+    if (answer.span) {
+      return {
+        text: trimmed,
+        span: {
+          start: Number(answer.span.start),
+          end: Number(answer.span.end)
+        }
+      };
+    }
+
+    // Just return text for regular fields
+    return { text: trimmed };
+  }
+
+  // For object with start/end but no span property
+  if (typeof answer.start === 'number' && typeof answer.end === 'number' && answer.text) {
     return {
-      text: answer.text,
+      text: answer.text.trim(),
       span: {
         start: Number(answer.start),
         end: Number(answer.end)
       }
     };
   }
+
   return null;
 };
 
-// Wrap each route with asyncHandler
+// Get annotations for a file
 router.get('/:fileId', asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   const mongoUserId = req.user._id;
@@ -57,6 +80,7 @@ router.get('/:fileId', asyncHandler(async (req, res) => {
   });
 }));
 
+// Create, update, or delete annotation
 router.post('/', asyncHandler(async (req, res) => {
   console.log('POST route hit:', {
     body: req.body,
@@ -70,6 +94,7 @@ router.post('/', asyncHandler(async (req, res) => {
   paperIndex = Number(paperIndex);
   eventIndex = Number(eventIndex);
  
+  // Input validation
   if (!fileId || paperIndex == null || eventIndex == null || !fieldPath) {
     return res.status(400).json({
       success: false,
@@ -77,6 +102,7 @@ router.post('/', asyncHandler(async (req, res) => {
     });
   }
  
+  // Check file exists and belongs to user
   const file = await File.findOne({
     _id: fileId,
     userId: mongoUserId
@@ -95,53 +121,59 @@ router.post('/', asyncHandler(async (req, res) => {
       error: 'Invalid paper or event index'
     });
   }
- 
-  if (isDelete) {
-    if (!annotationId) {
-      return res.status(400).json({
-        success: false,
-        error: 'annotationId required for deletion'
+
+  // Process the answer
+  const processedAnswer = processAnnotationAnswer(answer);
+
+  // Check for existing annotation
+  const existingAnnotation = await Annotation.findOne({
+    fileId,
+    userId: mongoUserId,
+    paperIndex,
+    eventIndex,
+    fieldPath
+  });
+
+  // Handle deletion cases (explicit delete or null processed answer)
+  if (isDelete || processedAnswer === null) {
+    if (existingAnnotation) {
+      await Annotation.deleteOne({ _id: existingAnnotation._id });
+      return res.json({
+        success: true,
+        message: 'Annotation deleted successfully',
+        deletedAnnotation: existingAnnotation
       });
     }
- 
-    const annotationToDelete = await Annotation.findOne({ annotationId });
- 
-    if (!annotationToDelete) {
-      console.log('No annotation found to delete with ID:', annotationId);
-      return res.status(404).json({
-        success: false,
-        error: 'Annotation not found'
-      });
-    }
- 
-    await Annotation.deleteOne({ annotationId });
- 
-    if (fieldPath !== 'Main Action') {
-      const remainingAnnotations = await Annotation.find({
-        fileId,
-        userId: mongoUserId,
-        paperIndex,
-        eventIndex, 
-        fieldPath,
-        arrayIndex: { $gt: annotationToDelete.arrayIndex }
-      }).sort({ arrayIndex: 1 });
- 
-      for (let i = 0; i < remainingAnnotations.length; i++) {
-        await Annotation.findByIdAndUpdate(remainingAnnotations[i]._id, {
-          $set: { arrayIndex: annotationToDelete.arrayIndex + i }
-        });
-      }
-    }
- 
     return res.json({
       success: true,
-      message: 'Annotation deleted successfully',
-      deletedAnnotation: annotationToDelete
+      message: 'No annotation to delete'
     });
   }
- 
+
+  // If annotation exists, update it
+  if (existingAnnotation) {
+    const updatedAnnotation = await Annotation.findByIdAndUpdate(
+      existingAnnotation._id,
+      {
+        $set: {
+          answer: processedAnswer,
+          timestamp: new Date()
+        }
+      },
+      { new: true }
+    );
+
+    return res.json({
+      success: true,
+      annotation: updatedAnnotation,
+      message: 'Annotation updated successfully'
+    });
+  }
+
+  // If no existing annotation, create new one
   let arrayIndex;
-  if (fieldPath !== 'Main Action') {
+  // Only set arrayIndex for non-event types and non-main action
+  if (!AnnotationTypes.EVENT_TYPE.includes(fieldPath) && fieldPath !== AnnotationTypes.MAIN_ACTION) {
     const prevAnnotation = await Annotation.findOne({
       fileId,
       userId: mongoUserId,
@@ -149,53 +181,73 @@ router.post('/', asyncHandler(async (req, res) => {
       eventIndex,
       fieldPath
     }).sort({ arrayIndex: -1 });
- 
+
     arrayIndex = prevAnnotation ? prevAnnotation.arrayIndex + 1 : 0;
   }
  
-  const annotation = await Annotation.create({
+  const newAnnotation = await Annotation.create({
     annotationId: new mongoose.Types.ObjectId().toString(),
     fileId,
     userId: mongoUserId,
     paperIndex,
     eventIndex,
     fieldPath,
-    answer: processAnnotationAnswer(answer),
+    answer: processedAnswer,
     arrayIndex,
     timestamp: new Date()
   });
  
   res.json({
     success: true,
-    annotation,
+    annotation: newAnnotation,
     message: 'Annotation created successfully'
   });
- }));
+}));
 
+// Sync annotations
 router.post('/:fileId/sync', asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   const { annotations = [] } = req.body;
   const mongoUserId = req.user._id;
 
-  const operations = annotations.map(ann => ({
-    updateOne: {
-      filter: {
-        fileId,
-        userId: mongoUserId,
-        paperIndex: ann.paperIndex,
-        eventIndex: ann.eventIndex,
-        fieldPath: ann.fieldPath,
-        arrayIndex: ann.arrayIndex || 0
-      },
-      update: {
-        $set: {
-          answer: processAnnotationAnswer(ann.answer),
-          timestamp: new Date(ann.timestamp || Date.now())
+  const operations = annotations.map(ann => {
+    const processedAnswer = processAnnotationAnswer(ann.answer);
+    
+    // If processed answer is null, we should delete instead of update
+    if (processedAnswer === null) {
+      return {
+        deleteOne: {
+          filter: {
+            fileId,
+            userId: mongoUserId,
+            paperIndex: ann.paperIndex,
+            eventIndex: ann.eventIndex,
+            fieldPath: ann.fieldPath
+          }
         }
-      },
-      upsert: true
+      };
     }
-  }));
+
+    return {
+      updateOne: {
+        filter: {
+          fileId,
+          userId: mongoUserId,
+          paperIndex: ann.paperIndex,
+          eventIndex: ann.eventIndex,
+          fieldPath: ann.fieldPath,
+          arrayIndex: ann.arrayIndex || 0
+        },
+        update: {
+          $set: {
+            answer: processedAnswer,
+            timestamp: new Date(ann.timestamp || Date.now())
+          }
+        },
+        upsert: true
+      }
+    };
+  });
 
   await Annotation.bulkWrite(operations);
 
@@ -217,6 +269,7 @@ router.post('/:fileId/sync', asyncHandler(async (req, res) => {
   });
 }));
 
+// Delete all annotations for a file
 router.delete('/:fileId', asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   const mongoUserId = req.user._id;
@@ -249,6 +302,7 @@ router.delete('/:fileId', asyncHandler(async (req, res) => {
   });
 }));
 
+// Reset annotations for a file
 router.post('/:fileId/reset', asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   const mongoUserId = req.user._id;

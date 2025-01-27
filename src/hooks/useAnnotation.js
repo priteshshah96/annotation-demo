@@ -2,21 +2,20 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { annotationApi } from '../services/annotationApi';
 import { AnnotationTypes } from '../models/Annotation';
 
-const FIELD_TYPES = {
+export const FIELD_TYPES = {
   EVENT: 'event',
   MAIN_ACTION: 'main_action',
   ARGUMENT: 'argument'
 };
 
-function useAnnotation(fileId, navigate, userId) {
+export function useAnnotation(fileId, navigate, userId) {
+  console.log('useAnnotation initialized with:', { fileId, userId });
+  
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
 
   const [state, setState] = useState({
-    currentPosition: {
-      paperIndex: 0,
-      eventIndex: 0
-    },
+    currentPosition: { paperIndex: 0, eventIndex: 0 },
     fileData: null,
     loading: true,
     error: null,
@@ -32,7 +31,10 @@ function useAnnotation(fileId, navigate, userId) {
   }, []);
 
   const loadFileData = useCallback(async () => {
-    if (!fileId || loadingRef.current || !mountedRef.current || !userId) return;
+    if (!fileId || loadingRef.current || !mountedRef.current || !userId) {
+      console.log('Skipping loadFileData:', { fileId, loading: loadingRef.current, mounted: mountedRef.current, userId });
+      return;
+    }
   
     try {
       loadingRef.current = true;
@@ -87,7 +89,6 @@ function useAnnotation(fileId, navigate, userId) {
 
       const totalEvents = currentPaper.events.length;
       
-      // Move to next event in current paper
       if (prev.currentPosition.eventIndex < totalEvents - 1) {
         return {
           ...prev,
@@ -98,7 +99,6 @@ function useAnnotation(fileId, navigate, userId) {
         };
       }
       
-      // Move to first event of next paper
       if (prev.currentPosition.paperIndex < state.fileData.papers.length - 1) {
         return {
           ...prev,
@@ -109,7 +109,7 @@ function useAnnotation(fileId, navigate, userId) {
         };
       }
       
-      return prev; // Stay at current position if at end
+      return prev;
     });
   }, [state.fileData, safeSetState]);
 
@@ -117,7 +117,6 @@ function useAnnotation(fileId, navigate, userId) {
     if (!mountedRef.current || !state.fileData?.papers) return;
     
     safeSetState(prev => {
-      // Move to previous event in current paper
       if (prev.currentPosition.eventIndex > 0) {
         return {
           ...prev,
@@ -128,7 +127,6 @@ function useAnnotation(fileId, navigate, userId) {
         };
       }
       
-      // Move to last event of previous paper
       if (prev.currentPosition.paperIndex > 0) {
         const previousPaper = state.fileData.papers[prev.currentPosition.paperIndex - 1];
         if (!previousPaper) return prev;
@@ -142,7 +140,7 @@ function useAnnotation(fileId, navigate, userId) {
         };
       }
       
-      return prev; // Stay at current position if at start
+      return prev;
     });
   }, [state.fileData, safeSetState]);
 
@@ -151,6 +149,17 @@ function useAnnotation(fileId, navigate, userId) {
     const { paperIndex, eventIndex } = state.currentPosition;
     return state.fileData.papers[paperIndex]?.events[eventIndex] || null;
   }, [state.fileData, state.currentPosition]);
+
+  const getCurrentEventType = useCallback(() => {
+    const currentEvent = getCurrentEvent();
+    if (!currentEvent) return null;
+    
+    console.log('Determining event type from:', currentEvent);
+    return AnnotationTypes.EVENT_TYPE.find(type => {
+      const value = currentEvent[type];
+      return value !== undefined || type in currentEvent;
+    });
+  }, [getCurrentEvent]);
 
   const getCurrentPaper = useCallback(() => {
     if (!state.fileData?.papers) return null;
@@ -194,8 +203,6 @@ function useAnnotation(fileId, navigate, userId) {
             currentEvent['Main Action'] = null;
             delete currentEvent.ArgumentPositions?.['Main Action'];
           } else {
-            const textContent = answer?.text || answer;
-            const span = answer?.span;
             const positions = currentEvent.ArgumentPositions?.[processedField] || [];
             const existingIndex = positions.findIndex(p => p.annotationId === annotationId);
   
@@ -248,14 +255,30 @@ function useAnnotation(fileId, navigate, userId) {
     }));
   }, [safeSetState]);
 
+  // Cleanup effect
   useEffect(() => {
-    mountedRef.current = true;
-    if (userId) loadFileData();
-    
     return () => {
+      console.log('Cleaning up useAnnotation');
       mountedRef.current = false;
     };
+  }, []);
+
+  // Load data effect
+  useEffect(() => {
+    console.log('Loading data effect triggered');
+    mountedRef.current = true;
+    if (userId) {
+      loadFileData();
+    }
   }, [loadFileData, userId]);
+
+  // Navigation effect - handle navigation errors
+  useEffect(() => {
+    if (state.error && navigate) {
+      console.log('Error detected, navigating to error page');
+      navigate('/error', { state: { error: state.error } });
+    }
+  }, [state.error, navigate]);
 
   return {
     currentPosition: state.currentPosition,
@@ -272,11 +295,10 @@ function useAnnotation(fileId, navigate, userId) {
     validatePosition,
     hasUnsavedChanges,
     resetPosition,
+    eventType: getCurrentEventType(),
     isFirstField: state.currentPosition.paperIndex === 0 && state.currentPosition.eventIndex === 0,
     isLastField: state.fileData ? 
       (state.currentPosition.paperIndex === state.fileData.papers.length - 1 && 
        state.currentPosition.eventIndex === state.fileData.papers[state.currentPosition.paperIndex].events.length - 1) : false
   };
 }
-
-export { useAnnotation as default, FIELD_TYPES };

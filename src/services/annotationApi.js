@@ -36,144 +36,180 @@ class AnnotationApi {
  }
 
  async getFileWithAnnotations(fileId) {
-   try {
-     const fileResponse = await api.files.get(fileId);
-     if (!fileResponse.success) {
-       throw new Error('File not found');
-     }
- 
-     const annotationsResponse = await api.annotations.get(fileId);
-     const papers = fileResponse.papers.map(paper => ({
-       ...paper,
-       events: paper.events.map(event => ({
-         ...event,
-         ArgumentPositions: {},
-         Arguments: {
-           Agent: [],
-           Object: {
-             'Base Object': [],
-             'Base Modifier': [],
-             'Attached Object': [],
-             'Attached Modifier': []
-           },
-           Context: [],
-           Purpose: [],
-           Method: [],
-           Results: [],
-           Analysis: [],
-           Challenge: [],
-           Ethical: [],
-           Implications: [],
-           Contradictions: []
-         },
-         'Main Action': null
-       }))
-     }));
+  try {
+    const fileResponse = await api.files.get(fileId);
+    if (!fileResponse.success) {
+      throw new Error('File not found');
+    }
 
-     if (annotationsResponse?.annotations) {
-       annotationsResponse.annotations.forEach(annotation => {
-         const { paperIndex, eventIndex, fieldPath, answer, annotationId } = annotation;
-         if (!papers[paperIndex]?.events[eventIndex]) return;
+    const annotationsResponse = await api.annotations.get(fileId);
+    console.log('Annotations response:', annotationsResponse); // Debug log
 
-         const event = papers[paperIndex].events[eventIndex];
-         const textContent = answer?.text || answer;
-         const span = answer?.span || null;
+    const papers = fileResponse.papers.map(paper => ({
+      ...paper,
+      events: paper.events.map(event => ({
+        ...event,
+        ArgumentPositions: {},
+        Arguments: {
+          Agent: [],
+          Object: {
+            'Base Object': [],
+            'Base Modifier': [],
+            'Attached Object': [],
+            'Attached Modifier': []
+          },
+          Context: [],
+          Purpose: [],
+          Method: [],
+          Results: [],
+          Analysis: [],
+          Challenge: [],
+          Ethical: [],
+          Implications: [],
+          Contradictions: []
+        },
+        'Main Action': null,
+        // Initialize event type fields
+        'Background/Introduction': '',
+        'Methods/Approach': '',
+        'Results/Findings': '',
+        'Conclusions/Implications': ''
+      }))
+    }));
 
-         if (span) {
-           event.ArgumentPositions[fieldPath] = event.ArgumentPositions[fieldPath] || [];
-           event.ArgumentPositions[fieldPath].push({
-             ...span,
-             annotationId
-           });
-         }
+    if (annotationsResponse?.annotations) {
+      annotationsResponse.annotations.forEach(annotation => {
+        const { paperIndex, eventIndex, fieldPath, answer, annotationId } = annotation;
+        if (!papers[paperIndex]?.events[eventIndex]) return;
 
-         if (fieldPath === 'Main Action') {
-           event['Main Action'] = textContent;
-         } 
-         else if (fieldPath.startsWith('Arguments.Object.')) {
-           const objectField = fieldPath.replace('Arguments.Object.', '');
-           if (Array.isArray(event.Arguments.Object[objectField])) {
-             event.Arguments.Object[objectField].push(textContent);
-           } else {
-             event.Arguments.Object[objectField] = [textContent];
-           }
-         } 
-         else if (fieldPath.startsWith('Arguments.')) {
-           const argField = fieldPath.replace('Arguments.', '');
-           if (Array.isArray(event.Arguments[argField])) {
-             event.Arguments[argField].push(textContent);
-           } else {
-             event.Arguments[argField] = [textContent];
-           }
-         } else {
-           event[fieldPath] = textContent;
-         }
-       });
-     }
- 
-     return {
-       ...fileResponse,
-       papers
-     };
-   } catch (error) {
-     console.error('Error fetching file with annotations:', error);
-     throw this.formatError(error);
-   }
- }
+        const event = papers[paperIndex].events[eventIndex];
+        const textContent = answer?.text || answer;
+        const span = answer?.span || null;
 
- async saveAnnotation(annotation) {
-   const { fileId, paperIndex, eventIndex, fieldPath, answer, isDelete, annotationId } = annotation;
- 
-   if (!fileId || paperIndex === undefined || eventIndex === undefined || !fieldPath) {
-     throw new Error('Missing required fields');
-   }
- 
-   try {
-     const payload = {
-       fileId,
-       paperIndex: Number(paperIndex),
-       eventIndex: Number(eventIndex),
-       fieldPath,
-       answer,
-       isDelete: Boolean(isDelete),
-       annotationId
-     };
+        // Handle different types of annotations
+        if (AnnotationTypes.EVENT_TYPE.includes(fieldPath)) {
+          // For event types (like Background/Introduction), set directly
+          event[fieldPath] = textContent;
+          // Also store the annotationId for later reference
+          if (!event.ArgumentPositions[fieldPath]) {
+            event.ArgumentPositions[fieldPath] = [];
+          }
+          event.ArgumentPositions[fieldPath] = [{
+            annotationId,
+            text: textContent
+          }];
+        }
+        else if (fieldPath === 'Main Action') {
+          event['Main Action'] = textContent;
+          if (span) {
+            event.ArgumentPositions['Main Action'] = [{
+              ...span,
+              annotationId
+            }];
+          }
+        } 
+        else if (fieldPath.startsWith('Arguments.Object.')) {
+          const objectField = fieldPath.replace('Arguments.Object.', '');
+          if (Array.isArray(event.Arguments.Object[objectField])) {
+            event.Arguments.Object[objectField].push(textContent);
+          } else {
+            event.Arguments.Object[objectField] = [textContent];
+          }
+          if (span) {
+            if (!event.ArgumentPositions[fieldPath]) {
+              event.ArgumentPositions[fieldPath] = [];
+            }
+            event.ArgumentPositions[fieldPath].push({
+              ...span,
+              annotationId
+            });
+          }
+        } 
+        else if (fieldPath.startsWith('Arguments.')) {
+          const argField = fieldPath.replace('Arguments.', '');
+          if (Array.isArray(event.Arguments[argField])) {
+            event.Arguments[argField].push(textContent);
+          } else {
+            event.Arguments[argField] = [textContent];
+          }
+          if (span) {
+            if (!event.ArgumentPositions[fieldPath]) {
+              event.ArgumentPositions[fieldPath] = [];
+            }
+            event.ArgumentPositions[fieldPath].push({
+              ...span,
+              annotationId
+            });
+          }
+        }
+      });
+    }
 
-     if (fieldPath !== 'Main Action') {
-       const existingResponse = await api.annotations.get(fileId, {
-         paperIndex: Number(paperIndex),
-         eventIndex: Number(eventIndex),
-         fieldPath
-       });
-       payload.arrayIndex = existingResponse?.annotations?.length || 0;
-     }
- 
-     const response = await api.annotations.save(payload);
-     return response.annotation;
-   } catch (error) {
-     console.error('Error in saveAnnotation:', { error, annotation });
-     throw this.formatError(error);
-   }
- }
+    console.log('Processed papers:', papers); // Debug log
+    return {
+      ...fileResponse,
+      papers
+    };
+  } catch (error) {
+    console.error('Error fetching file with annotations:', error);
+    throw this.formatError(error);
+  }
+}
 
- async syncAnnotations(fileId, annotations) {
-   if (!fileId || !Array.isArray(annotations) || annotations.length === 0) {
-     throw new Error('Invalid sync parameters');
-   }
- 
-   try {
-     const annotationsWithIndex = annotations.map((ann, index) => ({
-       ...ann,
-       arrayIndex: fieldPath !== 'Main Action' ? (ann.arrayIndex ?? index) : undefined
-     }));
- 
-     return await api.annotations.sync(fileId, { 
-       annotations: annotationsWithIndex 
-     });
-   } catch (error) {
-     throw this.formatError(error);
-   }
- }
+async saveAnnotation(annotation) {
+  const { fileId, paperIndex, eventIndex, fieldPath, answer, isDelete, annotationId } = annotation;
+
+  if (!fileId || paperIndex === undefined || eventIndex === undefined || !fieldPath) {
+    throw new Error('Missing required fields');
+  }
+
+  try {
+    const payload = {
+      fileId,
+      paperIndex: Number(paperIndex),
+      eventIndex: Number(eventIndex),
+      fieldPath,
+      answer,
+      isDelete: Boolean(isDelete),
+      annotationId
+    };
+
+    if (fieldPath !== 'Main Action') {
+      const existingResponse = await api.annotations.get(fileId, {
+        paperIndex: Number(paperIndex),
+        eventIndex: Number(eventIndex),
+        fieldPath
+      });
+      payload.arrayIndex = existingResponse?.annotations?.length || 0;
+    }
+
+    const response = await api.annotations.save(payload);
+    return response.annotation;
+  } catch (error) {
+    console.error('Error in saveAnnotation:', { error, annotation });
+    throw this.formatError(error);
+  }
+}
+
+async syncAnnotations(fileId, annotations) {
+  if (!fileId || !Array.isArray(annotations) || annotations.length === 0) {
+    throw new Error('Invalid sync parameters');
+  }
+
+  try {
+    const annotationsWithIndex = annotations.map((ann, index) => ({
+      ...ann,
+      arrayIndex: fieldPath !== 'Main Action' ? (ann.arrayIndex ?? index) : undefined
+    }));
+
+    return await api.annotations.sync(fileId, { 
+      annotations: annotationsWithIndex 
+    });
+  } catch (error) {
+    throw this.formatError(error);
+  }
+}
+
 
  formatError(error) {
    return {
