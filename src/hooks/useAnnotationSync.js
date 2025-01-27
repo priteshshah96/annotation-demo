@@ -107,6 +107,54 @@ export function useAnnotationSync(fileId, userId, onRefreshNeeded) {
       return { success: false, error };
     }
   }, [fileId, userId, updateSyncStatus, queueAnnotation]);
+
+  const finalizeSync = useCallback(async () => {
+    if (!fileId || !userId) {
+      console.error('Missing fileId or userId for finalization');
+      return false;
+    }
+
+    if (!isOnlineRef.current) {
+      console.error('Cannot finalize while offline');
+      updateSyncStatus(SYNC_STATES.OFFLINE);
+      return false;
+    }
+
+    try {
+      setIsSyncing(true);
+      updateSyncStatus(SYNC_STATES.SAVING);
+
+      // First process any pending annotations
+      if (annotationQueueRef.current.length > 0) {
+        await processQueue();
+      }
+
+      // Finalize the annotations
+      const response = await annotationApi.finalizeAnnotations(fileId);
+      
+      if (response.success) {
+        updateSyncStatus(SYNC_STATES.SAVED);
+        // Clear any pending changes
+        pendingChangesRef.current.clear();
+        annotationQueueRef.current = [];
+        
+        if (onRefreshNeeded) {
+          await onRefreshNeeded();
+        }
+        return true;
+      } else {
+        throw new Error(response.error || 'Failed to finalize annotations');
+      }
+    } catch (error) {
+      console.error('Finalize sync error:', error);
+      updateSyncStatus(SYNC_STATES.ERROR, error.message);
+      return false;
+    } finally {
+      if (mountedRef.current) {
+        setIsSyncing(false);
+      }
+    }
+  }, [fileId, userId, processQueue, updateSyncStatus, onRefreshNeeded]);
  
   useEffect(() => {
     const handleOnline = () => {
@@ -149,8 +197,10 @@ export function useAnnotationSync(fileId, userId, onRefreshNeeded) {
     syncStatus,
     isSyncing,
     syncAnnotation,
+    finalizeSync,
     isOnline: isOnlineRef.current,
     pendingChanges: annotationQueueRef.current.length + pendingChangesRef.current.size
   };
- }
+}
+
 export default useAnnotationSync;

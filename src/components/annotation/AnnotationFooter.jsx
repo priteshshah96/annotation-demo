@@ -28,12 +28,15 @@ const AnnotationFooter = ({
                  disabled:opacity-50 flex items-center gap-2"
       >
         {isCompleting ? (
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white" />
+          <div className="flex items-center gap-2">
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-white" />
+            <span>Saving...</span>
+          </div>
         ) : (
-          <>
-            {isLastField ? 'Complete' : 'Next'}
-            {!isLastField && <ChevronRight className="w-5 h-5" />}
-          </>
+          <div className="flex items-center gap-2">
+            {isLastField ? 'Complete and Return' : 'Next'}
+            <ChevronRight className="w-5 h-5" />
+          </div>
         )}
       </button>
     </div>

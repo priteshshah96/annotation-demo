@@ -72,9 +72,7 @@ const AnnotationHeader = ({
       <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
         <div 
           className="h-full bg-blue-600 transition-all duration-300"
-          style={{ width: `${progress}%` }}
-          role="progressbar"
-          aria-valuenow={progress}
+          style={{ width: `${Math.max(0, ((currentPosition.paperIndex * currentPaper?.events?.length + currentPosition.eventIndex + 1) / (fileData?.papers?.length * currentPaper?.events?.length)) * 100)}%` }}          aria-valuenow={progress}
           aria-valuemin={0}
           aria-valuemax={100}
         />

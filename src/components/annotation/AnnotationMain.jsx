@@ -13,7 +13,8 @@ const AnnotationMain = ({
   onAnnotationDelete,
   summaryInput,
   onSummaryChange,
-  onSummaryDelete, // Add this prop
+  onSummaryDelete,
+  fileData,
   isViewMode
 }) => (
   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -45,7 +46,7 @@ const AnnotationMain = ({
         <SummaryInput 
           value={summaryInput}
           onChange={onSummaryChange}
-          onDelete={isViewMode ? null : onSummaryDelete} // Add this prop
+          onDelete={isViewMode ? null : onSummaryDelete}
           eventType={eventType}
           disabled={isViewMode}
           maxLength={100}
@@ -56,6 +57,7 @@ const AnnotationMain = ({
       <div className="flex-1">
         <JsonViewer 
           data={cleanedEvent}
+          fullFileData={fileData}
           onRemoveAnnotation={isViewMode ? null : onAnnotationDelete}
           readOnly={isViewMode}
         />

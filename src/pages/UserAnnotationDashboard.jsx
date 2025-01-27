@@ -19,13 +19,16 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
 
   const mountedRef = useRef(true);
   const navigate = useNavigate();
+  const navigateToHome = useCallback(() => {
+    console.log('Navigating to home...');
+    navigate('/');
+  }, [navigate]);
   const { fileId } = useParams();
   console.log('FileId from params:', fileId);
   
   const { user } = useUser();
   const { isLoaded, isSignedIn } = useAuth();
   const { showSnackbar, SnackbarComponent } = useSnackbar();
-
   // State
   const [selectedText, setSelectedText] = useState(null);
   const [isAbstractOpen, setIsAbstractOpen] = useState(false);
@@ -426,14 +429,20 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
       console.log('Finalize sync result:', success);
       
       if (success && mountedRef.current) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Trigger dashboard update
+        window.dispatchEvent(new Event('annotationUpdate'));
+        showSnackbar('Annotations completed successfully!', 'success');
+        
+        // Navigate immediately after successful sync
         navigate('/', { replace: true });
+      } else {
+        throw new Error('Sync failed');
       }
     } catch (error) {
       console.error('Completion error:', error);
       if (mountedRef.current) {
         setIsCompleting(false);
-        showSnackbar('Error completing annotations', 'error');
+        showSnackbar(ERROR_MESSAGES.SAVE_FAILED, 'error');
       }
     }
   }, [finalizeSync, navigate, showSnackbar, isCompleting]);
@@ -653,19 +662,20 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
             onToggle={() => setIsAbstractOpen(!isAbstractOpen)}
           />
 
-<AnnotationMain
-  eventType={eventType}
-  cleanedEvent={cleanedEvent}
-  displayAnnotations={displayAnnotations}
-  selectedText={selectedText}
-  onTextSelect={handleTextSelect}
-  onAnnotationSelect={handleAnnotationSelect}
-  onAnnotationDelete={handleAnnotationDelete}
-  summaryInput={summaryInput}  // Use the state value instead of cleanedEvent directly
-  onSummaryChange={handleSummaryChange}
-  onSummaryDelete={handleSummaryDelete}
-  isViewMode={isViewMode}
-/>
+          <AnnotationMain
+            eventType={eventType}
+            cleanedEvent={cleanedEvent}
+            displayAnnotations={displayAnnotations}
+            selectedText={selectedText}
+            onTextSelect={handleTextSelect}
+            onAnnotationSelect={handleAnnotationSelect}
+            onAnnotationDelete={handleAnnotationDelete}
+            summaryInput={summaryInput}
+            onSummaryChange={handleSummaryChange}
+            onSummaryDelete={handleSummaryDelete}
+            fileData={fileData}
+            isViewMode={isViewMode}
+          />
         </div>
       </main>
 
