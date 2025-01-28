@@ -2,11 +2,12 @@ import React from 'react';
 import { X } from 'lucide-react';
 
 const TutorialDialog = ({ isOpen, onClose }) => {
+  const videoUrl = '/video/tutorial.mp4'; // Default video path from public folder
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl w-[800px] mx-4 p-6 max-h-[80vh] overflow-y-auto mb-20">
+      <div className="bg-white rounded-xl w-[1024px] mx-4 p-6 max-h-[90vh] overflow-y-auto mb-10">
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-gray-900">How to Use the Annotation Tool</h2>
@@ -19,14 +20,34 @@ const TutorialDialog = ({ isOpen, onClose }) => {
           </button>
         </div>
 
-        {/* Content - Made more compact */}
+        {/* Video Section */}
+        <div className="mb-6">
+          <div className="relative w-full aspect-video bg-gray-100 rounded-lg overflow-hidden">
+          <video 
+              className="w-full h-full"
+              controls
+              controlsList="nodownload"
+              preload="auto"
+              poster="/api/placeholder/800/450"
+              playsInline
+            >
+              <source src={videoUrl} type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+          </div>
+          <p className="text-sm text-gray-500 mt-2">
+            Watch the tutorial video above to see the annotation process in action.
+          </p>
+        </div>
+
+        {/* Written Instructions - Made more compact */}
         <div className="grid grid-cols-2 gap-4">
           {/* Left Column */}
           <div className="space-y-4">
             <div className="border-l-4 border-blue-500 pl-4 py-2">
               <h3 className="font-semibold text-base mb-1">1. Main Action First</h3>
               <p className="text-sm text-gray-600">
-                Always annotate the Main Action first. Other annotation types will be disabled 
+                Always annotate the Main Action first. Other annotation buttons will be disabled 
                 until you've identified the main action.
               </p>
             </div>
@@ -34,16 +55,16 @@ const TutorialDialog = ({ isOpen, onClose }) => {
             <div className="border-l-4 border-green-500 pl-4 py-2">
               <h3 className="font-semibold text-base mb-1">2. Text Selection</h3>
               <p className="text-sm text-gray-600">
-                Select text by clicking and dragging. Use the keyboard shortcuts or buttons 
-                to assign annotation types. Multiple selections per type are supported.
+                Select text by clicking and dragging. Use the annotation buttons or keyboard 
+                shortcuts to assign categories.
               </p>
             </div>
 
             <div className="border-l-4 border-amber-500 pl-4 py-2">
-              <h3 className="font-semibold text-base mb-1">3. Keyboard Shortcuts</h3>
+              <h3 className="font-semibold text-base mb-1">3. Multiple Spans</h3>
               <p className="text-sm text-gray-600">
-                Use number keys (1-9) for main categories and letter keys for additional types 
-                (shown on buttons). Press ESC to clear selection.
+                You can annotate multiple text spans for the same category. Each selection
+                adds to existing annotations.
               </p>
             </div>
           </div>
@@ -51,25 +72,24 @@ const TutorialDialog = ({ isOpen, onClose }) => {
           {/* Right Column */}
           <div className="space-y-4">
             <div className="border-l-4 border-purple-500 pl-4 py-2">
-              <h3 className="font-semibold text-base mb-1">4. Object Annotations</h3>
+              <h3 className="font-semibold text-base mb-1">4. Keyboard Shortcuts</h3>
               <p className="text-sm text-gray-600">
-                Use the Object button to access Base Object, Base Modifier, 
-                Attached Object, and Attached Modifier annotations.
+                • Numbers 1-9 for main categories
+                <br />• Letters for additional categories (shown on buttons)
               </p>
             </div>
 
             <div className="border-l-4 border-rose-500 pl-4 py-2">
-              <h3 className="font-semibold text-base mb-1">5. Summarization</h3>
+              <h3 className="font-semibold text-base mb-1">5. Completing Work</h3>
               <p className="text-sm text-gray-600">
-                Add brief summaries for each event. Summaries save automatically after typing 
-                stops, or press Enter to save immediately.
+                Navigate using Previous/Next buttons. On the last event, use the Finish 
+                button to download your annotations.
               </p>
             </div>
 
             <div className="bg-gray-50 p-3 rounded-lg">
               <p className="text-xs text-gray-600">
-                Your annotations are saved automatically. You can always revisit and 
-                edit them later.
+                For detailed guidelines, click the (i) icon to view the complete documentation.
               </p>
             </div>
           </div>

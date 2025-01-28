@@ -169,7 +169,7 @@ const JsonViewer = ({
     }
   };
 
-  // Update local data when prop changes
+  // Update local data and fullFileData when props change
   useEffect(() => {
     setLocalData(prevData => {
       if (!data) return prevData;
@@ -179,7 +179,13 @@ const JsonViewer = ({
       
       // Create new data object with simplified structure
       const processedData = {
-        ...(activeEventType ? { [activeEventType]: data[activeEventType] } : {}),
+        // Keep event type with empty string if it exists in data
+        ...EVENT_TYPES.reduce((acc, type) => {
+          if (type in data) {
+            acc[type] = data[type] || '';
+          }
+          return acc;
+        }, {}),
         'Text': data.Text || '',
         'Main Action': data['Main Action'] || '',
         'Arguments': data.Arguments || {}
