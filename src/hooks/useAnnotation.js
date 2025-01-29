@@ -8,6 +8,14 @@ export const FIELD_TYPES = {
   ARGUMENT: 'argument'
 };
 
+
+const EVENT_TYPES = [
+  'Background/Introduction',
+  'Methods/Approach', 
+  'Results/Findings',
+  'Conclusions/Implications'
+];
+
 export function useAnnotation(fileId, navigate, userId) {
   console.log('useAnnotation initialized with:', { fileId, userId });
   
@@ -152,13 +160,12 @@ export function useAnnotation(fileId, navigate, userId) {
 
   const getCurrentEventType = useCallback(() => {
     const currentEvent = getCurrentEvent();
-    if (!currentEvent) return null;
+    if (!currentEvent) {
+      return null;
+    }
     
-    console.log('Determining event type from:', currentEvent);
-    return AnnotationTypes.EVENT_TYPE.find(type => {
-      const value = currentEvent[type];
-      return value !== undefined || type in currentEvent;
-    });
+    // Simply find which event type exists in the current event
+    return EVENT_TYPES.find(type => Object.hasOwn(currentEvent, type)) || null;
   }, [getCurrentEvent]);
 
   const getCurrentPaper = useCallback(() => {

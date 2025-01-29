@@ -47,33 +47,35 @@ class AnnotationApi {
 
       const papers = fileResponse.papers.map(paper => ({
         ...paper,
-        events: paper.events.map(event => ({
-          ...event,
-          ArgumentPositions: {},
-          Arguments: {
-            Agent: [],
-            Object: {
-              'Base Object': [],
-              'Base Modifier': [],
-              'Attached Object': [],
-              'Attached Modifier': []
+        events: paper.events.map(event => {
+          const { Text, ...eventTypes } = event; // Get Text and event type from original event
+          const eventType = AnnotationTypes.EVENT_TYPE.find(type => type in eventTypes);
+          
+          return {
+            [eventType]: "",  // Original event type with empty string
+            Text,  // Original Text
+            'Main Action': "",
+            Arguments: {
+              Agent: [],
+              Object: {
+                'Base Object': [],
+                'Base Modifier': [],
+                'Attached Object': [],
+                'Attached Modifier': []
+              },
+              Context: [],
+              Purpose: [],
+              Method: [],
+              Results: [],
+              Analysis: [],
+              Challenge: [],
+              Ethical: [],
+              Implications: [],
+              Contradictions: []
             },
-            Context: [],
-            Purpose: [],
-            Method: [],
-            Results: [],
-            Analysis: [],
-            Challenge: [],
-            Ethical: [],
-            Implications: [],
-            Contradictions: []
-          },
-          'Main Action': null,
-          'Background/Introduction': '',
-          'Methods/Approach': '',
-          'Results/Findings': '',
-          'Conclusions/Implications': ''
-        }))
+            ArgumentPositions: {}
+          };
+        })
       }));
 
       if (annotationsResponse?.annotations) {

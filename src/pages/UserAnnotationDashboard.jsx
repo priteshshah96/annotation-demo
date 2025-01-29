@@ -19,10 +19,8 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
 
   const mountedRef = useRef(true);
   const navigate = useNavigate();
-  const navigateToHome = useCallback(() => {
-    console.log('Navigating to home...');
-    navigate('/');
-  }, [navigate]);
+
+
   const { fileId } = useParams();
   console.log('FileId from params:', fileId);
   
@@ -418,22 +416,32 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   
 
   const handleCompletion = useCallback(async () => {
-    console.log('Starting completion process');
-    if (!mountedRef.current || isCompleting) return;
+    console.log('Starting completion process:', {
+      isMounted: mountedRef.current,
+      isCompleting,
+      isOnline
+    });
+    
+    if (!mountedRef.current || isCompleting) {
+      console.log('Early return due to:', {
+        notMounted: !mountedRef.current,
+        isCompleting
+      });
+      return;
+    }
     
     try {
       setIsCompleting(true);
       showSnackbar('Finalizing annotations...', 'info');
       
+      console.log('Calling finalizeSync...');
       const success = await finalizeSync();
-      console.log('Finalize sync result:', success);
+      console.log('FinalizeSync result:', success);
       
       if (success && mountedRef.current) {
-        // Trigger dashboard update
+        console.log('Success, dispatching update and navigating');
         window.dispatchEvent(new Event('annotationUpdate'));
         showSnackbar('Annotations completed successfully!', 'success');
-        
-        // Navigate immediately after successful sync
         navigate('/', { replace: true });
       } else {
         throw new Error('Sync failed');
@@ -445,7 +453,7 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
         showSnackbar(ERROR_MESSAGES.SAVE_FAILED, 'error');
       }
     }
-  }, [finalizeSync, navigate, showSnackbar, isCompleting]);
+  }, [finalizeSync, navigate, showSnackbar, isCompleting, isOnline]);
 
   // Process event data for display
   const { cleanedEvent, displayAnnotations } = useMemo(() => {
@@ -597,8 +605,11 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   }, [isLoaded, isSignedIn, navigate]);
 
   useEffect(() => {
+    mountedRef.current = true;
+    console.log('Component mounted, setting mountedRef to true');
+    
     return () => {
-      console.log('Component unmounting');
+      console.log('Component actually unmounting');
       mountedRef.current = false;
     };
   }, []);

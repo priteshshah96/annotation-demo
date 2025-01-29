@@ -102,20 +102,26 @@ const JsonViewer = ({
         console.error('No file data available for download');
         return;
       }
-
+  
       // Create clean version matching input format exactly
       const downloadData = {
         papers: fullFileData.papers.map(paper => ({
           paper_code: paper.paper_code || '',
           abstract: paper.abstract || '',
           events: paper.events.map(event => {
-            // Find active event type
-            const activeEventType = EVENT_TYPES.find(type => event[type] !== undefined && event[type] !== '');
+            // Find active event type by checking if it exists in the event
+            const activeEventType = EVENT_TYPES.find(type => type in event);
             
-            // Create base data structure
-            const baseData = {
+            // Start with event type as first property
+            const baseData = {};
+            if (activeEventType) {
+              baseData[activeEventType] = event[activeEventType] || '';
+            }
+            
+            // Add remaining properties
+            Object.assign(baseData, {
               Text: event.Text || '',
-              'Main Action': event['Main Action'] || null,
+              'Main Action': event['Main Action'] || '',
               Arguments: {
                 Agent: event.Arguments?.Agent || [],
                 Object: {
@@ -134,18 +140,13 @@ const JsonViewer = ({
                 Implications: event.Arguments?.Implications || [],
                 Contradictions: event.Arguments?.Contradictions || []
               }
-            };
-
-            // Add active event type if it exists
-            if (activeEventType) {
-              baseData[activeEventType] = event[activeEventType];
-            }
-
+            });
+  
             return baseData;
           })
         }))
       };
-
+  
       // Convert to JSON string with nice formatting
       const jsonString = JSON.stringify(downloadData, null, 2);
       
