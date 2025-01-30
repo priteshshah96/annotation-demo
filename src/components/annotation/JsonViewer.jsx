@@ -22,10 +22,10 @@ const ARGUMENTS_ORDER = [
 ];
 
 const OBJECT_FIELD_ORDER = [
-  'Base Object',
-  'Base Modifier',
-  'Attached Object',
-  'Attached Modifier'
+  'Primary Object',
+  'Primary Modifier',
+  'Secondary Object',
+  'Secondary Modifier'
 ];
 
 const EVENT_TYPES = [
@@ -125,10 +125,10 @@ const JsonViewer = ({
               Arguments: {
                 Agent: event.Arguments?.Agent || [],
                 Object: {
-                  'Base Object': event.Arguments?.Object?.['Base Object'] || [],
-                  'Base Modifier': event.Arguments?.Object?.['Base Modifier'] || [],
-                  'Attached Object': event.Arguments?.Object?.['Attached Object'] || [],
-                  'Attached Modifier': event.Arguments?.Object?.['Attached Modifier'] || []
+                  'Primary Object': event.Arguments?.Object?.['Primary Object'] || [],
+                  'Primary Modifier': event.Arguments?.Object?.['Primary Modifier'] || [],
+                  'Secondary Object': event.Arguments?.Object?.['Secondary Object'] || [],
+                  'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || []
                 },
                 Context: event.Arguments?.Context || [],
                 Purpose: event.Arguments?.Purpose || [],

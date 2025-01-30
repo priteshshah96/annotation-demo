@@ -11,10 +11,10 @@ export const AnnotationTypes = {
   ARGUMENT_FIELDS: {
     AGENT: 'Agent',
     OBJECT: {
-      BASE_OBJECT: 'Base Object',
-      BASE_MODIFIER: 'Base Modifier',
-      ATTACHED_OBJECT: 'Attached Object',
-      ATTACHED_MODIFIER: 'Attached Modifier'
+      PRIMARY_OBJECT: 'Primary Object',
+      PRIMARY_MODIFIER: 'Primary Modifier',
+      SECONDARY_OBJECT: 'Secondary Object',
+      SECONDARY_MODIFIER: 'Secondary Modifier'
     },
     CONTEXT: 'Context',
     PURPOSE: 'Purpose',

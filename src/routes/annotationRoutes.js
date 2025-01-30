@@ -269,8 +269,9 @@ router.post('/:fileId/sync', asyncHandler(async (req, res) => {
   });
 }));
 
-// Delete all annotations for a file
-router.delete('/:fileId', asyncHandler(async (req, res) => {
+
+// Reset annotations for a file
+router.post('/:fileId/reset', asyncHandler(async (req, res) => {
   const { fileId } = req.params;
   const mongoUserId = req.user._id;
 
@@ -287,35 +288,18 @@ router.delete('/:fileId', asyncHandler(async (req, res) => {
     });
   }
 
+  // Delete all annotations for this file
   await Annotation.deleteMany({
     fileId,
     userId: mongoUserId
   });
 
+  // Reset file progress
   await File.findByIdAndUpdate(fileId, {
     $set: { progress: 0 }
   });
 
-  res.json({
-    success: true,
-    message: 'All annotations reset successfully'
-  });
-}));
-
-// Reset annotations for a file
-router.post('/:fileId/reset', asyncHandler(async (req, res) => {
-  const { fileId } = req.params;
-  const mongoUserId = req.user._id;
-
-  await Annotation.deleteMany({
-    fileId,
-    userId: mongoUserId
-  });
-
-  await File.findByIdAndUpdate(fileId, {
-    $set: { progress: 0 }
-  });
-
+  // Return success with fresh progress
   res.json({
     success: true,
     message: 'All annotations reset successfully',

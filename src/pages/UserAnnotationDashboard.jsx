@@ -485,10 +485,10 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
       Arguments: {
         Agent: [],
         Object: {
-          'Base Object': [],
-          'Base Modifier': [],
-          'Attached Object': [],
-          'Attached Modifier': []
+          'Primary Object': [],
+          'Primary Modifier': [],
+          'Secondary Object': [],
+          'Secondary Modifier': []
         },
         Context: [],
         Purpose: [],

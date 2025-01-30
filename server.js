@@ -43,14 +43,16 @@ app.use(cors(corsOptions));
 app.use(express.json({ 
   limit: '50mb',
   verify: (req, res, buf) => {
-    try {
-      JSON.parse(buf);
-    } catch (e) {
-      res.status(400).json({ 
-        error: 'Invalid JSON',
-        details: 'The request contains invalid JSON data'
-      });
-      throw new Error('Invalid JSON');
+    if (['POST', 'PUT', 'PATCH'].includes(req.method.toUpperCase()) && buf.length > 0) {
+      try {
+        JSON.parse(buf);
+      } catch (e) {
+        res.status(400).json({ 
+          error: 'Invalid JSON',
+          details: 'The request contains invalid JSON data'
+        });
+        throw new Error('Invalid JSON');
+      }
     }
   }
 }));
@@ -208,12 +210,15 @@ app.get('/api/files/:fileId', authenticateAndSync, asyncHandler(async (req, res)
   
   res.json({
     success: true,
-    papers: fileObj.papers,
-    uploadDate: fileObj.uploadDate,
-    metadata: {
-      totalPapers: fileObj.papers.length,
-      totalEvents: fileObj.papers.reduce((sum, paper) => 
-        sum + (paper.events?.length || 0), 0)
+    file: {
+      ...fileObj,
+      papers: fileObj.papers || [],  // Include papers inside file object
+      uploadDate: fileObj.uploadDate,
+      metadata: {
+        totalPapers: fileObj.papers?.length || 0,
+        totalEvents: fileObj.papers?.reduce((sum, paper) => 
+          sum + (paper.events?.length || 0), 0) || 0
+      }
     }
   });
 }));

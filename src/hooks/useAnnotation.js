@@ -8,7 +8,6 @@ export const FIELD_TYPES = {
   ARGUMENT: 'argument'
 };
 
-
 const EVENT_TYPES = [
   'Background/Introduction',
   'Methods/Approach', 
@@ -53,11 +52,18 @@ export function useAnnotation(fileId, navigate, userId) {
       
       if (!mountedRef.current) return;
       
+      if (!response?.file) {
+        throw new Error('Invalid response format - missing file data');
+      }
+  
       const data = {
-        papers: response.papers,
-        metadata: response.metadata
+        papers: response.file.papers || [],
+        metadata: response.file.metadata || {},
+        uploadDate: response.file.uploadDate,
+        name: response.file.name,
+        _id: response.file._id
       };
-
+  
       safeSetState(prev => ({
         ...prev,
         fileData: data,
@@ -83,7 +89,7 @@ export function useAnnotation(fileId, navigate, userId) {
     if (!state.fileData?.papers) return false;
     
     const paper = state.fileData.papers[paperIndex];
-    if (!paper) return false;
+    if (!paper?.events) return false;
     
     return eventIndex >= 0 && eventIndex < paper.events.length;
   }, [state.fileData]);
@@ -93,7 +99,7 @@ export function useAnnotation(fileId, navigate, userId) {
     
     safeSetState(prev => {
       const currentPaper = state.fileData.papers[prev.currentPosition.paperIndex];
-      if (!currentPaper) return prev;
+      if (!currentPaper?.events) return prev;
 
       const totalEvents = currentPaper.events.length;
       
@@ -137,7 +143,7 @@ export function useAnnotation(fileId, navigate, userId) {
       
       if (prev.currentPosition.paperIndex > 0) {
         const previousPaper = state.fileData.papers[prev.currentPosition.paperIndex - 1];
-        if (!previousPaper) return prev;
+        if (!previousPaper?.events) return prev;
 
         return {
           ...prev,
@@ -155,7 +161,7 @@ export function useAnnotation(fileId, navigate, userId) {
   const getCurrentEvent = useCallback(() => {
     if (!state.fileData?.papers) return null;
     const { paperIndex, eventIndex } = state.currentPosition;
-    return state.fileData.papers[paperIndex]?.events[eventIndex] || null;
+    return state.fileData.papers[paperIndex]?.events?.[eventIndex] || null;
   }, [state.fileData, state.currentPosition]);
 
   const getCurrentEventType = useCallback(() => {
@@ -201,7 +207,7 @@ export function useAnnotation(fileId, navigate, userId) {
   
       safeSetState(prev => {
         const newFileData = JSON.parse(JSON.stringify(prev.fileData));
-        const currentEvent = newFileData.papers[paperIndex]?.events[eventIndex];
+        const currentEvent = newFileData.papers[paperIndex]?.events?.[eventIndex];
         
         if (!currentEvent) return prev;
   
@@ -226,8 +232,14 @@ export function useAnnotation(fileId, navigate, userId) {
   
           if (processedField === 'Main Action') {
             currentEvent['Main Action'] = textContent;
+            if (!currentEvent.ArgumentPositions) {
+              currentEvent.ArgumentPositions = {};
+            }
             currentEvent.ArgumentPositions['Main Action'] = [span];
           } else {
+            if (!currentEvent.ArgumentPositions) {
+              currentEvent.ArgumentPositions = {};
+            }
             const currPositions = currentEvent.ArgumentPositions[processedField] || [];
             currentEvent.ArgumentPositions[processedField] = [...currPositions, span];
   
@@ -261,6 +273,17 @@ export function useAnnotation(fileId, navigate, userId) {
       currentPosition: { paperIndex: 0, eventIndex: 0 }
     }));
   }, [safeSetState]);
+
+  const getIsLastField = useCallback(() => {
+    if (!state.fileData?.papers?.length) return false;
+    
+    const { paperIndex, eventIndex } = state.currentPosition;
+    const currentPaper = state.fileData.papers[paperIndex];
+    if (!currentPaper?.events?.length) return false;
+    
+    return paperIndex === state.fileData.papers.length - 1 && 
+           eventIndex === currentPaper.events.length - 1;
+  }, [state.fileData, state.currentPosition]);
 
   // Cleanup effect
   useEffect(() => {
@@ -304,8 +327,6 @@ export function useAnnotation(fileId, navigate, userId) {
     resetPosition,
     eventType: getCurrentEventType(),
     isFirstField: state.currentPosition.paperIndex === 0 && state.currentPosition.eventIndex === 0,
-    isLastField: state.fileData ? 
-      (state.currentPosition.paperIndex === state.fileData.papers.length - 1 && 
-       state.currentPosition.eventIndex === state.fileData.papers[state.currentPosition.paperIndex].events.length - 1) : false
+    isLastField: getIsLastField()
   };
 }

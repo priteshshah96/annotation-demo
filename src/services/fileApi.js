@@ -82,11 +82,33 @@ export const fileApi = {
   },
 
   async deleteFile(fileId) {
+    if (!fileId) throw new Error('FileId is required');
+    
     try {
-      return await api.files.delete(fileId);
+      // Ensure we're using the correct API endpoint
+      const response = await api.files.delete(fileId);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to delete file');
+      }
+      return response;
     } catch (error) {
       console.error('Error deleting file:', error);
-      throw new Error(`Failed to delete file: ${error.message}`);
+      throw error;
+    }
+  },
+
+  async resetAnnotations(fileId) {
+    if (!fileId) throw new Error('FileId is required');
+
+    try {
+      const response = await api.files.resetAnnotations(fileId);
+      if (!response.success) {
+        throw new Error('Failed to reset annotations');
+      }
+      return response;
+    } catch (error) {
+      console.error('Error resetting annotations:', error);
+      throw error;
     }
   }
 };

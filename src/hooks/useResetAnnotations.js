@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { fileApi } from '../services/fileApi';
 import { annotationApi } from '../services/annotationApi';
 
 export const useResetAnnotations = (fileId) => {
@@ -9,16 +10,16 @@ export const useResetAnnotations = (fileId) => {
     
     setIsResetting(true);
     try {
-      // Use the annotationApi's deleteAnnotations method
-      await annotationApi.deleteAnnotations(fileId);
+      // First reset annotations on the server
+      await fileApi.resetAnnotations(fileId);
 
       // Clear progress in local storage
       localStorage.removeItem(`last-position-${fileId}`);
 
-      // Refresh file data to update progress
-      await annotationApi.getFileWithAnnotations(fileId);
+      // Refresh file data with cleared annotations
+      const refreshedFile = await annotationApi.getFileWithAnnotations(fileId);
 
-      return true;
+      return refreshedFile;
     } catch (error) {
       console.error('Error resetting annotations:', error);
       throw error;

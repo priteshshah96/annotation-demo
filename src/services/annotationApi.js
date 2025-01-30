@@ -38,17 +38,18 @@ class AnnotationApi {
   async getFileWithAnnotations(fileId) {
     try {
       const fileResponse = await api.files.get(fileId);
-      if (!fileResponse.success) {
+      if (!fileResponse.success || !fileResponse.file) {
         throw new Error('File not found');
       }
-
+  
       const annotationsResponse = await api.annotations.get(fileId);
       console.log('Annotations response:', annotationsResponse);
-
-      const papers = fileResponse.papers.map(paper => ({
+  
+      // Get papers from the file object and ensure it's an array
+      const papers = fileResponse.file.papers?.map(paper => ({
         ...paper,
-        events: paper.events.map(event => {
-          const { Text, ...eventTypes } = event; // Get Text and event type from original event
+        events: paper.events?.map(event => {
+          const { Text, ...eventTypes } = event;
           const eventType = AnnotationTypes.EVENT_TYPE.find(type => type in eventTypes);
           
           return {
@@ -58,10 +59,10 @@ class AnnotationApi {
             Arguments: {
               Agent: [],
               Object: {
-                'Base Object': [],
-                'Base Modifier': [],
-                'Attached Object': [],
-                'Attached Modifier': []
+                'Primary Object': [],
+                'Primary Modifier': [],
+                'Secondary Object': [],
+                'Secondary Modifier': []
               },
               Context: [],
               Purpose: [],
@@ -75,18 +76,18 @@ class AnnotationApi {
             },
             ArgumentPositions: {}
           };
-        })
-      }));
-
+        }) || []
+      })) || [];
+  
       if (annotationsResponse?.annotations) {
         annotationsResponse.annotations.forEach(annotation => {
           const { paperIndex, eventIndex, fieldPath, answer, annotationId } = annotation;
           if (!papers[paperIndex]?.events[eventIndex]) return;
-
+  
           const event = papers[paperIndex].events[eventIndex];
           const textContent = answer?.text || answer;
           const span = answer?.span || null;
-
+  
           if (AnnotationTypes.EVENT_TYPE.includes(fieldPath)) {
             event[fieldPath] = textContent;
             if (!event.ArgumentPositions[fieldPath]) {
@@ -142,11 +143,14 @@ class AnnotationApi {
           }
         });
       }
-
+  
       console.log('Processed papers:', papers);
       return {
         ...fileResponse,
-        papers
+        file: {
+          ...fileResponse.file,
+          papers
+        }
       };
     } catch (error) {
       console.error('Error fetching file with annotations:', error);
@@ -223,6 +227,32 @@ class AnnotationApi {
       throw this.formatError(error);
     }
   }
+
+  async resetAnnotations(fileId) {
+    if (!fileId) {
+      throw new Error('FileId is required');
+    }
+
+    try {
+      const response = await api.annotations.reset(fileId);
+      if (!response.success) {
+        throw new Error('Failed to reset annotations');
+      }
+      return await this.getFileWithAnnotations(fileId);
+    } catch (error) {
+      console.error('Error resetting annotations:', error);
+      throw this.formatError(error);
+    }
+  }
+
+  formatError(error) {
+    return {
+      message: error.message || 'An error occurred',
+      status: error.status || 500,
+      details: error.details || null
+    };
+  }
+
 
   formatError(error) {
     return {

@@ -131,7 +131,6 @@ const FileActionsMenu = ({
   file,
   disabledActions = []
 }) => {
-  const theme = useTheme();
   const { resetAnnotations, isResetting } = useResetAnnotations(file?._id);
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
