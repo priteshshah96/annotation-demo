@@ -92,7 +92,8 @@ const JsonViewer = ({
   fullFileData = null,
   onRemoveAnnotation,
   onSummaryDelete,
-  readOnly = false 
+  readOnly = false,
+  fileName = null
 }) => {
   const [expandedPaths, setExpandedPaths] = useState(new Set(['Arguments', 'Arguments.Object']));
   const [localData, setLocalData] = useState(data);
@@ -152,16 +153,24 @@ const JsonViewer = ({
       const jsonString = JSON.stringify(downloadData, null, 2);
       
       // Create blob and download link
+      // Create blob and download link
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       
-      // Use paper_code for filename
-      const paperCode = fullFileData.papers[0]?.paper_code || 'unknown';
-      const filename = `${paperCode}_annotated.json`;
+      // Use the original file name from fullFileData
+      let outputFilename;
+      if (fullFileData.name) {
+        // Strip .json extension if present and add _annotated.json
+        outputFilename = fullFileData.name.replace(/\.json$/, '') + '_annotated.json';
+      } else {
+        // Fallback to paper_code if no filename
+        const paperCode = fullFileData.papers[0]?.paper_code || 'unknown';
+        outputFilename = `${paperCode}_annotated.json`;
+      }
       
       link.href = url;
-      link.download = filename;
+      link.download = outputFilename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

@@ -25,6 +25,15 @@ import {
   ErrorOutline as WarningIcon
 } from '@mui/icons-material';
 import { useResetAnnotations } from '../../hooks/useResetAnnotations';
+import { annotationApi } from '../../services/annotationApi';
+
+
+const EVENT_TYPES = [
+  'Background/Introduction',
+  'Methods/Approach',
+  'Results/Findings',
+  'Conclusions/Implications'
+];
 
 const ConfirmationDialog = ({
   open,
@@ -142,7 +151,7 @@ const FileActionsMenu = ({
     severity: 'error'
   });
 
-  const handleAction = (action) => {
+  const handleAction =async(action) => {
     switch (action) {
       case 'view':
         if (onNavigate && file?._id) {
@@ -163,22 +172,79 @@ const FileActionsMenu = ({
         });
         break;
 
-      case 'reset':
-        setConfirmDialog({
-          open: true,
-          action: 'reset',
-          title: 'Reset Annotations',
-          message: `Are you sure you want to reset all annotations for "${file?.name}"? This will remove all existing annotations.`,
-          confirmText: 'Reset',
-          cancelText: 'Cancel',
-          severity: 'warning'
-        });
-        break;
-
-      case 'export':
-        onExport();
-        onClose();
-        break;
+        case 'export':
+          try {
+            // First get the file with annotations
+            const response = await annotationApi.getFileWithAnnotations(file._id);
+            if (!response?.file) {
+              throw new Error('Failed to get annotations');
+            }
+        
+            // Create clean version matching input format exactly
+            const downloadData = {
+              papers: response.file.papers.map(paper => ({
+                paper_code: paper.paper_code || '',
+                abstract: paper.abstract || '',
+                events: paper.events.map(event => {
+                  // Find active event type by checking if it exists in the event
+                  const activeEventType = EVENT_TYPES.find(type => type in event);
+                  
+                  // Start with event type as first property
+                  const baseData = {};
+                  if (activeEventType) {
+                    baseData[activeEventType] = event[activeEventType] || '';
+                  }
+                  
+                  // Add remaining properties without ArgumentPositions
+                  Object.assign(baseData, {
+                    Text: event.Text || '',
+                    'Main Action': event['Main Action'] || '',
+                    Arguments: {
+                      Agent: event.Arguments?.Agent || [],
+                      Object: {
+                        'Primary Object': event.Arguments?.Object?.['Primary Object'] || [],
+                        'Primary Modifier': event.Arguments?.Object?.['Primary Modifier'] || [],
+                        'Secondary Object': event.Arguments?.Object?.['Secondary Object'] || [],
+                        'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || []
+                      },
+                      Context: event.Arguments?.Context || [],
+                      Purpose: event.Arguments?.Purpose || [],
+                      Method: event.Arguments?.Method || [],
+                      Results: event.Arguments?.Results || [],
+                      Analysis: event.Arguments?.Analysis || [],
+                      Challenge: event.Arguments?.Challenge || [],
+                      Ethical: event.Arguments?.Ethical || [],
+                      Implications: event.Arguments?.Implications || [],
+                      Contradictions: event.Arguments?.Contradictions || []
+                    }
+                  });
+        
+                  return baseData;
+                })
+              }))
+            };
+        
+            const jsonString = JSON.stringify(downloadData, null, 2);
+            
+            // Create blob and download link
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            
+            // Use the original file name 
+            const outputFilename = file.name.replace(/\.json$/, '') + '_annotated.json';
+            
+            link.href = url;
+            link.download = outputFilename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          } catch (error) {
+            console.error('Error downloading annotations:', error);
+          }
+          onClose();
+          break;
 
       default:
         onClose();
