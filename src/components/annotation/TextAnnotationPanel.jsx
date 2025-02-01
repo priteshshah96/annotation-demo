@@ -4,36 +4,23 @@ import Toast from './Toast';
 
 const HIGHLIGHT_COLORS = {
   'Main Action': 'bg-blue-200 hover:bg-blue-300',
-  'Arguments.Agent': 'bg-emerald-200 hover:bg-emerald-300',
+  'Arguments.Agent': 'bg-green-200 hover:bg-green-300',
   'Arguments.Object.Primary Object': 'bg-violet-200 hover:bg-violet-300',
   'Arguments.Object.Primary Modifier': 'bg-violet-200 hover:bg-violet-300',
   'Arguments.Object.Secondary Object': 'bg-violet-200 hover:bg-violet-300',
   'Arguments.Object.Secondary Modifier': 'bg-violet-200 hover:bg-violet-300',
-  'Arguments.Context': 'bg-amber-200 hover:bg-amber-300',
-  'Arguments.Purpose': 'bg-fuchsia-200 hover:bg-fuchsia-300',
-  'Arguments.Method': 'bg-purple-200 hover:bg-purple-300',
-  'Arguments.Results': 'bg-indigo-200 hover:bg-indigo-300',
-  'Arguments.Analysis': 'bg-sky-200 hover:bg-sky-300',
-  'Arguments.Challenge': 'bg-teal-200 hover:bg-teal-300',
-  'Arguments.Ethical': 'bg-yellow-200 hover:bg-yellow-300',
-  'Arguments.Implications': 'bg-red-200 hover:bg-red-300',
-  'Arguments.Contradictions': 'bg-rose-200 hover:bg-rose-300'
+  'Arguments.Context': 'bg-orange-200 hover:bg-orange-300',
+  'Arguments.Purpose': 'bg-pink-200 hover:bg-pink-300', 
+  'Arguments.Method': 'bg-red-200 hover:bg-red-300',
+  'Arguments.Results': 'bg-amber-200 hover:bg-amber-300',
+  'Arguments.Analysis': 'bg-lime-200 hover:bg-lime-300',
+  'Arguments.Challenge': 'bg-cyan-200 hover:bg-cyan-300',
+  'Arguments.Ethical': 'bg-emerald-200 hover:bg-emerald-300',
+  'Arguments.Implications': 'bg-red-400 hover:bg-red-700',
+  'Arguments.Contradictions': 'bg-fuchsia-200 hover:bg-fuchsia-300'
 };
 
-const BUTTON_COLORS = {
-  'blue': 'bg-blue-100 hover:bg-blue-200 text-blue-700',
-  'emerald': 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700',
-  'violet': 'bg-violet-100 hover:bg-violet-200 text-violet-700',
-  'amber': 'bg-amber-100 hover:bg-amber-200 text-amber-700',
-  'fuchsia': 'bg-fuchsia-100 hover:bg-fuchsia-200 text-fuchsia-700',
-  'purple': 'bg-purple-100 hover:bg-purple-200 text-purple-700',
-  'indigo': 'bg-indigo-100 hover:bg-indigo-200 text-indigo-700',
-  'sky': 'bg-sky-100 hover:bg-sky-200 text-sky-700',
-  'teal': 'bg-teal-100 hover:bg-teal-200 text-teal-700',
-  'yellow': 'bg-yellow-100 hover:bg-yellow-200 text-yellow-700',
-  'red': 'bg-red-100 hover:bg-red-200 text-red-700',
-  'rose': 'bg-rose-100 hover:bg-rose-200 text-rose-700'
-};
+const PERSISTENT_SELECTION_STYLE = 'bg-blue-100 border-2 border-blue-300 rounded';
 
 const KEYBOARD_SHORTCUTS = {
   'Main Action': '1',
@@ -55,22 +42,21 @@ const KEYBOARD_SHORTCUTS = {
 
 const ANNOTATION_BUTTONS = [
   { type: 'Main Action', label: 'Main Action', baseColor: 'blue', description: 'Primary action or event being described' },
-  { type: 'Agent', label: 'Agent', baseColor: 'emerald', description: 'Entity performing the action' },
-  { type: 'Object.Primary Object', label: 'Base Object', baseColor: 'violet', description: 'Primary object involved' },
-  { type: 'Object.Primary Modifier', label: 'Base Modifier', baseColor: 'violet', description: 'Describes Primary object' },
-  { type: 'Object.Secondary Object', label: 'Secondary Object', baseColor: 'violet', description: 'Connected to Primary object' },
-  { type: 'Object.Secondary Modifier', label: 'Secondary Modifier', baseColor: 'violet', description: 'Describes Secondary object' },
-  { type: 'Context', label: 'Context', baseColor: 'amber', description: 'Surrounding circumstances or conditions' },
-  { type: 'Purpose', label: 'Purpose', baseColor: 'fuchsia', description: 'Goal or intended outcome' },
-  { type: 'Method', label: 'Method', baseColor: 'purple', description: 'How the action is performed' },
-  { type: 'Results', label: 'Results', baseColor: 'indigo', description: 'Outcome or consequences' },
-  { type: 'Analysis', label: 'Analysis', baseColor: 'sky', description: 'Interpretation or evaluation' },
-  { type: 'Challenge', label: 'Challenge', baseColor: 'teal', description: 'Difficulties or obstacles' },
-  { type: 'Ethical', label: 'Ethical', baseColor: 'yellow', description: 'Moral or ethical considerations' },
-  { type: 'Implications', label: 'Implications', baseColor: 'red', description: 'Future impact or significance' },
-  { type: 'Contradictions', label: 'Contradictions', baseColor: 'rose', description: 'Inconsistencies or conflicts' }
+  { type: 'Agent', label: 'Agent', baseColor: 'green', description: 'Entity performing the action' },
+  { type: 'Object.Primary Object', label: 'Primary Object', baseColor: 'violet', description: 'Primary receiver of the action' },
+  { type: 'Object.Primary Modifier', label: 'Primary Modifier', baseColor: 'violet', description: 'Words describing the base object' },
+  { type: 'Object.Secondary Object', label: 'Secondary Object', baseColor: 'violet', description: 'Secondary receiver of the action' },
+  { type: 'Object.Secondary Modifier', label: 'Secondary Modifier', baseColor: 'violet', description: 'Words describing the attached object' },
+  { type: 'Context', label: 'Context', baseColor: 'orange', description: 'Surrounding circumstances or conditions' },
+  { type: 'Purpose', label: 'Purpose', baseColor: 'pink', description: 'Goal or intended outcome' },
+  { type: 'Method', label: 'Method', baseColor: 'red', description: 'How the action is performed' },
+  { type: 'Results', label: 'Results', baseColor: 'amber', description: 'Outcome or consequences' },
+  { type: 'Analysis', label: 'Analysis', baseColor: 'lime', description: 'Interpretation or evaluation' },
+  { type: 'Challenge', label: 'Challenge', baseColor: 'cyan', description: 'Difficulties or obstacles' },
+  { type: 'Ethical', label: 'Ethical', baseColor: 'emerald', description: 'Moral or ethical considerations' },
+  { type: 'Implications', label: 'Implications', baseColor: 'red-400', description: 'Future impact or significance' },
+  { type: 'Contradictions', label: 'Contradictions', baseColor: 'fuchsia', description: 'Inconsistencies or conflicts' }
 ];
-
 
 const TextAnnotationPanel = ({
   text,
@@ -82,6 +68,7 @@ const TextAnnotationPanel = ({
 }) => {
   const textRef = useRef(null);
   const textContainerRef = useRef(null);
+  const buttonsRef = useRef([]);
   const [localSelection, setLocalSelection] = useState(null);
   const [hoveredAnnotation, setHoveredAnnotation] = useState(null);
   const [showToast, setShowToast] = useState(null);
@@ -487,35 +474,37 @@ const renderedText = useMemo(() => {
             role="group"
             aria-labelledby="annotation-buttons-label"
           >
-            {ANNOTATION_BUTTONS.map((button) => {
-              const isDisabled = button.type !== 'Main Action' && !hasMainAction;
-              const shortcut = KEYBOARD_SHORTCUTS[button.type];
+            {ANNOTATION_BUTTONS.map((button, index) => {
+  const isDisabled = button.type !== 'Main Action' && !hasMainAction;
+  const shortcut = KEYBOARD_SHORTCUTS[button.type];
+  const buttonColor = button.type === 'Implications' 
+    ? `bg-red-400 hover:bg-red-500`
+    : `bg-${button.baseColor}-200 hover:bg-${button.baseColor}-300`;
 
-              return (
-                <button
-                  key={button.type}
-                  onClick={() => handleAnnotationClick(button.type)}
-                  disabled={isDisabled}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors
-                    focus:outline-none focus:ring-2 
-                    ${isDisabled 
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : `${BUTTON_COLORS[button.baseColor]} focus:ring-offset-2`
-                    }`}
-                  title={isDisabled
-                    ? 'Please annotate Main Action first'
-                    : `${button.description} (Shortcut: ${shortcut})`
-                  }
-                  aria-disabled={isDisabled}
-                >
-                  <span>{button.label}</span>
-                  <span className="ml-2 text-xs text-gray-500">
-                    {shortcut}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+  return (
+    <button
+      key={button.type}
+      ref={el => buttonsRef.current[index] = el}
+      onClick={() => handleAnnotationClick(button.type)}
+      disabled={isDisabled}
+      className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
+        ${isDisabled 
+          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          : buttonColor}`}
+      aria-label={`${button.label} (Press ${shortcut})`}
+      aria-disabled={isDisabled}
+      title={isDisabled
+        ? 'Please annotate Main Action first'
+        : `${button.description} (Shortcut: ${shortcut})`}
+    >
+      <span>{button.label}</span>
+      <span className="ml-2 text-xs text-gray-500">
+        {shortcut}
+      </span>
+    </button>
+  );
+})}
+      </div>
 
           <div 
             className="mt-4 text-sm text-gray-600"
