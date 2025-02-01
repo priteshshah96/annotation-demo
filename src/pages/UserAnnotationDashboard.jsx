@@ -666,7 +666,7 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
         progress={progress}
       />
 
-      <main className="pt-24 pb-20 px-4">
+<main className="pt-24 pb-20 px-4">
         <div className="max-w-[95%] mx-auto space-y-6">
           <AbstractSection
             abstract={currentPaper?.abstract}
@@ -691,16 +691,15 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
         </div>
       </main>
 
-      {!isViewMode && (
-        <AnnotationFooter
-          onPrevious={movePrevious}
-          onNext={isLastField ? handleCompletion : moveNext}
-          isFirstField={isFirstField}
-          isLastField={isLastField}
-          isCompleting={isCompleting}
-          isOnline={isOnline}
-        />
-      )}
+      {/* Modified footer condition to show in both edit and view modes */}
+      <AnnotationFooter
+        onPrevious={movePrevious}
+        onNext={isViewMode ? (isLastField ? handleBack : moveNext) : (isLastField ? handleCompletion : moveNext)}
+        isFirstField={isFirstField}
+        isLastField={isLastField}
+        isCompleting={isCompleting}
+        isOnline={isOnline}
+      />
 
       {SnackbarComponent}
     </div>

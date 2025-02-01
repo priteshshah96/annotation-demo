@@ -1,173 +1,144 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Container, 
-  Typography, 
-  Paper,
-  Box,
-  Divider,
-  IconButton,
-  Chip
-} from '@mui/material';
-import { ArrowBack, ExpandMore, ExpandLess } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import FileProgressViewer from './FileProgressViewer';
+import { useUser, useAuth } from '@clerk/clerk-react';
+import { useAnnotation } from '../hooks/useAnnotation';
+import { useAnnotationSync } from '../hooks/useAnnotationSync';
+import AnnotationHeader from '../components/annotation/AnnotationHeader';
+import AnnotationMain from '../components/annotation/AnnotationMain';
+import AnnotationFooter from '../components/annotation/AnnotationFooter';
+import AbstractSection from '../components/annotation/AbstractSection';
+import LoadingView from '../components/common/LoadingView';
+import ErrorView from '../components/common/ErrorView';
 
 const FileViewer = () => {
   const { fileId } = useParams();
   const navigate = useNavigate();
-  const [fileData, setFileData] = useState(null);
-  const [expandedAbstracts, setExpandedAbstracts] = useState({});
-  const [loading, setLoading] = useState(true);
+  const { user } = useUser();
+  const { isLoaded, isSignedIn } = useAuth();
+  const [isAbstractOpen, setIsAbstractOpen] = useState(false);
+  const [localFileData, setLocalFileData] = useState(null);
 
+  // Custom Hooks
+  const {
+    currentPosition,
+    fileData,
+    loading,
+    error,
+    moveNext,
+    movePrevious,
+    getCurrentEvent,
+    getCurrentPaper,
+    isFirstField,
+    isLastField,
+    loadFileData,
+    eventType,
+    progress
+  } = useAnnotation(fileId, navigate, user?.id);
+
+  const { 
+    syncStatus, 
+    isOnline 
+  } = useAnnotationSync(fileId, user?.id, loadFileData);
+
+  // Effect to update localFileData when fileData changes
   useEffect(() => {
-    const loadFileData = () => {
-      try {
-        // First load file metadata
-        const fileDataKey = `file-data-${fileId}`;
-        const rawFileData = localStorage.getItem(fileDataKey);
-        if (!rawFileData) throw new Error('File data not found');
-        
-        const fileMetadata = JSON.parse(rawFileData);
+    if (fileData) {
+      setLocalFileData(fileData);
+    }
+  }, [fileData]);
 
-        // Then load annotations
-        const annotations = {};
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key.startsWith(`annotation-${fileId}`)) {
-            const data = JSON.parse(localStorage.getItem(key));
-            annotations[key] = {
-              ...data,
-              abstractIndex: parseInt(key.split('-')[2]),
-              sentenceIndex: parseInt(key.split('-')[3]),
-              entityIndex: key.split('-')[4]
-            };
-          }
-        }
+  // Auth check effect
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      navigate('/sign-in');
+    }
+  }, [isLoaded, isSignedIn, navigate]);
 
-        setFileData({
-          metadata: fileMetadata,
-          annotations: annotations
-        });
-      } catch (error) {
-        console.error('Error loading file data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Early returns
+  if (!isLoaded || !user) {
+    return <LoadingView />;
+  }
 
-    loadFileData();
-  }, [fileId]);
-
-  const toggleAbstract = (abstractIndex) => {
-    setExpandedAbstracts(prev => ({
-      ...prev,
-      [abstractIndex]: !prev[abstractIndex]
-    }));
-  };
+  if (!isSignedIn) {
+    return null;
+  }
 
   if (loading) {
-    return (
-      <Container maxWidth="lg">
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          height: '50vh' 
-        }}>
-          <Typography>Loading annotations...</Typography>
-        </Box>
-      </Container>
-    );
+    return <LoadingView />;
   }
 
-  if (!fileData) {
-    return (
-      <Container maxWidth="lg">
-        <Box sx={{ py: 3 }}>
-          <Typography color="error">
-            No annotation data found for this file.
-          </Typography>
-          <Box sx={{ mt: 2 }}>
-            <IconButton onClick={() => navigate('/')}>
-              <ArrowBack />
-            </IconButton>
-          </Box>
-        </Box>
-      </Container>
-    );
+  if (error) {
+    return <ErrorView error={error} onBack={() => navigate('/')} />;
   }
+
+  const currentPaper = getCurrentPaper();
+  const currentEvent = getCurrentEvent();
+
+  if (!currentEvent || !currentPaper) {
+    return <ErrorView error="No data found" onBack={() => navigate('/')} />;
+  }
+
+  // Process annotations for display
+  const displayAnnotations = currentEvent?.ArgumentPositions 
+    ? Object.entries(currentEvent.ArgumentPositions).flatMap(([type, positions]) => 
+        positions.map((position, idx) => ({
+          text: type === 'Main Action' ? currentEvent['Main Action'] :
+               type.startsWith('Arguments.Object.') ? currentEvent.Arguments.Object[type.split('.').pop()][idx] :
+               currentEvent.Arguments[type.replace('Arguments.', '')][idx],
+          type: type.replace('Arguments.', ''),
+          start: position.start,
+          end: position.end,
+          id: `${type.toLowerCase()}-${idx}`,
+          annotationId: position.annotationId
+        }))
+      ).sort((a, b) => a.start - b.start)
+    : [];
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ py: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <IconButton onClick={() => navigate('/')} sx={{ mr: 2 }}>
-            <ArrowBack />
-          </IconButton>
-          <Typography variant="h5">
-            {fileData.metadata.name || 'Annotation Review'}
-          </Typography>
-        </Box>
+    <div className="min-h-screen bg-gray-50">
+      <AnnotationHeader
+        currentPaper={currentPaper}
+        currentPosition={currentPosition}
+        fileData={fileData}
+        syncStatus={syncStatus.status}
+        onBack={() => navigate('/')}
+        progress={progress}
+      />
 
-        <FileProgressViewer fileId={fileId} />
+      <main className="pt-24 pb-20 px-4">
+        <div className="max-w-[95%] mx-auto space-y-6">
+          <AbstractSection
+            abstract={currentPaper?.abstract}
+            isOpen={isAbstractOpen}
+            onToggle={() => setIsAbstractOpen(!isAbstractOpen)}
+          />
 
-        <Paper sx={{ p: 3 }}>
-          {Object.entries(fileData.annotations)
-            .sort((a, b) => {
-              const aIndices = a[1].abstractIndex * 1000 + a[1].sentenceIndex;
-              const bIndices = b[1].abstractIndex * 1000 + b[1].sentenceIndex;
-              return aIndices - bIndices;
-            })
-            .map(([key, annotation]) => {
-              const isExpanded = expandedAbstracts[annotation.abstractIndex];
+          <AnnotationMain
+            eventType={eventType}
+            cleanedEvent={currentEvent}
+            displayAnnotations={displayAnnotations}
+            selectedText={null}
+            onTextSelect={() => {}}
+            onAnnotationSelect={() => {}}
+            onAnnotationDelete={() => {}}
+            summaryInput={currentEvent[eventType] || ''}
+            onSummaryChange={() => {}}
+            onSummaryDelete={() => {}}
+            fileData={fileData}
+            isViewMode={true}
+          />
+        </div>
+      </main>
 
-              return (
-                <Box key={key} sx={{ mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <IconButton 
-                      onClick={() => toggleAbstract(annotation.abstractIndex)}
-                      size="small"
-                    >
-                      {isExpanded ? <ExpandLess /> : <ExpandMore />}
-                    </IconButton>
-                    <Typography variant="h6">
-                      Abstract {annotation.abstractIndex + 1}, 
-                      {annotation.entityIndex === '--1' 
-                        ? ` Sentence ${annotation.sentenceIndex + 1}`
-                        : ` Entity ${parseInt(annotation.entityIndex) + 1}`
-                      }
-                    </Typography>
-                  </Box>
-
-                  <Box sx={{ 
-                    pl: 4, 
-                    borderLeft: '2px solid',
-                    borderColor: 'primary.main',
-                    ml: 2 
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="subtitle1" sx={{ mr: 1 }}>
-                        {annotation.entityIndex === '--1' ? 'Sentence' : 'Entity'} Type:
-                      </Typography>
-                      <Chip 
-                        label={annotation.answer} 
-                        color="primary" 
-                        variant="outlined"
-                      />
-                    </Box>
-                    
-                    <Typography variant="caption" color="text.secondary">
-                      Last modified: {new Date(annotation.timestamp).toLocaleString()}
-                    </Typography>
-                  </Box>
-
-                  <Divider sx={{ my: 2 }} />
-                </Box>
-              );
-            })}
-        </Paper>
-      </Box>
-    </Container>
+      <AnnotationFooter
+        onPrevious={movePrevious}
+        onNext={moveNext}
+        isFirstField={isFirstField}
+        isLastField={isLastField}
+        isCompleting={false}
+        isOnline={isOnline}
+      />
+    </div>
   );
 };
 

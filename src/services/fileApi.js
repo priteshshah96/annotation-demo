@@ -101,11 +101,15 @@ export const fileApi = {
     if (!fileId) throw new Error('FileId is required');
 
     try {
-      const response = await api.files.resetAnnotations(fileId);
+      // Use the annotations namespace of the api client
+      const response = await api.annotations.reset(fileId);
+      
       if (!response.success) {
         throw new Error('Failed to reset annotations');
       }
-      return response;
+      
+      // Return both the file and annotations data
+      return await this.getFile(fileId);
     } catch (error) {
       console.error('Error resetting annotations:', error);
       throw error;
