@@ -50,7 +50,7 @@ const AnnotationMain = ({
           eventType={eventType}
           disabled={isViewMode}
           maxLength={100}
-          placeholder="Add a brief summary..."
+          placeholder="Please summarize the event text in a single sentence..."
         />
       </div>
 
@@ -59,6 +59,7 @@ const AnnotationMain = ({
           data={cleanedEvent}
           fullFileData={fileData}
           onRemoveAnnotation={isViewMode ? null : onAnnotationDelete}
+          onSummaryDelete={isViewMode ? null : onSummaryDelete} 
           readOnly={isViewMode}
         />
       </div>

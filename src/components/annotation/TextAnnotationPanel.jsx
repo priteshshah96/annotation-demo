@@ -128,6 +128,13 @@ const TextAnnotationPanel = ({
   }, []);
 
   const handleMouseDown = useCallback((e) => {
+    // Don't start selection if clicking delete button
+    if (e.target.closest('button[aria-label="Delete annotation"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  
     if (!textRef.current?.contains(e.target) || readOnly) {
       clearSelection();
       return;
@@ -357,26 +364,29 @@ const renderedText = useMemo(() => {
             <div 
               className="absolute bottom-full left-1/2 transform -translate-x-1/2 
                        px-2 py-1 bg-gray-800 text-white text-xs rounded 
-                       z-10 whitespace-nowrap mb-1 fade-in"
+                       z-30 whitespace-nowrap mb-1 fade-in pointer-events-none"
               onClick={(e) => e.stopPropagation()}
             >
               {range.type.replace(/\./g, ' → ')}
             </div>
           )}
           {!readOnly && (
-            <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onAnnotationDelete?.(range.type, range.annotationId);
-            }}
-            className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 
-                      bg-white rounded-full p-0.5 shadow-sm border border-gray-200
-                      transition-opacity duration-200 z-20"
-            aria-label="Delete annotation"
-          >
-            <X className="w-3 h-3 text-gray-500 hover:text-red-500" />
-          </button>
+            <span className="inline-flex relative">
+              <span className="absolute -top-5 -right-1 opacity-0 group-hover:opacity-100 translate-x-0 -translate-y-1/2">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onAnnotationDelete?.(range.type, range.annotationId);
+                  }}
+                  className="bg-white rounded-full p-[2px] shadow-sm border border-gray-200
+                            transition-opacity duration-200 hover:bg-gray-50"
+                  aria-label="Delete annotation"
+                >
+                  <X className="w-2 h-2 text-gray-500 hover:text-red-500" />
+                </button>
+              </span>
+            </span>
           )}
         </mark>
       );

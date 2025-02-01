@@ -17,7 +17,7 @@ const SummaryInput = ({
   eventType,
   disabled = false,
   maxLength = 100,
-  placeholder = "Add a brief summary..."
+  placeholder
 }) => {
   const [inputValue, setInputValue] = useState(value || '');
   const [status, setStatus] = useState(STATUS.IDLE);

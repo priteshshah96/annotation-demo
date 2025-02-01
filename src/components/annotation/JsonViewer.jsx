@@ -91,6 +91,7 @@ const JsonViewer = ({
   data = {}, 
   fullFileData = null,
   onRemoveAnnotation,
+  onSummaryDelete,
   readOnly = false 
 }) => {
   const [expandedPaths, setExpandedPaths] = useState(new Set(['Arguments', 'Arguments.Object']));
@@ -242,14 +243,19 @@ const JsonViewer = ({
 
   const handleRemoveAnnotation = useCallback(async (path, annotationId) => {
     try {
+      // For event types (summaries), use onSummaryDelete
+      if (EVENT_TYPES.includes(path)) {
+        await onSummaryDelete?.();
+        return;
+      }
+
+      // For other annotations, use existing logic
       await onRemoveAnnotation?.(path, annotationId);
 
       setLocalData(prevData => {
         const newData = { ...prevData };
         
-        if (EVENT_TYPES.includes(path)) {
-          delete newData[path];
-        } else if (path === 'Main Action') {
+        if (path === 'Main Action') {
           newData['Main Action'] = null;
         } else {
           const pathParts = path.split('.');
@@ -285,7 +291,7 @@ const JsonViewer = ({
     } catch (error) {
       console.error('Error removing annotation:', error);
     }
-  }, [onRemoveAnnotation, data?.ArgumentPositions]);
+  }, [onRemoveAnnotation, onSummaryDelete, data?.ArgumentPositions]);
 
   const renderValue = (value, path) => {
     if (Array.isArray(value)) {

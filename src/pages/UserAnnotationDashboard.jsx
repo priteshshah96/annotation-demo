@@ -14,6 +14,8 @@ import TutorialDialog from '../components/annotation/TutorialDialog';
 import LoadingView from '../components/common/LoadingView';
 import ErrorView from '../components/common/ErrorView';
 
+
+
 const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   console.log('Dashboard initializing with mode:', mode);
 
@@ -54,7 +56,6 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
     error,
     moveNext,
     movePrevious,
-    handleAnnotationSave,
     getCurrentEvent,
     getCurrentPaper,
     isFirstField,
