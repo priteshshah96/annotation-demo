@@ -125,56 +125,66 @@ router.post('/', asyncHandler(async (req, res) => {
   // Process the answer
   const processedAnswer = processAnnotationAnswer(answer);
 
-  // Check for existing annotation
-  const existingAnnotation = await Annotation.findOne({
-    fileId,
-    userId: mongoUserId,
-    paperIndex,
-    eventIndex,
-    fieldPath
-  });
-
-  // Handle deletion cases (explicit delete or null processed answer)
-  if (isDelete || processedAnswer === null) {
-    if (existingAnnotation) {
-      await Annotation.deleteOne({ _id: existingAnnotation._id });
-      return res.json({
-        success: true,
-        message: 'Annotation deleted successfully',
-        deletedAnnotation: existingAnnotation
+   // Handle deletion cases
+   if (isDelete || processedAnswer === null) {
+    if (annotationId) {
+      // Delete specific annotation by annotationId
+      await Annotation.deleteOne({ annotationId });
+    } else {
+      // Delete all annotations for this field (for backwards compatibility)
+      await Annotation.deleteMany({ 
+        fileId, 
+        userId: mongoUserId,
+        paperIndex,
+        eventIndex,
+        fieldPath 
       });
     }
     return res.json({
       success: true,
-      message: 'No annotation to delete'
+      message: 'Annotation deleted successfully'
     });
   }
 
-  // If annotation exists, update it
-  if (existingAnnotation) {
-    const updatedAnnotation = await Annotation.findByIdAndUpdate(
-      existingAnnotation._id,
-      {
-        $set: {
-          answer: processedAnswer,
-          timestamp: new Date()
-        }
-      },
-      { new: true }
-    );
+  // Check if this is a single-value field (Main Action or Event Types)
+  const isSingleValueField = fieldPath === 'Main Action' || 
+    AnnotationTypes.EVENT_TYPE.includes(fieldPath);
 
-    return res.json({
-      success: true,
-      annotation: updatedAnnotation,
-      message: 'Annotation updated successfully'
+  if (isSingleValueField) {
+    // For single-value fields, find and update or create new
+    const existingAnnotation = await Annotation.findOne({
+      fileId,
+      userId: mongoUserId,
+      paperIndex,
+      eventIndex,
+      fieldPath
     });
+
+    if (existingAnnotation) {
+      const updatedAnnotation = await Annotation.findByIdAndUpdate(
+        existingAnnotation._id,
+        {
+          $set: {
+            answer: processedAnswer,
+            timestamp: new Date()
+          }
+        },
+        { new: true }
+      );
+
+      return res.json({
+        success: true,
+        annotation: updatedAnnotation,
+        message: 'Annotation updated successfully'
+      });
+    }
   }
 
-  // If no existing annotation, create new one
+  // For multi-value fields (Arguments) or new single-value fields
+  // Calculate next array index (only for multi-value fields)
   let arrayIndex;
-  // Only set arrayIndex for non-event types and non-main action
-  if (!AnnotationTypes.EVENT_TYPE.includes(fieldPath) && fieldPath !== AnnotationTypes.MAIN_ACTION) {
-    const prevAnnotation = await Annotation.findOne({
+  if (!isSingleValueField) {
+    const lastAnnotation = await Annotation.findOne({
       fileId,
       userId: mongoUserId,
       paperIndex,
@@ -182,9 +192,10 @@ router.post('/', asyncHandler(async (req, res) => {
       fieldPath
     }).sort({ arrayIndex: -1 });
 
-    arrayIndex = prevAnnotation ? prevAnnotation.arrayIndex + 1 : 0;
+    arrayIndex = lastAnnotation ? (lastAnnotation.arrayIndex + 1) : 0;
   }
- 
+
+  // Create new annotation
   const newAnnotation = await Annotation.create({
     annotationId: new mongoose.Types.ObjectId().toString(),
     fileId,
@@ -196,7 +207,7 @@ router.post('/', asyncHandler(async (req, res) => {
     arrayIndex,
     timestamp: new Date()
   });
- 
+
   res.json({
     success: true,
     annotation: newAnnotation,

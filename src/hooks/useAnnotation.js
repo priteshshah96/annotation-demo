@@ -37,8 +37,8 @@ export function useAnnotation(fileId, navigate, userId) {
     });
   }, []);
 
-  const loadFileData = useCallback(async () => {
-    if (!fileId || loadingRef.current || !mountedRef.current || !userId) {
+  const loadFileData = useCallback(async (force = false) => {
+    if ((!fileId || loadingRef.current || !mountedRef.current || !userId) && !force) {
       console.log('Skipping loadFileData:', { fileId, loading: loadingRef.current, mounted: mountedRef.current, userId });
       return;
     }
@@ -67,7 +67,6 @@ export function useAnnotation(fileId, navigate, userId) {
       safeSetState(prev => ({
         ...prev,
         fileData: data,
-        currentPosition: { paperIndex: 0, eventIndex: 0 },
         loading: false,
         error: null
       }));

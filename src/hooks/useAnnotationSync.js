@@ -79,34 +79,28 @@ export function useAnnotationSync(fileId, userId, onRefreshNeeded) {
       return { success: false, error: 'Missing fileId or userId' };
     }
   
-    const annotation = {
-      fileId,
-      paperIndex,
-      eventIndex,
-      fieldPath,
-      answer,
-      isDelete,
-      annotationId,
-      userId
-    };
-  
-    if (!isOnlineRef.current) {
-      queueAnnotation(annotation);
-      updateSyncStatus(SYNC_STATES.OFFLINE);
-      return { success: false, error: 'Offline - queued for sync' };
-    }
-  
     try {
-      const result = await annotationApi.saveAnnotation(annotation);
+      const result = await annotationApi.saveAnnotation({
+        fileId,
+        paperIndex,
+        eventIndex,
+        fieldPath,
+        answer,
+        isDelete,
+        annotationId,
+        userId
+      });
+  
       updateSyncStatus(SYNC_STATES.SAVED);
+      
+      // Return success without forcing full refresh
       return { success: true, data: result };
     } catch (error) {
       console.error('Sync error:', error);
-      queueAnnotation(annotation);
       updateSyncStatus(SYNC_STATES.ERROR, error.message);
       return { success: false, error };
     }
-  }, [fileId, userId, updateSyncStatus, queueAnnotation]);
+  }, [fileId, userId, updateSyncStatus]);
 
   const finalizeSync = useCallback(async () => {
     if (!fileId || !userId) {

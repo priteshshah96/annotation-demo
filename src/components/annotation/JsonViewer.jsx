@@ -93,81 +93,82 @@ const JsonViewer = ({
   onRemoveAnnotation,
   onSummaryDelete,
   readOnly = false,
-  fileName = null
 }) => {
+  // State for UI management only
   const [expandedPaths, setExpandedPaths] = useState(new Set(['Arguments', 'Arguments.Object']));
-  const [localData, setLocalData] = useState(data);
+  
+  // Process data for clean display and download
+  const processEventData = useCallback((event) => {
+    // Find which event type exists in this event
+    const eventType = EVENT_TYPES.find(type => type in event);
+    
+    // Create the base data structure with all fields initialized
+    const processedData = {
+      // Always include the event type with empty string if not present
+      ...(eventType ? { [eventType]: event[eventType] || '' } : {}),
+      'Text': event.Text || '',
+      'Main Action': event['Main Action'] || '',
+      'Arguments': {
+        Agent: event.Arguments?.Agent || [],
+        Object: {
+          'Primary Object': event.Arguments?.Object?.['Primary Object'] || [],
+          'Primary Modifier': event.Arguments?.Object?.['Primary Modifier'] || [],
+          'Secondary Object': event.Arguments?.Object?.['Secondary Object'] || [],
+          'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || []
+        },
+        Context: event.Arguments?.Context || [],
+        Purpose: event.Arguments?.Purpose || [],
+        Method: event.Arguments?.Method || [],
+        Results: event.Arguments?.Results || [],
+        Analysis: event.Arguments?.Analysis || [],
+        Challenge: event.Arguments?.Challenge || [],
+        Ethical: event.Arguments?.Ethical || [],
+        Implications: event.Arguments?.Implications || [],
+        Contradictions: event.Arguments?.Contradictions || []
+      }
+    };
+  
+    // Ensure the event type is always included even if empty
+    EVENT_TYPES.forEach(type => {
+      if (!(type in processedData)) {
+        processedData[type] = '';
+      }
+    });
+  
+    return processedData;
+  }, []);
 
-  const handleDownload = () => {
+  useEffect(() => {
+    // Force re-render when data changes
+    setExpandedPaths(prev => new Set(prev));
+  }, [data]);
+
+  const handleDownload = useCallback(() => {
     try {
-      if (!fullFileData?.papers) {
+      // Use either fullFileData or data, whichever is available
+      const sourceData = fullFileData || data;
+      
+      if (!sourceData?.papers) {
         console.error('No file data available for download');
         return;
       }
   
-      // Create clean version matching input format exactly
       const downloadData = {
-        papers: fullFileData.papers.map(paper => ({
+        papers: sourceData.papers.map(paper => ({
           paper_code: paper.paper_code || '',
           abstract: paper.abstract || '',
-          events: paper.events.map(event => {
-            // Find active event type by checking if it exists in the event
-            const activeEventType = EVENT_TYPES.find(type => type in event);
-            
-            // Start with event type as first property
-            const baseData = {};
-            if (activeEventType) {
-              baseData[activeEventType] = event[activeEventType] || '';
-            }
-            
-            // Add remaining properties
-            Object.assign(baseData, {
-              Text: event.Text || '',
-              'Main Action': event['Main Action'] || '',
-              Arguments: {
-                Agent: event.Arguments?.Agent || [],
-                Object: {
-                  'Primary Object': event.Arguments?.Object?.['Primary Object'] || [],
-                  'Primary Modifier': event.Arguments?.Object?.['Primary Modifier'] || [],
-                  'Secondary Object': event.Arguments?.Object?.['Secondary Object'] || [],
-                  'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || []
-                },
-                Context: event.Arguments?.Context || [],
-                Purpose: event.Arguments?.Purpose || [],
-                Method: event.Arguments?.Method || [],
-                Results: event.Arguments?.Results || [],
-                Analysis: event.Arguments?.Analysis || [],
-                Challenge: event.Arguments?.Challenge || [],
-                Ethical: event.Arguments?.Ethical || [],
-                Implications: event.Arguments?.Implications || [],
-                Contradictions: event.Arguments?.Contradictions || []
-              }
-            });
-  
-            return baseData;
-          })
+          events: paper.events.map(event => processEventData(event))
         }))
       };
   
-      // Convert to JSON string with nice formatting
       const jsonString = JSON.stringify(downloadData, null, 2);
-      
-      // Create blob and download link
-      // Create blob and download link
       const blob = new Blob([jsonString], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       
-      // Use the original file name from fullFileData
-      let outputFilename;
-      if (fullFileData.name) {
-        // Strip .json extension if present and add _annotated.json
-        outputFilename = fullFileData.name.replace(/\.json$/, '') + '_annotated.json';
-      } else {
-        // Fallback to paper_code if no filename
-        const paperCode = fullFileData.papers[0]?.paper_code || 'unknown';
-        outputFilename = `${paperCode}_annotated.json`;
-      }
+      const outputFilename = sourceData.name ? 
+        sourceData.name.replace(/\.json$/, '') + '_annotated.json' :
+        `${sourceData.papers[0]?.paper_code || 'unknown'}_annotated.json`;
       
       link.href = url;
       link.download = outputFilename;
@@ -178,51 +179,9 @@ const JsonViewer = ({
     } catch (error) {
       console.error('Error downloading JSON:', error);
     }
-  };
+  }, [fullFileData, data, processEventData]);
 
-  // Update local data and fullFileData when props change
-  useEffect(() => {
-    setLocalData(prevData => {
-      if (!data) return prevData;
-      
-      // Find the active event type and its value
-      const activeEventType = EVENT_TYPES.find(type => type in data && data[type] !== '');
-      
-      // Create new data object with simplified structure
-      const processedData = {
-        // Keep event type with empty string if it exists in data
-        ...EVENT_TYPES.reduce((acc, type) => {
-          if (type in data) {
-            acc[type] = data[type] || '';
-          }
-          return acc;
-        }, {}),
-        'Text': data.Text || '',
-        'Main Action': data['Main Action'] || '',
-        'Arguments': data.Arguments || {}
-      };
-      
-      // Also update the fullFileData if it exists
-      if (fullFileData?.papers) {
-        const currentPaper = fullFileData.papers[0];
-        if (currentPaper) {
-          const eventIndex = currentPaper.events.findIndex(event => 
-            event.Text === data.Text
-          );
-          if (eventIndex !== -1) {
-            currentPaper.events[eventIndex] = {
-              ...currentPaper.events[eventIndex],
-              ...processedData
-            };
-          }
-        }
-      }
-      
-      return processedData;
-    });
-  }, [data, fullFileData]);
-
-  const togglePath = (path) => {
+  const togglePath = useCallback((path) => {
     setExpandedPaths(prev => {
       const newSet = new Set(prev);
       if (newSet.has(path)) {
@@ -232,9 +191,9 @@ const JsonViewer = ({
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const getAnnotationId = (path, index) => {
+  const getAnnotationId = useCallback((path, index) => {
     let lookupPath = path;
     
     if (path === 'Main Action') {
@@ -248,61 +207,34 @@ const JsonViewer = ({
     }
 
     return data?.ArgumentPositions?.[lookupPath]?.[index]?.annotationId;
-  };
+  }, [data?.ArgumentPositions]);
 
   const handleRemoveAnnotation = useCallback(async (path, annotationId) => {
     try {
-      // For event types (summaries), use onSummaryDelete
-      if (EVENT_TYPES.includes(path)) {
-        await onSummaryDelete?.();
+      if (!annotationId) {
+        console.warn('No annotation ID provided for deletion');
         return;
       }
-
-      // For other annotations, use existing logic
-      await onRemoveAnnotation?.(path, annotationId);
-
-      setLocalData(prevData => {
-        const newData = { ...prevData };
-        
-        if (path === 'Main Action') {
-          newData['Main Action'] = null;
-        } else {
-          const pathParts = path.split('.');
-          let current = newData;
-          
-          for (let i = 0; i < pathParts.length - 1; i++) {
-            if (!current[pathParts[i]]) break;
-            current = current[pathParts[i]];
-          }
-
-          const lastPath = pathParts[pathParts.length - 1];
-          if (Array.isArray(current[lastPath])) {
-            const fullPath = path.startsWith('Object.') ? 
-              `Arguments.Object.${path.slice(7)}` : 
-              path.startsWith('Arguments.') ? path : `Arguments.${path}`;
-              
-            const index = data?.ArgumentPositions?.[fullPath]
-              ?.findIndex(pos => pos.annotationId === annotationId) ?? -1;
-            
-            if (index > -1) {
-              current[lastPath].splice(index, 1);
-              if (current[lastPath].length === 0) {
-                delete current[lastPath];
-              }
-            }
-          } else {
-            delete current[lastPath];
-          }
-        }
-
-        return newData;
-      });
+    
+      // Simply call the parent's delete handler - let it handle the state updates
+      if (EVENT_TYPES.includes(path)) {
+        await onSummaryDelete?.();
+      } else {
+        await onRemoveAnnotation?.(path, annotationId);
+      }
     } catch (error) {
       console.error('Error removing annotation:', error);
     }
-  }, [onRemoveAnnotation, onSummaryDelete, data?.ArgumentPositions]);
+  }, [onRemoveAnnotation, onSummaryDelete]);
+  
+  // Add this useEffect to ensure we re-render when data changes
+  useEffect(() => {
+    if (data || fullFileData) {
+      setExpandedPaths(prev => new Set([...prev]));
+    }
+  }, [data, fullFileData]);
 
-  const renderValue = (value, path) => {
+  const renderValue = useCallback((value, path) => {
     if (Array.isArray(value)) {
       return (
         <div className="flex flex-col">
@@ -361,9 +293,9 @@ const JsonViewer = ({
         )}
       </div>
     );
-  };
+  }, [getAnnotationId, handleRemoveAnnotation, readOnly]);
 
-  const renderArgumentField = (key, value, depth) => {
+  const renderArgumentField = useCallback((key, value, depth) => {
     if (key === 'Object') {
       const isExpanded = expandedPaths.has(`Arguments.Object`);
       
@@ -397,9 +329,9 @@ const JsonViewer = ({
         {renderValue(value || '', key)}
       </div>
     );
-  };
+  }, [expandedPaths, renderValue, togglePath]);
 
-  const renderField = (key, value, depth = 0) => {
+  const renderField = useCallback((key, value, depth = 0) => {
     if (key === 'Arguments') {
       const isExpanded = expandedPaths.has('Arguments');
       
@@ -415,73 +347,72 @@ const JsonViewer = ({
           {ARGUMENTS_ORDER.map((argKey, index) => (
             <React.Fragment key={argKey}>
               {renderArgumentField(argKey, value[argKey] || '', depth + 1)}
-              {index < ARGUMENTS_ORDER.length - 1
-              && <span className={SYNTAX_COLORS.comma}>,</span>}
-              </React.Fragment>
-            ))}
-          </CollapsibleField>
-        );
-      }
-  
-      return (
-        <div key={key} className="flex items-center group py-0.5 font-mono">
-          <span className={SYNTAX_COLORS.key}>{`${'  '.repeat(depth)}"${key}"`}</span>
-          <span className={SYNTAX_COLORS.colon}>: </span>
-          {renderValue(value || '', key)}
-        </div>
-      );
-    };
-  
-    if (!localData || Object.keys(localData).length === 0) {
-      return (
-        <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden border border-gray-800">
-          <div className="bg-gray-800/50 px-4 py-3 flex justify-between items-center border-b border-gray-700">
-            <h3 className="text-gray-100 font-medium tracking-wide">JSON Output</h3>
-          </div>
-          <div className="p-4 text-sm text-gray-400">
-            No data available
-          </div>
-        </div>
+              {index < ARGUMENTS_ORDER.length - 1 && <span className={SYNTAX_COLORS.comma}>,</span>}
+            </React.Fragment>
+          ))}
+        </CollapsibleField>
       );
     }
-  
+
+    return (
+      <div key={key} className="flex items-center group py-0.5 font-mono">
+        <span className={SYNTAX_COLORS.key}>{`${'  '.repeat(depth)}"${key}"`}</span>
+        <span className={SYNTAX_COLORS.colon}>: </span>
+        {renderValue(value || '', key)}
+      </div>
+    );
+  }, [expandedPaths, renderArgumentField, renderValue, togglePath]);
+
+  if (!data || Object.keys(data).length === 0) {
     return (
       <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden border border-gray-800">
         <div className="bg-gray-800/50 px-4 py-3 flex justify-between items-center border-b border-gray-700">
           <h3 className="text-gray-100 font-medium tracking-wide">JSON Output</h3>
-          <button
-            onClick={handleDownload}
-            className="p-2 hover:bg-gray-700 rounded-lg transition-colors
-                     focus:outline-none focus:ring-2 focus:ring-blue-500"
-            title="Download complete annotations"
-          >
-            <Download className="w-4 h-4 text-gray-400 hover:text-gray-300" />
-          </button>
         </div>
-  
-        <div className="p-4 text-sm overflow-auto max-h-[calc(100vh-24rem)]">
-          <div className={SYNTAX_COLORS.bracket}>{'{'}</div>
-          <div className="ml-4">
-            {Object.entries(localData)
-              .sort((a, b) => {
-                // Custom sort to ensure event type appears first
-                if (EVENT_TYPES.includes(a[0])) return -1;
-                if (EVENT_TYPES.includes(b[0])) return 1;
-                return FIELD_ORDER.indexOf(a[0]) - FIELD_ORDER.indexOf(b[0]);
-              })
-              .map(([key, value], index, array) => (
-                <React.Fragment key={key}>
-                  {renderField(key, value, 1)}
-                  {index < array.length - 1 && (
-                    <span className={SYNTAX_COLORS.comma}>,</span>
-                  )}
-                </React.Fragment>
-              ))}
-          </div>
-          <div className={SYNTAX_COLORS.bracket}>{'}'}</div>
+        <div className="p-4 text-sm text-gray-400">
+          No data available
         </div>
       </div>
     );
-  };
-  
-  export default JsonViewer;
+  }
+
+  return (
+    <div className="bg-gray-900 rounded-xl shadow-lg overflow-hidden border border-gray-800">
+      <div className="bg-gray-800/50 px-4 py-3 flex justify-between items-center border-b border-gray-700">
+        <h3 className="text-gray-100 font-medium tracking-wide">JSON Output</h3>
+        <button
+          onClick={handleDownload}
+          className="p-2 hover:bg-gray-700 rounded-lg transition-colors
+                   focus:outline-none focus:ring-2 focus:ring-blue-500"
+          title="Download complete annotations"
+        >
+          <Download className="w-4 h-4 text-gray-400 hover:text-gray-300" />
+        </button>
+      </div>
+
+      <div className="p-4 text-sm overflow-auto max-h-[calc(100vh-24rem)]">
+        <div className={SYNTAX_COLORS.bracket}>{'{'}</div>
+        <div className="ml-4">
+          {Object.entries(data)
+            .filter(([key]) => key !== 'ArgumentPositions')
+            .sort((a, b) => {
+              if (EVENT_TYPES.includes(a[0])) return -1;
+              if (EVENT_TYPES.includes(b[0])) return 1;
+              return FIELD_ORDER.indexOf(a[0]) - FIELD_ORDER.indexOf(b[0]);
+            })
+            .map(([key, value], index, array) => (
+              <React.Fragment key={key}>
+                {renderField(key, value, 1)}
+                {index < array.length - 1 && (
+                  <span className={SYNTAX_COLORS.comma}>,</span>
+                )}
+              </React.Fragment>
+            ))}
+        </div>
+        <div className={SYNTAX_COLORS.bracket}>{'}'}</div>
+      </div>
+    </div>
+  );
+};
+
+export default JsonViewer;
