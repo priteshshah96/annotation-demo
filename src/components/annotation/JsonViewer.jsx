@@ -94,46 +94,38 @@ const JsonViewer = ({
   onSummaryDelete,
   readOnly = false,
 }) => {
-  // State for UI management only
   const [expandedPaths, setExpandedPaths] = useState(new Set(['Arguments', 'Arguments.Object']));
   
-  // Process data for clean display and download
   const processEventData = useCallback((event) => {
-    // Find which event type exists in this event
+    // Find which event type is present (if any)
     const eventType = EVENT_TYPES.find(type => type in event);
     
-    // Create the base data structure with all fields initialized
-    const processedData = {
-      // Always include the event type with empty string if not present
-      ...(eventType ? { [eventType]: event[eventType] || '' } : {}),
-      'Text': event.Text || '',
-      'Main Action': event['Main Action'] || '',
-      'Arguments': {
-        Agent: event.Arguments?.Agent || [],
-        Object: {
-          'Primary Object': event.Arguments?.Object?.['Primary Object'] || [],
-          'Primary Modifier': event.Arguments?.Object?.['Primary Modifier'] || [],
-          'Secondary Object': event.Arguments?.Object?.['Secondary Object'] || [],
-          'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || []
-        },
-        Context: event.Arguments?.Context || [],
-        Purpose: event.Arguments?.Purpose || [],
-        Method: event.Arguments?.Method || [],
-        Results: event.Arguments?.Results || [],
-        Analysis: event.Arguments?.Analysis || [],
-        Challenge: event.Arguments?.Challenge || [],
-        Ethical: event.Arguments?.Ethical || [],
-        Implications: event.Arguments?.Implications || [],
-        Contradictions: event.Arguments?.Contradictions || []
-      }
-    };
+    // Create base data structure with event type if it exists
+    const processedData = eventType 
+      ? { [eventType]: event[eventType] } 
+      : {};
   
-    // Ensure the event type is always included even if empty
-    EVENT_TYPES.forEach(type => {
-      if (!(type in processedData)) {
-        processedData[type] = '';
-      }
-    });
+    // Add other fields
+    processedData['Text'] = event.Text || '';
+    processedData['Main Action'] = event['Main Action'] || '';
+    processedData['Arguments'] = {
+      Agent: event.Arguments?.Agent || [],
+      Object: {
+        'Primary Object': event.Arguments?.Object?.['Primary Object'] || [],
+        'Primary Modifier': event.Arguments?.Object?.['Primary Modifier'] || [],
+        'Secondary Object': event.Arguments?.Object?.['Secondary Object'] || [],
+        'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || []
+      },
+      Context: event.Arguments?.Context || [],
+      Purpose: event.Arguments?.Purpose || [],
+      Method: event.Arguments?.Method || [],
+      Results: event.Arguments?.Results || [],
+      Analysis: event.Arguments?.Analysis || [],
+      Challenge: event.Arguments?.Challenge || [],
+      Ethical: event.Arguments?.Ethical || [],
+      Implications: event.Arguments?.Implications || [],
+      Contradictions: event.Arguments?.Contradictions || []
+    };
   
     return processedData;
   }, []);

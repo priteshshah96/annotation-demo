@@ -382,111 +382,108 @@ const handleAnnotationDelete = useCallback(async (type, annotationId) => {
   }
 }, [currentPosition, syncAnnotation, showSnackbar, fileData]);
 
-  const handleSummaryDelete = useCallback(async () => {
-    console.log('Summary delete triggered');
-    if (!eventType || !currentPosition || mode === 'view') return;
-  
-    try {
-      const currentEvent = getCurrentEvent();
-      console.log('Current event before deletion:', currentEvent);
+const handleSummaryDelete = useCallback(async () => {
+  console.log('Summary delete triggered');
+  if (!eventType || !currentPosition || mode === 'view') return;
+
+  try {
+    const currentEvent = getCurrentEvent();
+    console.log('Current event before deletion:', currentEvent);
+    
+    // Send update request with empty string instead of delete
+    const response = await syncAnnotation({
+      fieldPath: eventType,
+      answer: { text: '' },  // Changed from null to empty string
+      paperIndex: currentPosition.paperIndex,
+      eventIndex: currentPosition.eventIndex,
+      isDelete: false  // Changed to false since we're updating with empty string
+    });
+
+    if (!response.success) throw new Error('Failed to update');
+
+    setLocalFileData(prev => {
+      if (!prev?.papers) return prev;
+      const newData = JSON.parse(JSON.stringify(prev));
+      const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
       
-      // Send explicit delete request
-      const response = await syncAnnotation({
-        fieldPath: eventType,
-        answer: null,
-        paperIndex: currentPosition.paperIndex,
-        eventIndex: currentPosition.eventIndex,
-        isDelete: true  // Changed to true for explicit deletion
-      });
-  
-      if (!response.success) throw new Error('Failed to delete');
-  
-      setLocalFileData(prev => {
-        if (!prev?.papers) return prev;
-        const newData = JSON.parse(JSON.stringify(prev));
-        const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
+      if (currentEvent) {
+        // Set empty string instead of deleting
+        currentEvent[eventType] = '';
         
-        if (currentEvent) {
-          // Completely remove the event type field
-          delete currentEvent[eventType];
-          
-          // Remove from ArgumentPositions if it exists
-          if (currentEvent.ArgumentPositions?.[eventType]) {
-            delete currentEvent.ArgumentPositions[eventType];
-          }
+        // Clear annotations but maintain the structure
+        if (!currentEvent.ArgumentPositions) {
+          currentEvent.ArgumentPositions = {};
+        }
+        currentEvent.ArgumentPositions[eventType] = [];
+      }
+      
+      return newData;
+    });
+
+    setSummaryInput('');  // Clear the input
+    setLastSaved(new Date());
+    showSnackbar(SUCCESS_MESSAGES.SUMMARY_DELETED, "success");
+    console.log('Summary cleared successfully');
+  } catch (error) {
+    console.error('Error clearing summary:', error);
+    showSnackbar(ERROR_MESSAGES.DELETE_FAILED, "error");
+  }
+}, [eventType, currentPosition, mode, syncAnnotation, showSnackbar, getCurrentEvent]);
+
+const handleSummaryChange = useCallback(async (newValue) => {
+  console.log('Summary change triggered with:', { newValue, eventType, currentPosition });
+  if (!eventType || !currentPosition || mode === 'view') return;
+  
+  try {
+    const trimmedValue = typeof newValue === 'string' ? newValue.trim() : 
+                        Array.isArray(newValue) ? newValue[0]?.trim() : '';
+
+    // Always send an update, even for empty strings
+    const response = await syncAnnotation({
+      fieldPath: eventType,
+      answer: { text: trimmedValue },
+      paperIndex: currentPosition.paperIndex,
+      eventIndex: currentPosition.eventIndex
+    });
+
+    if (!response.success) throw new Error('Failed to save');
+
+    setLocalFileData(prev => {
+      if (!prev?.papers) return prev;
+      const newData = JSON.parse(JSON.stringify(prev));
+      const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
+      
+      if (currentEvent) {
+        currentEvent[eventType] = trimmedValue;
+        
+        if (!currentEvent.ArgumentPositions) {
+          currentEvent.ArgumentPositions = {};
         }
         
-        return newData;
-      });
-  
-      setSummaryInput('');  // Clear the input
-      setLastSaved(new Date());
-      showSnackbar(SUCCESS_MESSAGES.SUMMARY_DELETED, "success");
-      console.log('Summary deleted successfully');
-    } catch (error) {
-      console.error('Error deleting summary:', error);
-      showSnackbar(ERROR_MESSAGES.DELETE_FAILED, "error");
-    }
-  }, [eventType, currentPosition, mode, syncAnnotation, showSnackbar, getCurrentEvent]);
-  
-  const handleSummaryChange = useCallback(async (newValue) => {
-    console.log('Summary change triggered with:', { newValue, eventType, currentPosition });
-    if (!eventType || !currentPosition || mode === 'view') return;
-    
-    try {
-      // Handle null, undefined, or empty string cases
-      if (newValue === null || newValue === undefined || newValue === '') {
-        console.log('Empty value detected, triggering delete');
-        await handleSummaryDelete();
-        return;
-      }
-  
-      const trimmedValue = typeof newValue === 'string' ? newValue.trim() : 
-                          Array.isArray(newValue) ? newValue[0]?.trim() : '';
-  
-      // If trimmed to empty, trigger delete
-      if (!trimmedValue) {
-        console.log('Trimmed to empty, triggering delete');
-        await handleSummaryDelete();
-        return;
-      }
-  
-      const response = await syncAnnotation({
-        fieldPath: eventType,
-        answer: { text: trimmedValue },
-        paperIndex: currentPosition.paperIndex,
-        eventIndex: currentPosition.eventIndex
-      });
-  
-      if (!response.success) throw new Error('Failed to save');
-  
-      setLocalFileData(prev => {
-        if (!prev?.papers) return prev;
-        const newData = JSON.parse(JSON.stringify(prev));
-        const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
-        
-        if (currentEvent) {
-          currentEvent[eventType] = trimmedValue;
-          
-          if (!currentEvent.ArgumentPositions) {
-            currentEvent.ArgumentPositions = {};
-          }
+        if (trimmedValue) {
+          // If there's a value, set the annotation ID
           currentEvent.ArgumentPositions[eventType] = [{
             annotationId: response.data.annotationId
           }];
+        } else {
+          // If empty, clear annotations but maintain structure
+          currentEvent.ArgumentPositions[eventType] = [];
         }
-        
-        return newData;
-      });
-  
-      setLastSaved(new Date());
-      showSnackbar(SUCCESS_MESSAGES.SUMMARY_SAVED, "success");
-    } catch (error) {
-      console.error('Error saving summary:', error);
-      showSnackbar('Failed to save summary', "error");
-    }
-  }, [eventType, currentPosition, mode, syncAnnotation, handleSummaryDelete, showSnackbar]);
-  
+      }
+      
+      return newData;
+    });
+
+    setLastSaved(new Date());
+    showSnackbar(
+      trimmedValue ? SUCCESS_MESSAGES.SUMMARY_SAVED : SUCCESS_MESSAGES.SUMMARY_DELETED, 
+      "success"
+    );
+  } catch (error) {
+    console.error('Error saving summary:', error);
+    showSnackbar('Failed to save summary', "error");
+  }
+}, [eventType, currentPosition, mode, syncAnnotation, showSnackbar]);
   
 
   const handleCompletion = useCallback(async () => {
