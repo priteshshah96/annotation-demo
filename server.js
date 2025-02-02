@@ -8,6 +8,12 @@ import { File } from './src/models/File.js';
 import { Annotation } from './src/models/Annotation.js';
 import { connectDB } from './src/lib/db.js';
 import annotationRoutes from './src/routes/annotationRoutes.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Add this near your other configuration
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
@@ -31,11 +37,19 @@ process.on('unhandledRejection', (error) => {
 
 // Basic Middleware Setup
 const corsOptions = {
-  origin: ['http://localhost:5173', process.env.CLIENT_URL, 'https://annotation-demo.onrender.com'].filter(Boolean),
+  origin: [
+    'http://localhost:5173', 
+    'https://annotation-demo.onrender.com'
+  ].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
+
+// Add health check route
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
 
 app.use(cors(corsOptions));
 
@@ -338,12 +352,27 @@ app.use('/api/annotations', (err, req, res, next) => {
 
 // ---------- PRODUCTION SETUP ----------
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('dist'));
-  app.get('*', (req, res) => {
-    res.sendFile(new URL('./dist/index.html', import.meta.url).pathname);
+  // Serve static files
+  app.use(express.static(path.join(__dirname, 'dist')));
+  
+  // Handle API routes first
+  app.use('/api', (req, res, next) => {
+    next(); // Just pass through API routes
+  });
+
+  // Handle Clerk authentication routes
+  app.get(['/sign-in', '/sign-up', '/sign-in/*', '/sign-up/*'], (req, res) => {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  });
+
+  // Handle all other routes with React Router
+  app.get('*', (req, res, next) => {
+    if (req.url.startsWith('/api/')) {
+      return next();
+    }
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
   });
 }
-
 // ---------- ERROR HANDLING ----------
 // Catch-all error handler
 app.use((err, req, res, next) => {

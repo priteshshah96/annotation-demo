@@ -1,16 +1,12 @@
 services:
   - type: web
     name: annotation-demo
-    env: node
-    buildCommand: |
-      npm ci
-      npm run build
-    startCommand: node server.js
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: NODE_ENV=production node server.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 3000
       - key: VITE_MONGODB_URI
         sync: false
       - key: VITE_CLERK_PUBLISHABLE_KEY
@@ -19,5 +15,3 @@ services:
         sync: false
       - key: CLIENT_URL
         value: https://annotation-demo.onrender.com
-    staticPublishPath: ./dist
-    autoDeploy: true

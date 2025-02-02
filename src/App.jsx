@@ -13,7 +13,6 @@ if (!clerkPubKey) {
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { isSignedIn, isLoaded } = useAuth();
-  const { user } = useUser();
   
   if (!isLoaded) {
     return (
@@ -37,10 +36,82 @@ function ClerkProviderWithRoutes() {
     <ClerkProvider 
       publishableKey={clerkPubKey}
       navigate={(to) => navigate(to)}
+      appearance={{
+        baseTheme: "dark",
+        variables: {
+          colorPrimary: "rgb(79, 70, 229)",
+          colorBackground: "rgb(17, 24, 39)",
+          colorText: "white",
+          colorTextSecondary: "rgb(156, 163, 175)",
+          colorInputBackground: "rgb(31, 41, 55)",
+          colorInputText: "white",
+          fontFamily: "Inter, sans-serif",
+          borderRadius: "0.5rem"
+        },
+        elements: {
+          card: {
+            backgroundColor: "rgb(24, 31, 41)",
+            borderRadius: "1rem",
+            boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)"
+          },
+          formButtonPrimary: {
+            backgroundColor: "rgb(79, 70, 229)",
+            "&:hover": {
+              backgroundColor: "rgb(67, 56, 202)"
+            }
+          },
+          formFieldInput: {
+            borderColor: "rgb(75, 85, 99)",
+            "&:focus": {
+              borderColor: "rgb(79, 70, 229)",
+              boxShadow: "0 0 0 2px rgba(79, 70, 229, 0.25)"
+            }
+          }
+        }
+      }}
     >
       <Routes>
-        <Route path="/sign-in" element={<SignIn routing="path" path="/sign-in" />} />
-        <Route path="/sign-up" element={<SignUp routing="path" path="/sign-up" />} />
+        <Route 
+          path="/sign-in" 
+          element={
+            <SignIn 
+              appearance={{
+                elements: {
+                  rootBox: {
+                    boxShadow: "none",
+                    width: "100%",
+                    margin: "0 auto"
+                  }
+                }
+              }}
+              routing="path"
+              signUpUrl="/sign-up"
+              redirectUrl="/"
+              afterSignInUrl="/"
+            />
+          } 
+        />
+        <Route 
+          path="/sign-up" 
+          element={
+            <SignUp 
+              appearance={{
+                elements: {
+                  rootBox: {
+                    boxShadow: "none",
+                    width: "100%",
+                    margin: "0 auto"
+                  }
+                }
+              }}
+              routing="path"
+              signInUrl="/sign-in"
+              redirectUrl="/"
+              afterSignUpUrl="/"
+            />
+          } 
+        />
+        
         <Route 
           path="/" 
           element={
@@ -49,6 +120,7 @@ function ClerkProviderWithRoutes() {
             </ProtectedRoute>
           } 
         />
+        
         <Route 
           path="/file/:fileId" 
           element={
@@ -57,6 +129,7 @@ function ClerkProviderWithRoutes() {
             </ProtectedRoute>
           } 
         />
+        
         <Route 
           path="/annotate/:fileId" 
           element={
@@ -65,23 +138,11 @@ function ClerkProviderWithRoutes() {
             </ProtectedRoute>
           } 
         />
-        {/* Catch-all route for 404 */}
+
+        {/* Handle all other routes */}
         <Route 
           path="*" 
-          element={
-            <div className="flex justify-center items-center h-screen">
-              <div className="text-center">
-                <h1 className="text-4xl font-bold text-gray-800 mb-4">404</h1>
-                <p className="text-gray-600 mb-4">Page not found</p>
-                <button
-                  onClick={() => navigate('/')}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                >
-                  Go Home
-                </button>
-              </div>
-            </div>
-          } 
+          element={<Navigate to="/" replace />} 
         />
       </Routes>
     </ClerkProvider>
