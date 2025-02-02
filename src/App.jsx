@@ -71,10 +71,14 @@ function ClerkProviderWithRoutes() {
       }}
     >
       <Routes>
+        {/* Sign In Route */}
         <Route 
-          path="/sign-in" 
+          path="/sign-in/*" 
           element={
             <SignIn 
+              path="/sign-in"
+              routing="path"
+              redirectToRoute="/"
               appearance={{
                 elements: {
                   rootBox: {
@@ -84,17 +88,18 @@ function ClerkProviderWithRoutes() {
                   }
                 }
               }}
-              routing="path"
-              signUpUrl="/sign-up"
-              redirectUrl="/"
-              afterSignInUrl="/"
             />
           } 
         />
+
+        {/* Sign Up Route */}
         <Route 
-          path="/sign-up" 
+          path="/sign-up/*" 
           element={
             <SignUp 
+              path="/sign-up"
+              routing="path"
+              redirectToRoute="/"
               appearance={{
                 elements: {
                   rootBox: {
@@ -104,14 +109,11 @@ function ClerkProviderWithRoutes() {
                   }
                 }
               }}
-              routing="path"
-              signInUrl="/sign-in"
-              redirectUrl="/"
-              afterSignUpUrl="/"
             />
           } 
         />
         
+        {/* Protected Routes */}
         <Route 
           path="/" 
           element={
@@ -139,7 +141,7 @@ function ClerkProviderWithRoutes() {
           } 
         />
 
-        {/* Handle all other routes */}
+        {/* Catch all unknown routes */}
         <Route 
           path="*" 
           element={<Navigate to="/" replace />} 

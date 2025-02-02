@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, HelpCircle, Info, Save } from 'lucide-react';
 
 const SYNC_STATUS_STYLES = {
@@ -31,15 +31,29 @@ const HelpButton = memo(({ icon: Icon, label, onClick }) => (
                   px-2 py-1 bg-gray-900 text-white text-sm rounded whitespace-nowrap z-50
                   mb-2 top-0">
       {label}
-      {/* Add triangle pointer */}
       <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 
                     border-4 border-transparent border-t-gray-900"/>
     </div>
   </div>
 ));
 
-const SyncStatus = memo(({ status, lastSaved }) => {
-  const message = lastSaved && status === 'saved'  // Changed from 'SAVED' to 'saved'
+const SyncStatus = memo(({ status: initialStatus, lastSaved }) => {
+  const [status, setStatus] = useState(initialStatus);
+
+  useEffect(() => {
+    // If we're initializing, transition to saved after a delay
+    if (initialStatus === 'initializing') {
+      const timer = setTimeout(() => {
+        setStatus('saved');
+      }, 1500);
+      return () => clearTimeout(timer);
+    } else {
+      // For all other status changes, update immediately
+      setStatus(initialStatus);
+    }
+  }, [initialStatus]);
+
+  const message = lastSaved && status === 'saved'
     ? `Last saved at ${new Intl.DateTimeFormat('en-US', {
         hour: 'numeric',
         minute: 'numeric'
