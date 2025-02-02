@@ -1,5 +1,5 @@
 // App.jsx
-import { ClerkProvider, SignIn, SignUp, useAuth, useUser } from '@clerk/clerk-react';
+import { ClerkProvider, SignIn, SignUp, useAuth } from '@clerk/clerk-react';
 import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import UserDashboard from './pages/UserDashboard';
 import UserAnnotationDashboard from './pages/UserAnnotationDashboard';
@@ -10,7 +10,6 @@ if (!clerkPubKey) {
   throw new Error("Missing Clerk Publishable Key");
 }
 
-// Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { isSignedIn, isLoaded } = useAuth();
   
@@ -66,54 +65,45 @@ function ClerkProviderWithRoutes() {
               borderColor: "rgb(79, 70, 229)",
               boxShadow: "0 0 0 2px rgba(79, 70, 229, 0.25)"
             }
+          },
+          rootBox: {
+            width: "100%",
+            margin: "0 auto",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: "100vh"
           }
         }
       }}
     >
       <Routes>
-        {/* Sign In Route */}
         <Route 
           path="/sign-in/*" 
           element={
-            <SignIn 
-              path="/sign-in"
-              routing="path"
-              redirectToRoute="/"
-              appearance={{
-                elements: {
-                  rootBox: {
-                    boxShadow: "none",
-                    width: "100%",
-                    margin: "0 auto"
-                  }
-                }
-              }}
-            />
+            <div className="flex justify-center items-center min-h-screen w-full">
+              <SignIn 
+                path="/sign-in"
+                routing="path"
+                redirectToRoute="/"
+              />
+            </div>
           } 
         />
 
-        {/* Sign Up Route */}
         <Route 
           path="/sign-up/*" 
           element={
-            <SignUp 
-              path="/sign-up"
-              routing="path"
-              redirectToRoute="/"
-              appearance={{
-                elements: {
-                  rootBox: {
-                    boxShadow: "none",
-                    width: "100%",
-                    margin: "0 auto"
-                  }
-                }
-              }}
-            />
+            <div className="flex justify-center items-center min-h-screen w-full">
+              <SignUp 
+                path="/sign-up"
+                routing="path"
+                redirectToRoute="/"
+              />
+            </div>
           } 
         />
         
-        {/* Protected Routes */}
         <Route 
           path="/" 
           element={
@@ -141,7 +131,6 @@ function ClerkProviderWithRoutes() {
           } 
         />
 
-        {/* Catch all unknown routes */}
         <Route 
           path="*" 
           element={<Navigate to="/" replace />} 
