@@ -405,7 +405,7 @@ const renderedText = useMemo(() => {
   readOnly,
   onAnnotationDelete
 ]);
-eturn (
+return (
   <div className="space-y-6" role="application" aria-label="Text Annotation Panel">
     {toasts.map((toast, index) => (
       <Toast 
