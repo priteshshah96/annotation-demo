@@ -21,8 +21,8 @@ const Toast = ({ message, onClose, type = 'error', index = 0 }) => {
 
   return (
     <div 
-      className="fixed left-1/2 transform -translate-x-1/2 z-50 transition-all duration-300 ease-in-out"
-      style={{ top: topPosition }}
+      className="fixed left-1/2 transform -translate-x-1/2 z-50 transition-all duration-300 ease-in-out" 
+      style={{ top: `${(index * 5) + 2}rem` }}  // Changed back to top positioning
     >
       <div className={`${bgColor} border ${borderColor} ${textColor} px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 min-w-[300px]`}>
         <Icon className={`w-5 h-5 ${iconColor} flex-shrink-0`} />

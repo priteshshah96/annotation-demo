@@ -18,7 +18,8 @@ const AnnotationMain = ({
   fileData,
   localFileData,
   isViewMode,
-  onHasUnsavedChanges // Add this prop
+  onHasUnsavedChanges,
+  showToast // Add this prop
 }) => {
   const [summaryStatus, setSummaryStatus] = useState('idle');
   const shouldDisableDownload = summaryStatus === 'saving' || summaryStatus === 'unsaved';
@@ -58,6 +59,7 @@ const AnnotationMain = ({
             onAnnotationDelete={handleAnnotationDelete}
             eventType={eventType}
             readOnly={isViewMode}
+            showToast={showToast} // Pass through to TextAnnotationPanel
           />
         </div>
       </div>

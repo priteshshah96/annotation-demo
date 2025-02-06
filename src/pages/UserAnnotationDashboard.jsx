@@ -795,6 +795,7 @@ const handleMovePrevious = useCallback(() => {
             localFileData={localFileData}  
             isViewMode={isViewMode}
             onHasUnsavedChanges={setHasUnsavedChanges} // Add this line
+            showToast={showToast}
           />
         </div>
       </main>

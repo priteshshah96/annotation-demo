@@ -1,6 +1,5 @@
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { X } from 'lucide-react';
-import Toast from './Toast';
 
 const HIGHLIGHT_COLORS = {
   'Main Action': 'bg-blue-200 hover:bg-blue-300',
@@ -64,7 +63,8 @@ const TextAnnotationPanel = ({
   onTextSelect,
   onAnnotationSelect,
   onAnnotationDelete,
-  readOnly = false
+  readOnly = false,
+  showToast
 }) => {
   const textRef = useRef(null);
   const textContainerRef = useRef(null);
@@ -72,21 +72,6 @@ const TextAnnotationPanel = ({
   const [localSelection, setLocalSelection] = useState(null);
   const [hoveredAnnotation, setHoveredAnnotation] = useState(null);
   const [isSelecting, setIsSelecting] = useState(false);
-  const [toasts, setToasts] = useState([]);
-
-  const showToast = useCallback((message, type = 'error') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
-    }, 5000);
-  }, []);
-  
-  const hideToast = useCallback((id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
-  }, []);
 
 
   const hasMainAction = useMemo(() => 
@@ -164,7 +149,7 @@ const TextAnnotationPanel = ({
       clearSelection();
       showToast('Please keep your selection inside the text box.', 'error');
     }
-  }, [isSelecting, clearSelection]);
+  }, [isSelecting, clearSelection, showToast]);
 
   const handleMouseUp = useCallback((e) => {
     if (readOnly) return;
@@ -217,14 +202,14 @@ const TextAnnotationPanel = ({
 
     setLocalSelection(adjustedIndices);
     onTextSelect(adjustedIndices);
-  }, [readOnly, annotations, clearSelection, onTextSelect, getExactIndices]);
+  }, [readOnly, annotations, clearSelection, onTextSelect, getExactIndices, showToast]);
 
   const handleMouseLeave = useCallback(() => {
     if (isSelecting) {
       clearSelection();
       showToast('Please keep your selection inside the text box.', 'error');
     }
-  }, [isSelecting, clearSelection]);
+  }, [isSelecting, clearSelection, showToast]);
 
   const handleAnnotationClick = useCallback((type) => {
     if (!localSelection) {
@@ -245,7 +230,7 @@ const TextAnnotationPanel = ({
     onAnnotationSelect(fieldPath, localSelection);
     clearSelection();
     showToast(`Added ${type} annotation`, 'success');
-  }, [localSelection, hasMainAction, onAnnotationSelect, clearSelection]);
+  }, [localSelection, hasMainAction, onAnnotationSelect, clearSelection, showToast]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -272,7 +257,7 @@ const TextAnnotationPanel = ({
   
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [localSelection, clearSelection, handleAnnotationClick]);
+  }, [localSelection, clearSelection, handleAnnotationClick, showToast]);
 
   // Calculate ranges outside renderedText
   const calculateRanges = useMemo(() => {
@@ -407,15 +392,6 @@ const renderedText = useMemo(() => {
 ]);
 return (
   <div className="space-y-6" role="application" aria-label="Text Annotation Panel">
-    {toasts.map((toast, index) => (
-      <Toast 
-        key={toast.id}
-        message={toast.message}
-        type={toast.type}
-        onClose={() => hideToast(toast.id)}
-        index={index}
-      />
-    ))}
 
       <div aria-live="polite" className="sr-only">
         {localSelection ? `Selected text: ${localSelection.text}` : ''}
