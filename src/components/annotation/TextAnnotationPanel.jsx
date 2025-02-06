@@ -58,7 +58,7 @@ const ANNOTATION_BUTTONS = [
   { type: 'Contradictions', label: 'Contradictions', baseColor: 'fuchsia', description: 'Inconsistencies or conflicts' }
 ];
 
-cconst TextAnnotationPanel = ({
+const TextAnnotationPanel = ({
   text,
   annotations = [],
   onTextSelect,
