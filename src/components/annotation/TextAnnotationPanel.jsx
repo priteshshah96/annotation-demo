@@ -162,7 +162,7 @@ const TextAnnotationPanel = ({
 
     if (!textRef.current?.contains(e.target)) {
       clearSelection();
-      showToast('Please keep your selection inside the text box.','error'  );
+      showToast('Please keep your selection inside the text box.', 'error');
     }
   }, [isSelecting, clearSelection]);
 
@@ -179,7 +179,7 @@ const TextAnnotationPanel = ({
 
     if (!isStartInPanel || !isEndInPanel) {
       clearSelection();
-      showToast('Please keep your selection inside the text box.','error');
+      showToast('Please keep your selection inside the text box.', 'error');
       return;
     }
 
@@ -222,7 +222,7 @@ const TextAnnotationPanel = ({
   const handleMouseLeave = useCallback(() => {
     if (isSelecting) {
       clearSelection();
-      showToast('Please keep your selection inside the text box.','error');
+      showToast('Please keep your selection inside the text box.', 'error');
     }
   }, [isSelecting, clearSelection]);
 
@@ -233,7 +233,7 @@ const TextAnnotationPanel = ({
     }
   
     if (type !== 'Main Action' && !hasMainAction) {
-      showToast('Please annotate Main Action first','error');
+      showToast('Please annotate Main Action first', 'error');
       return;
     }
   
