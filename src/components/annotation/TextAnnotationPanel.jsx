@@ -58,7 +58,7 @@ const ANNOTATION_BUTTONS = [
   { type: 'Contradictions', label: 'Contradictions', baseColor: 'fuchsia', description: 'Inconsistencies or conflicts' }
 ];
 
-const TextAnnotationPanel = ({
+cconst TextAnnotationPanel = ({
   text,
   annotations = [],
   onTextSelect,
@@ -71,9 +71,8 @@ const TextAnnotationPanel = ({
   const buttonsRef = useRef([]);
   const [localSelection, setLocalSelection] = useState(null);
   const [hoveredAnnotation, setHoveredAnnotation] = useState(null);
-  const [toasts, setToasts] = useState([]);
   const [isSelecting, setIsSelecting] = useState(false);
-
+  const [toasts, setToasts] = useState([]);
 
   const showToast = useCallback((message, type = 'error') => {
     const id = Date.now();
@@ -88,6 +87,7 @@ const TextAnnotationPanel = ({
   const hideToast = useCallback((id) => {
     setToasts(prev => prev.filter(toast => toast.id !== id));
   }, []);
+
 
   const hasMainAction = useMemo(() => 
     annotations.some(annotation => annotation.type === 'Main Action'),
@@ -405,17 +405,17 @@ const renderedText = useMemo(() => {
   readOnly,
   onAnnotationDelete
 ]);
-  return (
-    <div className="space-y-6" role="application" aria-label="Text Annotation Panel">
-      {toasts.map((toast, index) => (
-        <Toast 
-          key={toast.id}
-          message={toast.message}
-          type={toast.type}
-          onClose={() => hideToast(toast.id)}
-          index={index}
-        />
-      ))}
+eturn (
+  <div className="space-y-6" role="application" aria-label="Text Annotation Panel">
+    {toasts.map((toast, index) => (
+      <Toast 
+        key={toast.id}
+        message={toast.message}
+        type={toast.type}
+        onClose={() => hideToast(toast.id)}
+        index={index}
+      />
+    ))}
 
       <div aria-live="polite" className="sr-only">
         {localSelection ? `Selected text: ${localSelection.text}` : ''}
