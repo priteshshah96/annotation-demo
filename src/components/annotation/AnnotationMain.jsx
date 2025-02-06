@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import TextAnnotationPanel from './TextAnnotationPanel';
 import JsonViewer from './JsonViewer';
 import SummaryInput from './SummaryInput';
@@ -18,6 +18,12 @@ const AnnotationMain = ({
   localFileData,
   isViewMode
 }) => {
+  // Add state for tracking summary status
+  const [summaryStatus, setSummaryStatus] = useState('idle');
+  
+  // Should disable download if status is 'saving' OR 'unsaved'
+  const shouldDisableDownload = summaryStatus === 'saving' || summaryStatus === 'unsaved';
+
   // Create a single handler for annotation deletion that both components will use
   const handleAnnotationDelete = async (type, annotationId) => {
     if (isViewMode) return;
@@ -64,6 +70,7 @@ const AnnotationMain = ({
             eventType={eventType}
             disabled={isViewMode}
             maxLength={100}
+            onStatusChange={setSummaryStatus}
             placeholder="Please summarize the event text in a single sentence..."
           />
         </div>
@@ -75,6 +82,8 @@ const AnnotationMain = ({
             onRemoveAnnotation={handleAnnotationDelete}
             onSummaryDelete={isViewMode ? null : onSummaryDelete} 
             readOnly={isViewMode}
+            disableDownload={shouldDisableDownload}
+            summaryStatus={summaryStatus}
           />
         </div>
       </div>

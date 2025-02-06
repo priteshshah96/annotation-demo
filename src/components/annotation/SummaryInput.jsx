@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Check, Loader2, X } from 'lucide-react';
-import _ from 'lodash';
 import Toast from './Toast';
 
 const STATUS = {
   IDLE: 'idle',
   SAVING: 'saving',
   SAVED: 'saved',
-  ERROR: 'error'
+  ERROR: 'error',
+  UNSAVED: 'unsaved'  // New status for unsaved changes
 };
 
 const SummaryInput = ({ 
@@ -17,88 +17,85 @@ const SummaryInput = ({
   eventType,
   disabled = false,
   maxLength = 100,
+  onStatusChange,
   placeholder
 }) => {
   const [inputValue, setInputValue] = useState(value || '');
   const [status, setStatus] = useState(STATUS.IDLE);
   const [error, setError] = useState(null);
   const [previousValue, setPreviousValue] = useState(value);
-  const [toast, setToast] = useState(null);
-  
-  const showToast = (message, type) => {
-    setToast({ message, type });
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  const [showSuccessFlash, setShowSuccessFlash] = useState(false);
+
+  const handleSave = async (newValue) => {
+    if (!eventType || !onChange) return;
+    if (newValue === value) {
+      setHasUnsavedChanges(false);
+      return;
+    }
+
+    setStatus(STATUS.SAVING);
+    setError(null);
+
+    try {
+      await onChange(newValue);
+      setStatus(STATUS.SAVED);
+      setHasUnsavedChanges(false);
+      setShowSuccessFlash(true);  // Show green flash
+      setTimeout(() => {
+        setShowSuccessFlash(false);
+        setStatus(STATUS.IDLE);
+      }, 1000);  // Remove flash after 1 second
+      
+      // Status is handled by parent component
+      setPreviousValue(newValue);
+    } catch (err) {
+      console.error('Save error:', err);
+      setError(err.message || 'Failed to save summary');
+      setStatus(STATUS.ERROR);
+      // Error handling by parent component
+      setTimeout(() => {
+        setStatus(STATUS.IDLE);
+        setError(null);
+      }, 3000);
+    }
   };
-
-  const hideToast = () => {
-    setToast(null);
-  };
-  
-  const debouncedSave = useCallback(
-    _.debounce(async (newValue) => {
-      if (!eventType || !onChange) return;
-      if (newValue === value) return;
-
-      setStatus(STATUS.SAVING);
-      setError(null);
-
-      try {
-        await onChange(newValue);
-        setStatus(STATUS.SAVED);
-        setTimeout(() => setStatus(STATUS.IDLE), 2000);
-        
-        if (!previousValue) {
-          showToast(`${eventType} summary added`, 'success');
-        } else {
-          showToast(`${eventType} summary updated`, 'success');
-        }
-        setPreviousValue(newValue);
-      } catch (err) {
-        console.error('Save error:', err);
-        setError(err.message || 'Failed to save summary');
-        setStatus(STATUS.ERROR);
-        showToast(`Failed to save ${eventType} summary`, 'error');
-        setTimeout(() => {
-          setStatus(STATUS.IDLE);
-          setError(null);
-        }, 3000);
-      }
-    }, 1000),
-    [onChange, value, eventType, previousValue]
-  );
 
   useEffect(() => {
     setInputValue(value || '');
     setPreviousValue(value);
+    setHasUnsavedChanges(false);
   }, [value]);
 
-  useEffect(() => {
-    return () => {
-      debouncedSave.cancel();
-    };
-  }, [debouncedSave]);
+    // When status changes, notify parent
+    useEffect(() => {
+      onStatusChange?.(status);
+    }, [status, onStatusChange]);
 
   const handleClear = async () => {
     if (!onDelete || !eventType) return;
 
     try {
-      // Cancel any pending saves
-      debouncedSave.cancel();
-      
       setStatus(STATUS.SAVING);
       await onDelete();
       
       // Clear states
       setInputValue('');
       setPreviousValue('');
+      setHasUnsavedChanges(false);
       
-      setStatus(STATUS.SAVED);
-      showToast(`${eventType} summary deleted`, 'success');
-      setTimeout(() => setStatus(STATUS.IDLE), 2000);
+      // Show success flash
+      setShowSuccessFlash(true);
+      setTimeout(() => {
+        setShowSuccessFlash(false);
+        setStatus(STATUS.IDLE);
+      }, 1000);
     } catch (err) {
       console.error('Clear error:', err);
       setError('Failed to clear summary');
       setStatus(STATUS.ERROR);
-      showToast(`Failed to delete ${eventType} summary`, 'error');
+      // Error handling by parent component
       setTimeout(() => {
         setStatus(STATUS.IDLE);
         setError(null);
@@ -110,15 +107,16 @@ const SummaryInput = ({
     const newValue = e.target.value;
     setInputValue(newValue);
     
-    // If empty value, cancel debounced save and trigger delete
+    // If the value is different from the saved value, show unsaved changes
+    if (newValue !== value) {
+      setStatus(STATUS.UNSAVED);
+      setHasUnsavedChanges(true);
+    }
+    
+    // If empty value, trigger clear but don't show empty notification
     if (!newValue.trim() && onDelete) {
-      debouncedSave.cancel();
       handleClear();
       return;
-    }
-
-    if (eventType) {
-      debouncedSave(newValue);
     }
   };
 
@@ -126,7 +124,7 @@ const SummaryInput = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (eventType) {
-        debouncedSave.flush();
+        handleSave(inputValue);
       }
     }
   };
@@ -137,13 +135,7 @@ const SummaryInput = ({
       role="form"
       aria-label={`${eventType || 'Event'} summary input`}
     >
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={hideToast}
-        />
-      )}
+
 
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">
@@ -176,11 +168,18 @@ const SummaryInput = ({
       
       <div className="relative mb-2">
         <textarea
-          className="w-full p-3 border border-gray-300 rounded-lg min-h-[5rem]
-                    resize-none text-sm focus:ring-2 focus:ring-blue-500 
-                    focus:border-transparent transition-all disabled:bg-gray-50
-                    disabled:text-gray-500 disabled:cursor-not-allowed
-                    pr-16"
+          className={`w-full p-3 border-2 rounded-lg min-h-[5rem]
+                    resize-none text-base
+                    transition-all duration-300 ease-in-out
+                    disabled:bg-gray-50 disabled:text-gray-500 
+                    disabled:cursor-not-allowed pr-16
+                    focus:outline-none
+                    ${hasUnsavedChanges 
+                      ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)] text-gray-700 bg-red-50/30' 
+                      : showSuccessFlash
+                        ? 'border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.4)] text-gray-700 bg-green-50/30'
+                        : 'border-gray-300 hover:border-gray-400 focus:border-blue-400 focus:shadow-[0_0_15px_rgba(59,130,246,0.3)]'
+                    }`}
           placeholder={placeholder}
           value={inputValue}
           onChange={handleChange}
@@ -201,11 +200,21 @@ const SummaryInput = ({
       <div className="flex justify-between items-center">
         <p 
           id="summary-help-text"
-          className="text-sm text-gray-500"
+          className={`text-sm font-medium transition-all duration-300 ${
+            hasUnsavedChanges 
+              ? 'text-red-500' 
+              : showSuccessFlash
+                ? 'text-green-500'
+                : 'text-gray-500'
+          }`}
         >
-          {eventType ? 
-            'Press Enter to save immediately, or wait for auto-save after typing.' :
-            'Please select an event type to add a summary.'}
+          {eventType 
+            ? (hasUnsavedChanges 
+                ? 'Press Enter to save'
+                : showSuccessFlash
+                  ? 'Changes saved!'
+                  : 'Edit text and press Enter to save')
+            : 'Please select an event type to add a summary.'}
         </p>
         
         {inputValue && !disabled && eventType && (

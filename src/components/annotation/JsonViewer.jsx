@@ -87,12 +87,15 @@ const CollapsibleField = ({
   );
 };
 
+// In JsonViewer.jsx - Update the prop types
 const JsonViewer = ({ 
   data = {}, 
   fullFileData = null,
   onRemoveAnnotation,
   onSummaryDelete,
   readOnly = false,
+  disableDownload = false,
+  summaryStatus = 'idle'  
 }) => {
   const [expandedPaths, setExpandedPaths] = useState(new Set(['Arguments', 'Arguments.Object']));
   
@@ -208,9 +211,9 @@ const JsonViewer = ({
         return;
       }
     
-      // Simply call the parent's delete handler - let it handle the state updates
+      // This generates a notification
       if (EVENT_TYPES.includes(path)) {
-        await onSummaryDelete?.();
+        await onSummaryDelete?.();  // This triggers a notification
       } else {
         await onRemoveAnnotation?.(path, annotationId);
       }
@@ -374,11 +377,17 @@ const JsonViewer = ({
         <h3 className="text-gray-100 font-medium tracking-wide">JSON Output</h3>
         <button
           onClick={handleDownload}
-          className="p-2 hover:bg-gray-700 rounded-lg transition-colors
-                   focus:outline-none focus:ring-2 focus:ring-blue-500"
-          title="Download complete annotations"
+          disabled={disableDownload}
+          className={`p-2 ${disableDownload ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'} 
+                   rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500`}
+          title={disableDownload ? "Please save all changes before downloading" : "Download complete annotations"}
         >
           <Download className="w-4 h-4 text-gray-400 hover:text-gray-300" />
+          {disableDownload && (
+            <span className="absolute top-0 right-0 -mt-1 -mr-1 px-2 py-0.5 text-xs bg-yellow-500 text-black rounded-full">
+              {summaryStatus === 'saving' ? 'Saving...' : 'Unsaved'}
+            </span>
+          )}
         </button>
       </div>
 
