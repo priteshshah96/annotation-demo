@@ -17,7 +17,8 @@ import FileActionsMenu from '../components/dashboard/FileActionsMenu';
 
 // Services & Utilities
 import { fileApi } from '../services/fileApi';
-import { useSnackbar } from '../hooks/useSnackbar';
+import Toast from '../components/annotation/Toast';
+
 
 const UserDashboard = () => {
   // Auth & Navigation
@@ -32,9 +33,22 @@ const UserDashboard = () => {
   const [selectedFileId, setSelectedFileId] = useState(null);
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const [showDocs, setShowDocs] = useState(false);
+  const [toastS, setToastS] = useState(null);
 
-  // Custom Hooks
-  const { showSnackbar, SnackbarComponent } = useSnackbar();
+   // Toast handlers
+   const showToast = (message, type = 'error') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 5000);
+  };
+  
+  const hideToast = (id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  };
 
   // Navigation Handlers
   const handleNavigate = (path) => {
@@ -58,9 +72,9 @@ const UserDashboard = () => {
     try {
       await fileApi.deleteFile(selectedFileId);
       await fetchDashboardData();
-      showSnackbar('File deleted successfully', 'success');
+      showToast('File deleted successfully', 'success');
     } catch (error) {
-      showSnackbar('Error deleting file', 'error');
+      showToast('Error deleting file', 'error');
     }
     handleMenuClose();
   };
@@ -80,9 +94,9 @@ const UserDashboard = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      showSnackbar('Export successful', 'success');
+      showToast('Export successful', 'success');
     } catch (error) {
-      showSnackbar('Error exporting file', 'error');
+      showToast('Error exporting file', 'error');
     }
     handleMenuClose();
   };
@@ -90,9 +104,9 @@ const UserDashboard = () => {
   const handleResetAnnotations = async () => {
     try {
       handleNavigate(`/annotate/${selectedFileId}`);
-      showSnackbar('Navigating to annotation page...', 'info');
+      showToast('Navigating to annotation page...', 'info');
     } catch (error) {
-      showSnackbar('Error navigating to annotation page', 'error');
+      showToast('Error navigating to annotation page', 'error');
     }
     handleMenuClose();
   };
@@ -109,7 +123,7 @@ const UserDashboard = () => {
       })) || [];
       setFiles(filesWithData);
     } catch (error) {
-      showSnackbar('Error loading dashboard data', 'error');
+      showToast('Error loading dashboard data', 'error');
       console.error('Dashboard data fetch error:', error);
     } finally {
       setLoading(false);
@@ -341,7 +355,15 @@ const UserDashboard = () => {
         />
       </Paper>
 
-      {SnackbarComponent}
+      {toasts.map((toast, index) => (
+        <Toast
+          key={toast.id}
+          message={toast.message}
+          type={toast.type}
+          onClose={() => hideToast(toast.id)}
+          index={index}
+        />
+      ))}
     </Container>
   );
 };

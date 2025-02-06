@@ -1,3 +1,4 @@
+// AnnotationFooter.jsx
 import React, { memo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -7,13 +8,14 @@ const AnnotationFooter = ({
   isFirstField,
   isLastField,
   isCompleting,
-  isOnline
+  isOnline,
+  hasUnsavedChanges // Add this prop
 }) => (
   <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg py-4">
-    <div className="max-w-7xl mx-auto flex justify-center gap-4">
+    <div className="max-w-7xl mx-auto flex justify-center items-center gap-4">
       <button
         onClick={onPrevious}
-        disabled={isFirstField || isCompleting}
+        disabled={isFirstField || isCompleting || hasUnsavedChanges}
         className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 
                  disabled:opacity-50 flex items-center gap-2"
       >
@@ -21,9 +23,15 @@ const AnnotationFooter = ({
         Previous
       </button>
       
+      {hasUnsavedChanges && (
+        <span className="text-yellow-600 font-medium px-4">
+          Press Enter to save changes
+        </span>
+      )}
+      
       <button
         onClick={onNext}
-        disabled={isCompleting || !isOnline}
+        disabled={isCompleting || !isOnline || hasUnsavedChanges}
         className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 
                  disabled:opacity-50 flex items-center gap-2"
       >

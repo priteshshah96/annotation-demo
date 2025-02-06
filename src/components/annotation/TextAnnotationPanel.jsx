@@ -71,8 +71,23 @@ const TextAnnotationPanel = ({
   const buttonsRef = useRef([]);
   const [localSelection, setLocalSelection] = useState(null);
   const [hoveredAnnotation, setHoveredAnnotation] = useState(null);
-  const [showToast, setShowToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
   const [isSelecting, setIsSelecting] = useState(false);
+
+
+  const showToast = useCallback((message, type = 'error') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 5000);
+  }, []);
+  
+  const hideToast = useCallback((id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
 
   const hasMainAction = useMemo(() => 
     annotations.some(annotation => annotation.type === 'Main Action'),
@@ -147,10 +162,7 @@ const TextAnnotationPanel = ({
 
     if (!textRef.current?.contains(e.target)) {
       clearSelection();
-      setShowToast({
-        message: 'Please keep your selection inside the text box.',
-        type: 'error'
-      });
+      showToast('Please keep your selection inside the text box.','error'  );
     }
   }, [isSelecting, clearSelection]);
 
@@ -167,10 +179,7 @@ const TextAnnotationPanel = ({
 
     if (!isStartInPanel || !isEndInPanel) {
       clearSelection();
-      setShowToast({
-        message: 'Please keep your selection inside the text box.',
-        type: 'error'
-      });
+      showToast('Please keep your selection inside the text box.','error');
       return;
     }
 
@@ -202,10 +211,7 @@ const TextAnnotationPanel = ({
 
     if (hasOverlap) {
       clearSelection();
-      setShowToast({
-        message: 'Selection overlaps with existing annotation.',
-        type: 'error'
-      });
+      showToast('Selection overlaps with existing annotation.', 'error');
       return;
     }
 
@@ -216,27 +222,18 @@ const TextAnnotationPanel = ({
   const handleMouseLeave = useCallback(() => {
     if (isSelecting) {
       clearSelection();
-      setShowToast({
-        message: 'Please keep your selection inside the text box.',
-        type: 'error'
-      });
+      showToast('Please keep your selection inside the text box.','error');
     }
   }, [isSelecting, clearSelection]);
 
   const handleAnnotationClick = useCallback((type) => {
     if (!localSelection) {
-      setShowToast({
-        message: 'Please select text before adding an annotation.',
-        type: 'error'
-      });
+      showToast('Please select text before adding an annotation.', 'error');
       return;
     }
   
     if (type !== 'Main Action' && !hasMainAction) {
-      setShowToast({
-        message: 'Please annotate Main Action first',
-        type: 'error'
-      });
+      showToast('Please annotate Main Action first','error');
       return;
     }
   
@@ -247,10 +244,7 @@ const TextAnnotationPanel = ({
   
     onAnnotationSelect(fieldPath, localSelection);
     clearSelection();
-    setShowToast({
-      message: `Added ${type} annotation`,
-      type: 'success'
-    });
+    showToast(`Added ${type} annotation`, 'success');
   }, [localSelection, hasMainAction, onAnnotationSelect, clearSelection]);
 
   useEffect(() => {
@@ -413,13 +407,15 @@ const renderedText = useMemo(() => {
 ]);
   return (
     <div className="space-y-6" role="application" aria-label="Text Annotation Panel">
-      {showToast && (
+      {toasts.map((toast, index) => (
         <Toast 
-          message={showToast.message}
-          type={showToast.type}
-          onClose={() => setShowToast(null)}
+          key={toast.id}
+          message={toast.message}
+          type={toast.type}
+          onClose={() => hideToast(toast.id)}
+          index={index}
         />
-      )}
+      ))}
 
       <div aria-live="polite" className="sr-only">
         {localSelection ? `Selected text: ${localSelection.text}` : ''}

@@ -1,7 +1,6 @@
 import React, { useEffect, useCallback, memo, useRef, useState, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUser, useAuth } from '@clerk/clerk-react';
-import { useSnackbar } from '../hooks/useSnackbar';
 import { useAnnotation } from '../hooks/useAnnotation';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants/annotation';
@@ -13,6 +12,7 @@ import AbstractSection from '../components/annotation/AbstractSection';
 import TutorialDialog from '../components/annotation/TutorialDialog';
 import LoadingView from '../components/common/LoadingView';
 import ErrorView from '../components/common/ErrorView';
+import Toast from '../components/annotation/Toast';
 
 
 
@@ -28,7 +28,7 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   
   const { user } = useUser();
   const { isLoaded, isSignedIn } = useAuth();
-  const { showSnackbar, SnackbarComponent } = useSnackbar();
+  const [toasts, setToasts] = useState([]);
   // State
   const [selectedText, setSelectedText] = useState(null);
   const [isAbstractOpen, setIsAbstractOpen] = useState(false);
@@ -37,6 +37,22 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   const [showTutorial, setShowTutorial] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
   const [localFileData, setLocalFileData] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const showToast = useCallback((message, type = 'error') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    
+    // Auto remove after 4 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 4000);
+  }, []);
+
+
+  const hideToast = useCallback((id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
+
 
   console.log('State initialized:', {
     hasSelectedText: !!selectedText,
@@ -155,13 +171,13 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
       // Modified Main Action check to handle empty strings
       if (type === 'Main Action' && currentEvent['Main Action']?.trim?.()) {
         console.log('Main action already exists');
-        showSnackbar(ERROR_MESSAGES.MAIN_ACTION_EXISTS, "error");
+        showToast(ERROR_MESSAGES.MAIN_ACTION_EXISTS, "error");
         return;
       }
   
       if (!validateAnnotation(selection, currentEvent?.Text)) {
         console.log('Invalid annotation');
-        showSnackbar(ERROR_MESSAGES.INVALID_SELECTION, "error");
+        showToast(ERROR_MESSAGES.INVALID_SELECTION, "error");
         return;
       }
   
@@ -265,18 +281,18 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   
       setSelectedText(null);
       setLastSaved(new Date());
-      showSnackbar(SUCCESS_MESSAGES.ANNOTATION_SAVED, "success");
+      showToast(SUCCESS_MESSAGES.ANNOTATION_SAVED, "success");
   
     } catch (error) {
       console.error("Save error:", error);
-      showSnackbar(ERROR_MESSAGES.SAVE_FAILED, "error");
+      showToast(ERROR_MESSAGES.SAVE_FAILED, "error");
       
       // Rollback on error
       if (fileData) {
         setLocalFileData(JSON.parse(JSON.stringify(fileData)));
       }
     }
-  }, [currentPosition, syncAnnotation, showSnackbar, validateAnnotation, getCurrentEvent, fileData]);
+  }, [currentPosition, syncAnnotation, showToast, validateAnnotation, getCurrentEvent, fileData]);
 
 const handleAnnotationDelete = useCallback(async (type, annotationId) => {
   console.log('Deleting annotation:', { type, annotationId });
@@ -369,19 +385,20 @@ const handleAnnotationDelete = useCallback(async (type, annotationId) => {
     if (!response.success) throw new Error('Failed to delete annotation');
 
     setLastSaved(new Date());
-    showSnackbar(SUCCESS_MESSAGES.ANNOTATION_DELETED, "success");
+    showToast(SUCCESS_MESSAGES.ANNOTATION_DELETED, "success");
 
   } catch (error) {
     console.error('Delete error:', error);
-    showSnackbar(ERROR_MESSAGES.DELETE_FAILED, "error");
+    showToast(ERROR_MESSAGES.DELETE_FAILED, "error");
     
     // Rollback on error by reloading from fileData
     if (fileData) {
       setLocalFileData(JSON.parse(JSON.stringify(fileData)));
     }
   }
-}, [currentPosition, syncAnnotation, showSnackbar, fileData]);
+}, [currentPosition, syncAnnotation, showToast, fileData]);
 
+// In UserAnnotationDashboard.jsx
 const handleSummaryDelete = useCallback(async () => {
   console.log('Summary delete triggered');
   if (!eventType || !currentPosition || mode === 'view') return;
@@ -393,10 +410,10 @@ const handleSummaryDelete = useCallback(async () => {
     // Send update request with empty string instead of delete
     const response = await syncAnnotation({
       fieldPath: eventType,
-      answer: { text: '' },  // Changed from null to empty string
+      answer: { text: '' },
       paperIndex: currentPosition.paperIndex,
       eventIndex: currentPosition.eventIndex,
-      isDelete: false  // Changed to false since we're updating with empty string
+      isDelete: true  // Changed back to true for proper deletion
     });
 
     if (!response.success) throw new Error('Failed to update');
@@ -422,13 +439,13 @@ const handleSummaryDelete = useCallback(async () => {
 
     setSummaryInput('');  // Clear the input
     setLastSaved(new Date());
-    showSnackbar(SUCCESS_MESSAGES.SUMMARY_DELETED, "success");
+    showToast('Summary deleted successfully', 'success');
     console.log('Summary cleared successfully');
   } catch (error) {
     console.error('Error clearing summary:', error);
-    showSnackbar(ERROR_MESSAGES.DELETE_FAILED, "error");
+    showToast(ERROR_MESSAGES.DELETE_FAILED, "error");
   }
-}, [eventType, currentPosition, mode, syncAnnotation, showSnackbar, getCurrentEvent]);
+}, [eventType, currentPosition, mode, syncAnnotation, showToast, getCurrentEvent]);
 
 const handleSummaryChange = useCallback(async (newValue) => {
   console.log('Summary change triggered with:', { newValue, eventType, currentPosition });
@@ -475,15 +492,15 @@ const handleSummaryChange = useCallback(async (newValue) => {
     });
 
     setLastSaved(new Date());
-    showSnackbar(
+    showToast(
       trimmedValue ? SUCCESS_MESSAGES.SUMMARY_SAVED : SUCCESS_MESSAGES.SUMMARY_DELETED, 
       "success"
     );
   } catch (error) {
     console.error('Error saving summary:', error);
-    showSnackbar('Failed to save summary', "error");
+    showToast('Failed to save summary', "error");
   }
-}, [eventType, currentPosition, mode, syncAnnotation, showSnackbar]);
+}, [eventType, currentPosition, mode, syncAnnotation, showToast]);
   
 
   const handleCompletion = useCallback(async () => {
@@ -503,7 +520,7 @@ const handleSummaryChange = useCallback(async (newValue) => {
     
     try {
       setIsCompleting(true);
-      showSnackbar('Finalizing annotations...', 'info');
+      showToast('Finalizing annotations...', 'info');
       
       console.log('Calling finalizeSync...');
       const success = await finalizeSync();
@@ -512,7 +529,7 @@ const handleSummaryChange = useCallback(async (newValue) => {
       if (success && mountedRef.current) {
         console.log('Success, dispatching update and navigating');
         window.dispatchEvent(new Event('annotationUpdate'));
-        showSnackbar('Annotations completed successfully!', 'success');
+        showToast('Annotations completed successfully!', 'success');
         navigate('/', { replace: true });
       } else {
         throw new Error('Sync failed');
@@ -521,10 +538,28 @@ const handleSummaryChange = useCallback(async (newValue) => {
       console.error('Completion error:', error);
       if (mountedRef.current) {
         setIsCompleting(false);
-        showSnackbar(ERROR_MESSAGES.SAVE_FAILED, 'error');
+        showToast(ERROR_MESSAGES.SAVE_FAILED, 'error');
       }
     }
-  }, [finalizeSync, navigate, showSnackbar, isCompleting, isOnline]);
+  }, [finalizeSync, navigate, showToast, isCompleting, isOnline]);
+
+
+  // Add these handlers for navigation
+const handleMoveNext = useCallback(() => {
+  if (hasUnsavedChanges) {
+    showToast('Please save your changes before continuing', 'warning');
+    return;
+  }
+  moveNext();
+}, [hasUnsavedChanges, moveNext, showToast]);
+
+const handleMovePrevious = useCallback(() => {
+  if (hasUnsavedChanges) {
+    showToast('Please save your changes before continuing', 'warning');
+    return;
+  }
+  movePrevious();
+}, [hasUnsavedChanges, movePrevious, showToast]);
 
   // Process event data for display
   const { cleanedEvent, displayAnnotations } = useMemo(() => {
@@ -724,6 +759,7 @@ const handleSummaryChange = useCallback(async (newValue) => {
         onClose={() => setShowTutorial(false)} 
       />
       
+      
       <AnnotationHeader
         currentPaper={currentPaper}
         currentPosition={currentPosition}
@@ -758,21 +794,33 @@ const handleSummaryChange = useCallback(async (newValue) => {
             fileData={fileData}
             localFileData={localFileData}  
             isViewMode={isViewMode}
+            onHasUnsavedChanges={setHasUnsavedChanges} // Add this line
           />
         </div>
       </main>
 
       {/* Modified footer condition to show in both edit and view modes */}
       <AnnotationFooter
-        onPrevious={movePrevious}
-        onNext={isViewMode ? (isLastField ? handleBack : moveNext) : (isLastField ? handleCompletion : moveNext)}
+        onPrevious={handleMovePrevious} // Use new handler
+        onNext={isViewMode ? 
+          (isLastField ? handleBack : handleMoveNext) : // Use new handler
+          (isLastField ? handleCompletion : handleMoveNext)} // Use new handler
         isFirstField={isFirstField}
         isLastField={isLastField}
         isCompleting={isCompleting}
         isOnline={isOnline}
+        hasUnsavedChanges={hasUnsavedChanges}
       />
 
-      {SnackbarComponent}
+      {toasts.map((toast, index) => (
+        <Toast
+          key={toast.id}
+          message={toast.message}
+          type={toast.type}
+          onClose={() => hideToast(toast.id)}
+          index={index}
+        />
+      ))}
     </div>
   );
 };

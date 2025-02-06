@@ -1,4 +1,5 @@
-import React, { memo, useState } from 'react';
+// AnnotationMain.jsx
+import React, { memo, useState, useEffect } from 'react';
 import TextAnnotationPanel from './TextAnnotationPanel';
 import JsonViewer from './JsonViewer';
 import SummaryInput from './SummaryInput';
@@ -16,20 +17,22 @@ const AnnotationMain = ({
   onSummaryDelete, 
   fileData,
   localFileData,
-  isViewMode
+  isViewMode,
+  onHasUnsavedChanges // Add this prop
 }) => {
-  // Add state for tracking summary status
   const [summaryStatus, setSummaryStatus] = useState('idle');
-  
-  // Should disable download if status is 'saving' OR 'unsaved'
   const shouldDisableDownload = summaryStatus === 'saving' || summaryStatus === 'unsaved';
 
-  // Create a single handler for annotation deletion that both components will use
+  // Notify parent component about unsaved changes
+  useEffect(() => {
+    const hasUnsaved = summaryStatus === 'unsaved' || summaryStatus === 'saving';
+    onHasUnsavedChanges?.(hasUnsaved);
+  }, [summaryStatus, onHasUnsavedChanges]);
+
   const handleAnnotationDelete = async (type, annotationId) => {
     if (isViewMode) return;
     
     try {
-      // Let the parent handle all state updates
       await onAnnotationDelete(type, annotationId);
     } catch (error) {
       console.error('Error in annotation deletion:', error);
@@ -38,7 +41,6 @@ const AnnotationMain = ({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* Left column: Text and Annotations */}
       <div className="col-span-1">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <div className="mb-4">
@@ -60,7 +62,6 @@ const AnnotationMain = ({
         </div>
       </div>
 
-      {/* Right column: Summary and JSON Viewer */}
       <div className="col-span-1 space-y-4">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <SummaryInput 
