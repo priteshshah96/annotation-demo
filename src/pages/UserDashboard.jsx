@@ -33,7 +33,7 @@ const UserDashboard = () => {
   const [selectedFileId, setSelectedFileId] = useState(null);
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const [showDocs, setShowDocs] = useState(false);
-  const [toasts, setToasts] = useState(null);
+  const [toasts, setToasts] = useState([]);  
 
    // Toast handlers
    const showToast = (message, type = 'error') => {
