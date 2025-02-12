@@ -13,11 +13,12 @@ export const fileApi = {
       const totalEvents = fileData.papers.reduce((sum, paper) => 
         sum + (paper.events?.length || 0), 0);
   
-      // Simplified upload data
+      // Include status in upload data
       const uploadData = {
         name: fileData.name,
         papers: fileData.papers,
         userId: fileData.userId,
+        status: 'not_started', // Add this line
         metadata: {
           totalPapers: fileData.papers.length,
           totalEvents
@@ -26,6 +27,7 @@ export const fileApi = {
   
       console.log('Upload data structure:', JSON.stringify({
         name: uploadData.name,
+        status: uploadData.status, // Log status
         paperCount: uploadData.papers.length,
         firstPaper: uploadData.papers[0] ? {
           paper_code: uploadData.papers[0].paper_code,
@@ -81,6 +83,22 @@ export const fileApi = {
     }
   },
 
+
+  async updateFileStatus(fileId, status) {
+    try {
+      const response = await api.files.updateStatus(fileId, { status });
+      
+      if (!response?.success) {
+        throw new Error('Failed to update file status');
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('Error updating file status:', error);
+      throw error;
+    }
+},
+
   async deleteFile(fileId) {
     if (!fileId) throw new Error('FileId is required');
     
@@ -116,3 +134,4 @@ export const fileApi = {
     }
   }
 };
+

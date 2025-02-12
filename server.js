@@ -350,6 +350,42 @@ app.use('/api/annotations', (err, req, res, next) => {
   });
 });
 
+// File status
+
+app.patch('/api/files/:fileId/status', authenticateAndSync, asyncHandler(async (req, res) => {
+  const { fileId } = req.params;
+  const { status } = req.body;
+  const mongoUserId = req.user._id;
+
+  // Validate status
+  const validStatuses = ['not_started', 'started', 'completed'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid status',
+      details: 'Status must be one of: not_started, started, completed'
+    });
+  }
+
+  const file = await File.findOneAndUpdate(
+    { _id: fileId, userId: mongoUserId },
+    { $set: { status: status } },
+    { new: true }
+  );
+
+  if (!file) {
+    return res.status(404).json({
+      success: false,
+      error: 'File not found'
+    });
+  }
+
+  res.json({
+    success: true,
+    file
+  });
+}));
+
 // ---------- PRODUCTION SETUP ----------
 if (process.env.NODE_ENV === 'production') {
   // Serve static files

@@ -15,7 +15,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Chip
 } from '@mui/material';
 import {
   MoreVert as MoreIcon,
@@ -24,6 +25,69 @@ import {
   ArrowDownward as DescIcon,
 } from '@mui/icons-material';
 import FileUploader from './FileUploader';
+
+// Status Badge Component
+const StatusBadge = ({ status }) => {
+  const getStatusStyles = () => {
+    switch (status) {
+      case 'started':
+        return {
+          bgcolor: '#EBF5FF',  // Light blue background
+          color: '#0066CC',    // Dark blue text
+          borderColor: '#99CCF3' // Medium blue border
+        };
+      case 'completed':
+        return {
+          bgcolor: '#ECFDF3',   // Light green background
+          color: '#027A48',     // Dark green text
+          borderColor: '#A6F4C5' // Medium green border
+        };
+      default: // not_started
+        return {
+          bgcolor: '#FEE4E2',   // Light red background
+          color: '#B42318',     // Dark red text
+          borderColor: '#FDA29B' // Medium red border
+        };
+    }
+  };
+
+  const styles = getStatusStyles();
+  const label = status === 'started' ? 'Started' : 
+                status === 'completed' ? 'Completed' : 
+                'Not Started';
+
+  return (
+    <Box
+      component="span"
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        px: 1.5,
+        py: 0.5,
+        borderRadius: '16px',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        lineHeight: 1,
+        border: 1,
+        ...styles,
+        transition: 'all 0.2s ease-in-out',
+        whiteSpace: 'nowrap'
+      }}
+    >
+      <Box
+        component="span"
+        sx={{
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          bgcolor: styles.color,
+          mr: 1
+        }}
+      />
+      {label}
+    </Box>
+  );
+};
 
 // FileListItem Component
 const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
@@ -66,6 +130,7 @@ const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
             <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
               {file.name}
             </Typography>
+            <StatusBadge status={file.status || 'not_started'} />
           </Box>
           
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, color: 'text.secondary' }}>
@@ -301,7 +366,8 @@ FileList.propTypes = {
       events: PropTypes.array
     })),
     uploadDate: PropTypes.string.isRequired,
-    progress: PropTypes.number
+    progress: PropTypes.number,
+    status: PropTypes.oneOf(['not_started', 'started', 'completed'])
   })).isRequired,
   onNavigate: PropTypes.func.isRequired,
   onMenuOpen: PropTypes.func.isRequired,

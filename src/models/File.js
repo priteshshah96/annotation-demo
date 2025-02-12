@@ -43,6 +43,11 @@ const fileSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
+  status: {
+    type: String,
+    enum: ['not_started', 'started', 'completed'],
+    default: 'not_started'
+  },
   metadata: {
     totalPapers: { type: Number, default: 0 }, // Total number of papers
     totalEvents: { type: Number, default: 0 } // Total number of events

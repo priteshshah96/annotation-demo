@@ -75,6 +75,7 @@ const FileUploader = ({ onUpload, isUploading = false, userId, existingFiles = [
         name: file.name,
         papers: normalizedPapers,
         userId,
+        status: 'not_started', // Set initial status here
         metadata: {
           totalPapers: normalizedPapers.length,
           totalEvents

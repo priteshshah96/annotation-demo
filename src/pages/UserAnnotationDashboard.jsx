@@ -4,6 +4,7 @@ import { useUser, useAuth } from '@clerk/clerk-react';
 import { useAnnotation } from '../hooks/useAnnotation';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants/annotation';
+import { fileApi } from '../services/fileApi';
 
 import AnnotationHeader from '../components/annotation/AnnotationHeader';
 import AnnotationMain from '../components/annotation/AnnotationMain';
@@ -38,6 +39,7 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   const [lastSaved, setLastSaved] = useState(null);
   const [localFileData, setLocalFileData] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const isViewMode = mode === 'view';
   const showToast = useCallback((message, type = 'error') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -503,45 +505,48 @@ const handleSummaryChange = useCallback(async (newValue) => {
 }, [eventType, currentPosition, mode, syncAnnotation, showToast]);
   
 
-  const handleCompletion = useCallback(async () => {
-    console.log('Starting completion process:', {
-      isMounted: mountedRef.current,
-      isCompleting,
-      isOnline
+const handleCompletion = useCallback(async () => {
+  console.log('Starting completion process:', {
+    isMounted: mountedRef.current,
+    isCompleting,
+    isOnline
+  });
+  
+  if (!mountedRef.current || isCompleting) {
+    console.log('Early return due to:', {
+      notMounted: !mountedRef.current,
+      isCompleting
     });
+    return;
+  }
+  
+  try {
+    setIsCompleting(true);
+    showToast('Finalizing annotations...', 'info');
     
-    if (!mountedRef.current || isCompleting) {
-      console.log('Early return due to:', {
-        notMounted: !mountedRef.current,
-        isCompleting
-      });
-      return;
-    }
+    // Update file status to completed
+    await fileApi.updateFileStatus(fileId, 'completed');
     
-    try {
-      setIsCompleting(true);
-      showToast('Finalizing annotations...', 'info');
-      
-      console.log('Calling finalizeSync...');
-      const success = await finalizeSync();
-      console.log('FinalizeSync result:', success);
-      
-      if (success && mountedRef.current) {
-        console.log('Success, dispatching update and navigating');
-        window.dispatchEvent(new Event('annotationUpdate'));
-        showToast('Annotations completed successfully!', 'success');
-        navigate('/', { replace: true });
-      } else {
-        throw new Error('Sync failed');
-      }
-    } catch (error) {
-      console.error('Completion error:', error);
-      if (mountedRef.current) {
-        setIsCompleting(false);
-        showToast(ERROR_MESSAGES.SAVE_FAILED, 'error');
-      }
+    console.log('Calling finalizeSync...');
+    const success = await finalizeSync();
+    console.log('FinalizeSync result:', success);
+    
+    if (success && mountedRef.current) {
+      console.log('Success, dispatching update and navigating');
+      window.dispatchEvent(new Event('annotationUpdate'));
+      showToast('Annotations completed successfully!', 'success');
+      navigate('/', { replace: true });
+    } else {
+      throw new Error('Sync failed');
     }
-  }, [finalizeSync, navigate, showToast, isCompleting, isOnline]);
+  } catch (error) {
+    console.error('Completion error:', error);
+    if (mountedRef.current) {
+      setIsCompleting(false);
+      showToast(ERROR_MESSAGES.SAVE_FAILED, 'error');
+    }
+  }
+}, [fileId, finalizeSync, navigate, showToast, isCompleting, isOnline]);
 
 
   // Add these handlers for navigation
@@ -686,6 +691,9 @@ const handleMovePrevious = useCallback(() => {
     };
   }, [localFileData, currentPosition, eventType, lastSaved]);
 
+
+  
+
   // Effects
   useEffect(() => {
     console.log('fileData effect triggered:', fileData);
@@ -719,6 +727,23 @@ const handleMovePrevious = useCallback(() => {
       mountedRef.current = false;
     };
   }, []);
+  
+  useEffect(() => {
+    const updateFileStatus = async () => {
+      try {
+        console.log('Updating file status to started:', fileId);
+        await fileApi.updateFileStatus(fileId, 'started');
+        console.log('Successfully updated status to started');
+      } catch (error) {
+        console.error('Error updating file status:', error);
+      }
+    };
+  
+    if (fileId && isSignedIn && !isViewMode) {
+      console.log('Conditions met for updating status:', { fileId, isSignedIn, isViewMode });
+      updateFileStatus();
+    }
+  }, [fileId, isSignedIn, isViewMode]);
 
   // Early returns
   if (!isLoaded || !user) {
@@ -743,7 +768,7 @@ const handleMovePrevious = useCallback(() => {
   }
 
   const currentPaper = getCurrentPaper();
-  const isViewMode = mode === 'view';
+  
 
   console.log('Preparing final render:', {
     hasCurrentPaper: !!currentPaper,
