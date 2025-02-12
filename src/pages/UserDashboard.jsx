@@ -329,9 +329,7 @@ const UserDashboard = () => {
       <StatsPanel files={files} loading={loading} />
 
       <Paper elevation={3} sx={{ padding: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Your Files
-        </Typography>
+       
 
         <FileList
           files={files}

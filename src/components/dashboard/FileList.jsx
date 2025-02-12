@@ -1,29 +1,30 @@
-// FileList.jsx
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import {
+import { 
+  Box, 
+  Typography,
   List,
   ListItem,
-  Box,
-  Typography,
-  Chip,
   IconButton,
   Button,
   LinearProgress,
   Tooltip,
   Fade,
   Paper,
-  useTheme
+  useTheme,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import {
   MoreVert as MoreIcon,
   PlayArrow as StartIcon,
-  Visibility as ViewIcon,
+  ArrowUpward as AscIcon,
+  ArrowDownward as DescIcon,
 } from '@mui/icons-material';
 import FileUploader from './FileUploader';
-import { fileApi } from '../../services/fileApi';
 
-// FileListItem Component
 // FileListItem Component
 const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
   const theme = useTheme();
@@ -39,7 +40,6 @@ const FileListItem = ({ file, onNavigate, onMenuOpen, isSelected }) => {
     });
   };
 
-  // Calculate stats once
   const stats = {
     paperCount: file.papers?.length || 0,
     eventCount: file.papers?.reduce((total, paper) => 
@@ -134,19 +134,50 @@ const FileList = ({
   onUpload
 }) => {
   const [isUploading, setIsUploading] = useState(false);
+  const [sortField, setSortField] = useState('uploadDate');
+  const [sortDirection, setSortDirection] = useState('desc');
 
   const handleUpload = async (data) => {
     try {
       setIsUploading(true);
-      // Don't upload again - the file is already uploaded in FileUploader
       if (onUpload) {
-        await onUpload(); // Just refresh the list
+        await onUpload();
       }
     } catch (error) {
       console.error('File upload error:', error);
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const toggleSortDirection = () => {
+    setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+  };
+
+  const getSortedFiles = () => {
+    if (!files?.length) return [];
+
+    return [...files].sort((a, b) => {
+      let compareValue = 0;
+      
+      switch (sortField) {
+        case 'name':
+          compareValue = a.name.localeCompare(b.name);
+          break;
+        case 'uploadDate':
+          compareValue = new Date(a.uploadDate) - new Date(b.uploadDate);
+          break;
+        case 'events':
+          const aEvents = a.papers?.reduce((sum, paper) => sum + (paper.events?.length || 0), 0) || 0;
+          const bEvents = b.papers?.reduce((sum, paper) => sum + (paper.events?.length || 0), 0) || 0;
+          compareValue = aEvents - bEvents;
+          break;
+        default:
+          compareValue = 0;
+      }
+      
+      return sortDirection === 'asc' ? compareValue : -compareValue;
+    });
   };
 
   if (loading) {
@@ -183,43 +214,81 @@ const FileList = ({
 
   return (
     <Box>
-      <Box sx={{ mb: 3 }}>
+      {/* Upload Section */}
+      <Box sx={{ mb: 4 }}>
         <FileUploader
           onUpload={handleUpload}
           isUploading={isUploading}
           userId={userId}
+          existingFiles={files}
         />
       </Box>
 
-      {!files?.length ? (
-        <Box sx={{ 
-          textAlign: 'center', 
-          py: 6,
-          bgcolor: 'grey.50',
-          borderRadius: 2,
-          border: '2px dashed',
-          borderColor: 'grey.300'
-        }}>
-          <Typography variant="h6" color="text.secondary" gutterBottom>
-            No Files Available
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Upload a JSON file to begin annotation.
-          </Typography>
-        </Box>
-      ) : (
-        <List sx={{ mt: 2 }}>
-          {files.map((file) => (
-            <FileListItem
-              key={file._id}
-              file={file}
-              onNavigate={onNavigate}
-              onMenuOpen={onMenuOpen}
-              isSelected={selectedFileId === file._id}
-            />
-          ))}
-        </List>
-      )}
+      {/* Files Section */}
+      <Box>
+        <Typography variant="h6" gutterBottom>
+          Your Files
+        </Typography>
+
+        {files?.length > 0 && (
+          <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Sort By</InputLabel>
+              <Select
+                value={sortField}
+                label="Sort By"
+                onChange={(e) => setSortField(e.target.value)}
+              >
+                <MenuItem value="uploadDate">Upload Date</MenuItem>
+                <MenuItem value="name">File Name</MenuItem>
+                <MenuItem value="events">Event Count</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <IconButton 
+              onClick={toggleSortDirection}
+              size="small"
+              color="primary"
+            >
+              {sortDirection === 'asc' ? <AscIcon /> : <DescIcon />}
+            </IconButton>
+
+            <Typography variant="body2" color="text.secondary">
+              {files.length} file{files.length !== 1 ? 's' : ''}
+            </Typography>
+          </Box>
+        )}
+
+        {!files?.length ? (
+          <Box sx={{ 
+            textAlign: 'center', 
+            py: 6,
+            bgcolor: 'grey.50',
+            borderRadius: 2,
+            border: '2px dashed',
+            borderColor: 'grey.300'
+          }}>
+            <Typography variant="h6" color="text.secondary" gutterBottom>
+              No Files Available
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Upload a JSON file to begin annotation.
+            </Typography>
+          </Box>
+        ) : (
+          <List sx={{ mt: 2 }}>
+            {getSortedFiles().map((file) => (
+              <FileListItem
+                key={file._id}
+                file={file}
+                onNavigate={onNavigate}
+                onMenuOpen={onMenuOpen}
+                isSelected={selectedFileId === file._id}
+              />
+            ))}
+          </List>
+        )}
+      </Box>
     </Box>
   );
 };

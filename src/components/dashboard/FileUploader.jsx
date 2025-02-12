@@ -11,7 +11,13 @@ import {
   ListItemText,
   IconButton,
   Collapse,
-  useTheme
+  useTheme,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Alert
 } from '@mui/material';
 import {
   CloudUpload as UploadIcon,
@@ -19,11 +25,12 @@ import {
   Close as CloseIcon,
   CheckCircle as SuccessIcon,
   Error as ErrorIcon,
-  KeyboardArrowDown as ExpandIcon
+  KeyboardArrowDown as ExpandIcon,
+  Warning as WarningIcon
 } from '@mui/icons-material';
 import { fileApi } from '../../services/fileApi';
 
-const FileUploader = ({ onUpload, isUploading = false, userId }) => {
+const FileUploader = ({ onUpload, isUploading = false, userId, existingFiles = [] }) => {
   const theme = useTheme();
   const fileInputRef = useRef(null);
   const [dragActive, setDragActive] = useState(false);
@@ -31,75 +38,97 @@ const FileUploader = ({ onUpload, isUploading = false, userId }) => {
   const [expanded, setExpanded] = useState(true);
   const [uploadProgress, setUploadProgress] = useState({});
   const [uploadErrors, setUploadErrors] = useState({});
+  const [duplicateDialog, setDuplicateDialog] = useState({
+    open: false,
+    fileName: '',
+    fileData: null
+  });
+
+  const checkDuplicateFileName = (fileName) => {
+    return existingFiles.some(file => file.name.toLowerCase() === fileName.toLowerCase());
+  };
+
+  const handleDuplicateConfirm = async () => {
+    const { fileData } = duplicateDialog;
+    await processFileUpload(fileData);
+    setDuplicateDialog({ open: false, fileName: '', fileData: null });
+  };
+
+  const handleDuplicateCancel = () => {
+    setDuplicateDialog({ open: false, fileName: '', fileData: null });
+  };
+
+  const processFileUpload = async (file) => {
+    const fileId = Math.random().toString(36).substring(7);
+    
+    try {
+      setFiles(prev => [...prev, { file, id: fileId }]);
+
+      const content = await file.text();
+      const papers = JSON.parse(content);
+      const normalizedPapers = Array.isArray(papers) ? papers : [papers];
+      
+      const totalEvents = normalizedPapers.reduce((sum, paper) => 
+        sum + (paper.events?.length || 0), 0);
+
+      const uploadData = {
+        name: file.name,
+        papers: normalizedPapers,
+        userId,
+        metadata: {
+          totalPapers: normalizedPapers.length,
+          totalEvents
+        }
+      };
+
+      await fileApi.uploadFile(uploadData);
+      setUploadProgress(prev => ({ ...prev, [fileId]: 100 }));
+
+      if (onUpload) {
+        await onUpload(uploadData);
+      }
+
+      setTimeout(() => {
+        setFiles(prev => prev.filter(f => f.id !== fileId));
+        setUploadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[fileId];
+          return newProgress;
+        });
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error processing file:', error);
+      setUploadErrors(prev => ({
+        ...prev,
+        [fileId]: error.message
+      }));
+    }
+  };
 
   const handleFiles = async (selectedFiles) => {
     try {
       const fileArray = Array.from(selectedFiles);
-  
+      
       for (const file of fileArray) {
-        const fileId = Math.random().toString(36).substring(7);
-  
-        try {
-          setFiles(prev => [...prev, { file, id: fileId }]);
-  
-          // Read and parse the file content
-          const content = await file.text();
-          const papers = JSON.parse(content);
-  
-          // Normalize papers to ensure it's an array
-          const normalizedPapers = Array.isArray(papers) ? papers : [papers];
-  
-          // Calculate metadata
-          const totalEvents = normalizedPapers.reduce((sum, paper) => 
-            sum + (paper.events?.length || 0), 0);
-  
-          // Prepare upload data
-          const uploadData = {
-            name: file.name,
-            papers: normalizedPapers,
-            userId,
-            metadata: {
-              totalPapers: normalizedPapers.length,
-              totalEvents
-            }
-          };
-  
-          // Upload the file data
-          await fileApi.uploadFile(uploadData);
-  
-          // Update progress
-          setUploadProgress(prev => ({
-            ...prev,
-            [fileId]: 100
-          }));
-  
-          // Trigger onUpload callback if provided
-          if (onUpload) {
-            await onUpload(uploadData);
-          }
-  
-          // Remove the file from the list after 2 seconds
-          setTimeout(() => {
-            setFiles(prev => prev.filter(f => f.id !== fileId));
-            setUploadProgress(prev => {
-              const newProgress = { ...prev };
-              delete newProgress[fileId];
-              return newProgress;
-            });
-          }, 2000);
-        } catch (error) {
-          console.error('Error processing file:', error);
-          setUploadErrors(prev => ({
-            ...prev,
-            [fileId]: error.message
-          }));
+        const isDuplicate = checkDuplicateFileName(file.name);
+        
+        if (isDuplicate) {
+          setDuplicateDialog({
+            open: true,
+            fileName: file.name,
+            fileData: file
+          });
+          return;
         }
+        
+        await processFileUpload(file);
       }
     } catch (error) {
       console.error('Error handling files:', error);
     }
   };
-  
+
   return (
     <Box sx={{ width: '100%' }}>
       <Box sx={{ 
@@ -235,6 +264,40 @@ const FileUploader = ({ onUpload, isUploading = false, userId }) => {
           </List>
         )}
       </Collapse>
+
+      {/* Duplicate File Dialog */}
+      <Dialog
+        open={duplicateDialog.open}
+        onClose={handleDuplicateCancel}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1,
+          color: 'warning.main' 
+        }}>
+          <WarningIcon color="warning" />
+          Duplicate File Name
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            A file with the name "{duplicateDialog.fileName}" already exists.
+          </Alert>
+          <Typography>
+            Do you want to upload this file anyway? The existing file will remain unchanged.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDuplicateCancel} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleDuplicateConfirm} variant="contained" color="warning">
+            Upload Anyway
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
@@ -242,7 +305,10 @@ const FileUploader = ({ onUpload, isUploading = false, userId }) => {
 FileUploader.propTypes = {
   onUpload: PropTypes.func.isRequired,
   isUploading: PropTypes.bool,
-  userId: PropTypes.string.isRequired
+  userId: PropTypes.string.isRequired,
+  existingFiles: PropTypes.arrayOf(PropTypes.shape({
+    name: PropTypes.string.isRequired,
+  }))
 };
 
-export default FileUploader; // Default export
+export default FileUploader;
