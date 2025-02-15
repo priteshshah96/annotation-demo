@@ -52,7 +52,12 @@ const fileSchema = new mongoose.Schema({
     totalPapers: { type: Number, default: 0 }, // Total number of papers
     totalEvents: { type: Number, default: 0 } // Total number of events
   },
-  lastUpdated: { type: Date, default: Date.now } // Timestamp of last update
+  lastUpdated: { type: Date, default: Date.now }, // Timestamp of last update
+  // Add progress field to track user's current position
+  progress: {
+    paperIndex: { type: Number, default: 0 }, // Current paper index
+    eventIndex: { type: Number, default: 0 } // Current event index
+  }
 }, {
   strict: false, // Allow any fields in the file object
   minimize: false // Preserve empty objects

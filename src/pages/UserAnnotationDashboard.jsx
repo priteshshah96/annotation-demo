@@ -5,7 +5,7 @@ import { useAnnotation } from '../hooks/useAnnotation';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants/annotation';
 import { fileApi } from '../services/fileApi';
-
+import { annotationApi } from '../services/annotationApi';
 import AnnotationHeader from '../components/annotation/AnnotationHeader';
 import AnnotationMain from '../components/annotation/AnnotationMain';
 import AnnotationFooter from '../components/annotation/AnnotationFooter';
@@ -80,7 +80,7 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
     isLastField,
     loadFileData,
     eventType,
-    progress
+    setCurrentPosition
   } = useAnnotation(fileId, navigate, user?.id);
 
   console.log('useAnnotation hook result:', {
@@ -89,7 +89,6 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
     loading,
     error,
     eventType,
-    progress,
     isFirstField,
     isLastField
   });
@@ -511,7 +510,7 @@ const handleCompletion = useCallback(async () => {
     isCompleting,
     isOnline
   });
-  
+
   if (!mountedRef.current || isCompleting) {
     console.log('Early return due to:', {
       notMounted: !mountedRef.current,
@@ -519,21 +518,24 @@ const handleCompletion = useCallback(async () => {
     });
     return;
   }
-  
+
   try {
     setIsCompleting(true);
     showToast('Finalizing annotations...', 'info');
-    
+
     // Update file status to completed
     await fileApi.updateFileStatus(fileId, 'completed');
-    
+
     console.log('Calling finalizeSync...');
     const success = await finalizeSync();
     console.log('FinalizeSync result:', success);
-    
+
     if (success && mountedRef.current) {
       console.log('Success, dispatching update and navigating');
-      window.dispatchEvent(new Event('annotationUpdate'));
+
+      // Reset progress to { paperIndex: 0, eventIndex: 0 }
+      await fileApi.updateFileProgress(fileId, { paperIndex: 0, eventIndex: 0 });
+
       showToast('Annotations completed successfully!', 'success');
       navigate('/', { replace: true });
     } else {
@@ -550,21 +552,37 @@ const handleCompletion = useCallback(async () => {
 
 
   // Add these handlers for navigation
-const handleMoveNext = useCallback(() => {
-  if (hasUnsavedChanges) {
-    showToast('Please save your changes before continuing', 'warning');
-    return;
-  }
-  moveNext();
-}, [hasUnsavedChanges, moveNext, showToast]);
-
-const handleMovePrevious = useCallback(() => {
-  if (hasUnsavedChanges) {
-    showToast('Please save your changes before continuing', 'warning');
-    return;
-  }
-  movePrevious();
-}, [hasUnsavedChanges, movePrevious, showToast]);
+  const handleMoveNext = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      showToast('Please save your changes before continuing', 'warning');
+      return;
+    }
+  
+    const nextPosition = { ...currentPosition, eventIndex: currentPosition.eventIndex + 1 };
+    try {
+      await fileApi.updateFileProgress(fileId, nextPosition); // Ensure this function is implemented
+      moveNext();
+    } catch (error) {
+      console.error('Error updating progress:', error);
+      showToast('Failed to update progress', 'error');
+    }
+  }, [hasUnsavedChanges, moveNext, showToast, fileId, currentPosition]);
+  
+  const handleMovePrevious = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      showToast('Please save your changes before continuing', 'warning');
+      return;
+    }
+  
+    const prevPosition = { ...currentPosition, eventIndex: currentPosition.eventIndex - 1 };
+    try {
+      await fileApi.updateFileProgress(fileId, prevPosition); // Ensure this function is implemented
+      movePrevious();
+    } catch (error) {
+      console.error('Error updating progress:', error);
+      showToast('Failed to update progress', 'error');
+    }
+  }, [hasUnsavedChanges, movePrevious, showToast, fileId, currentPosition]);
 
   // Process event data for display
   const { cleanedEvent, displayAnnotations } = useMemo(() => {
@@ -704,6 +722,21 @@ const handleMovePrevious = useCallback(() => {
   }, [fileData]);
 
   useEffect(() => {
+    const fetchProgress = async () => {
+      try {
+        const file = await fileApi.getFile(fileId);
+        if (file?.progress) {
+          setCurrentPosition(file.progress); // Use setCurrentPosition from useAnnotation
+        }
+      } catch (error) {
+        console.error('Error fetching progress:', error);
+      }
+    };
+  
+    fetchProgress();
+  }, [fileId, setCurrentPosition]); // Add setCurrentPosition to dependencies
+
+  useEffect(() => {
     if (cleanedEvent && eventType) {
       const currentSummary = cleanedEvent[eventType] || '';
       console.log('Setting summary input from cleanedEvent:', { eventType, currentSummary });
@@ -786,16 +819,15 @@ const handleMovePrevious = useCallback(() => {
       
       
       <AnnotationHeader
-        currentPaper={currentPaper}
-        currentPosition={currentPosition}
-        fileData={fileData}
-        syncStatus={syncStatus.status}
-        lastSaved={lastSaved}
-        onBack={handleBack}
-        onOpenGuide={() => window.open('/docs/annotation_guide.pdf', '_blank')}
-        onShowTutorial={() => setShowTutorial(true)}
-        progress={progress}
-      />
+  currentPaper={currentPaper}
+  currentPosition={currentPosition}
+  fileData={fileData}
+  syncStatus={syncStatus.status}
+  lastSaved={lastSaved}
+  onBack={handleBack}
+  onOpenGuide={() => window.open('/docs/annotation_guide.pdf', '_blank')}
+  onShowTutorial={() => setShowTutorial(true)}
+/>
 
 <main className="pt-24 pb-20 px-4">
         <div className="max-w-[95%] mx-auto space-y-6">

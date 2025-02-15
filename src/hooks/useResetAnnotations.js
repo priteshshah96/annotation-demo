@@ -19,7 +19,11 @@ export const useResetAnnotations = (fileId) => {
       // Refresh file data with cleared annotations
       const refreshedFile = await annotationApi.getFileWithAnnotations(fileId);
 
-      return refreshedFile;
+      // Return the reset progress and refreshed file data
+      return {
+        ...refreshedFile,
+        progress: { paperIndex: 0, eventIndex: 0 } // Explicitly return the reset progress
+      };
     } catch (error) {
       console.error('Error resetting annotations:', error);
       throw error;

@@ -153,7 +153,7 @@ const FileActionsMenu = ({
     switch (action) {
       case 'view':
         if (onNavigate && file?._id) {
-          onNavigate(`/file/${file._id}`);
+          onNavigate(`/annotate/${file._id}`, { state: { mode: 'view' } }); // Pass mode as 'view'
           onClose();
         }
         break;
@@ -380,7 +380,10 @@ FileActionsMenu.propTypes = {
   file: PropTypes.shape({
     _id: PropTypes.string.isRequired,
     name: PropTypes.string.isRequired,
-    progress: PropTypes.number
+    progress: PropTypes.shape({
+      paperIndex: PropTypes.number.isRequired,
+      eventIndex: PropTypes.number.isRequired
+    })
   }),
   disabledActions: PropTypes.arrayOf(PropTypes.string)
 };

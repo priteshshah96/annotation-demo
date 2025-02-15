@@ -366,7 +366,10 @@ FileList.propTypes = {
       events: PropTypes.array
     })),
     uploadDate: PropTypes.string.isRequired,
-    progress: PropTypes.number,
+    progress: PropTypes.shape({
+      paperIndex: PropTypes.number.isRequired,
+      eventIndex: PropTypes.number.isRequired
+    }),
     status: PropTypes.oneOf(['not_started', 'started', 'completed'])
   })).isRequired,
   onNavigate: PropTypes.func.isRequired,

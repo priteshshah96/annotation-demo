@@ -17,7 +17,7 @@ const EVENT_TYPES = [
 
 export function useAnnotation(fileId, navigate, userId) {
   console.log('useAnnotation initialized with:', { fileId, userId });
-  
+
   const mountedRef = useRef(true);
   const loadingRef = useRef(false);
 
@@ -37,25 +37,33 @@ export function useAnnotation(fileId, navigate, userId) {
     });
   }, []);
 
+  // Add this function to update the currentPosition state
+  const setCurrentPosition = useCallback((newPosition) => {
+    safeSetState(prev => ({
+      ...prev,
+      currentPosition: newPosition
+    }));
+  }, [safeSetState]);
+
   const loadFileData = useCallback(async (force = false) => {
     if ((!fileId || loadingRef.current || !mountedRef.current || !userId) && !force) {
       console.log('Skipping loadFileData:', { fileId, loading: loadingRef.current, mounted: mountedRef.current, userId });
       return;
     }
-  
+
     try {
       loadingRef.current = true;
       safeSetState(prev => ({ ...prev, loading: true, error: null }));
-  
+
       const response = await annotationApi.getFileWithAnnotations(fileId);
       console.log('Server Response:', JSON.stringify(response, null, 2));
-      
+
       if (!mountedRef.current) return;
-      
+
       if (!response?.file) {
         throw new Error('Invalid response format - missing file data');
       }
-  
+
       const data = {
         papers: response.file.papers || [],
         metadata: response.file.metadata || {},
@@ -63,7 +71,7 @@ export function useAnnotation(fileId, navigate, userId) {
         name: response.file.name,
         _id: response.file._id
       };
-  
+
       safeSetState(prev => ({
         ...prev,
         fileData: data,
@@ -324,8 +332,9 @@ export function useAnnotation(fileId, navigate, userId) {
     validatePosition,
     hasUnsavedChanges,
     resetPosition,
+    setCurrentPosition,
     eventType: getCurrentEventType(),
     isFirstField: state.currentPosition.paperIndex === 0 && state.currentPosition.eventIndex === 0,
-    isLastField: getIsLastField()
+    isLastField: getIsLastField(),
   };
 }

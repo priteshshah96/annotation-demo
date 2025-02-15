@@ -4,37 +4,39 @@ export const fileApi = {
   async uploadFile(fileData) {
     try {
       console.log('fileData:', fileData);
-  
+
       if (!fileData.papers) {
         throw new Error('The "papers" property is missing in fileData.');
       }
-  
+
       // Calculate basic metadata
       const totalEvents = fileData.papers.reduce((sum, paper) => 
         sum + (paper.events?.length || 0), 0);
-  
-      // Include status in upload data
+
+      // Include status and progress in upload data
       const uploadData = {
         name: fileData.name,
         papers: fileData.papers,
         userId: fileData.userId,
-        status: 'not_started', // Add this line
+        status: 'not_started', // Initial status
+        progress: { paperIndex: 0, eventIndex: 0 }, // Initial progress
         metadata: {
           totalPapers: fileData.papers.length,
           totalEvents
         }
       };
-  
+
       console.log('Upload data structure:', JSON.stringify({
         name: uploadData.name,
-        status: uploadData.status, // Log status
+        status: uploadData.status,
+        progress: uploadData.progress,
         paperCount: uploadData.papers.length,
         firstPaper: uploadData.papers[0] ? {
           paper_code: uploadData.papers[0].paper_code,
           hasEvents: !!uploadData.papers[0].events
         } : null
       }));
-  
+
       return await api.files.upload(uploadData);
     } catch (error) {
       console.error('File upload error:', error);
@@ -83,27 +85,40 @@ export const fileApi = {
     }
   },
 
-
   async updateFileStatus(fileId, status) {
     try {
       const response = await api.files.updateStatus(fileId, { status });
-      
+
       if (!response?.success) {
         throw new Error('Failed to update file status');
       }
-      
+
       return response;
     } catch (error) {
       console.error('Error updating file status:', error);
       throw error;
     }
-},
+  },
+
+  async updateFileProgress(fileId, progress) {
+    try {
+      const response = await api.files.updateProgress(fileId, { progress });
+
+      if (!response?.success) {
+        throw new Error('Failed to update file progress');
+      }
+
+      return response;
+    } catch (error) {
+      console.error('Error updating file progress:', error);
+      throw error;
+    }
+  },
 
   async deleteFile(fileId) {
     if (!fileId) throw new Error('FileId is required');
-    
+
     try {
-      // Ensure we're using the correct API endpoint
       const response = await api.files.delete(fileId);
       if (!response.success) {
         throw new Error(response.error || 'Failed to delete file');
@@ -119,14 +134,14 @@ export const fileApi = {
     if (!fileId) throw new Error('FileId is required');
 
     try {
-      // Use the annotations namespace of the api client
+      // Reset annotations on the backend
       const response = await api.annotations.reset(fileId);
-      
+
       if (!response.success) {
         throw new Error('Failed to reset annotations');
       }
-      
-      // Return both the file and annotations data
+
+      // Fetch the updated file data
       return await this.getFile(fileId);
     } catch (error) {
       console.error('Error resetting annotations:', error);
@@ -134,4 +149,3 @@ export const fileApi = {
     }
   }
 };
-

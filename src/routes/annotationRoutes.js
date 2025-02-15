@@ -305,16 +305,19 @@ router.post('/:fileId/reset', asyncHandler(async (req, res) => {
     userId: mongoUserId
   });
 
-  // Reset file progress
+  // Reset file progress to initial state
   await File.findByIdAndUpdate(fileId, {
-    $set: { progress: 0 }
+    $set: { 
+      progress: { paperIndex: 0, eventIndex: 0 }, // Reset progress to initial state
+      status: 'not_started' // Reset status to 'not_started'
+    }
   });
 
   // Return success with fresh progress
   res.json({
     success: true,
     message: 'All annotations reset successfully',
-    progress: 0
+    progress: { paperIndex: 0, eventIndex: 0 } // Return the reset progress
   });
 }));
 

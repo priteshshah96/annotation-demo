@@ -41,17 +41,17 @@ class AnnotationApi {
       if (!fileResponse.success || !fileResponse.file) {
         throw new Error('File not found');
       }
-  
+
       const annotationsResponse = await api.annotations.get(fileId);
       console.log('Annotations response:', annotationsResponse);
-  
+
       // Get papers from the file object and ensure it's an array
       const papers = fileResponse.file.papers?.map(paper => ({
         ...paper,
         events: paper.events?.map(event => {
           const { Text, ...eventTypes } = event;
           const eventType = AnnotationTypes.EVENT_TYPE.find(type => type in eventTypes);
-          
+
           return {
             [eventType]: "",  // Original event type with empty string
             Text,  // Original Text
@@ -78,16 +78,16 @@ class AnnotationApi {
           };
         }) || []
       })) || [];
-  
+
       if (annotationsResponse?.annotations) {
         annotationsResponse.annotations.forEach(annotation => {
           const { paperIndex, eventIndex, fieldPath, answer, annotationId } = annotation;
           if (!papers[paperIndex]?.events[eventIndex]) return;
-  
+
           const event = papers[paperIndex].events[eventIndex];
           const textContent = answer?.text || answer;
           const span = answer?.span || null;
-  
+
           if (AnnotationTypes.EVENT_TYPE.includes(fieldPath)) {
             event[fieldPath] = textContent;
             if (!event.ArgumentPositions[fieldPath]) {
@@ -143,7 +143,7 @@ class AnnotationApi {
           }
         });
       }
-  
+
       console.log('Processed papers:', papers);
       return {
         ...fileResponse,
@@ -238,21 +238,15 @@ class AnnotationApi {
       if (!response.success) {
         throw new Error('Failed to reset annotations');
       }
-      return await this.getFileWithAnnotations(fileId);
+
+      // Fetch the updated file data to ensure progress is reset
+      const updatedFile = await this.getFileWithAnnotations(fileId);
+      return updatedFile;
     } catch (error) {
       console.error('Error resetting annotations:', error);
       throw this.formatError(error);
     }
   }
-
-  formatError(error) {
-    return {
-      message: error.message || 'An error occurred',
-      status: error.status || 500,
-      details: error.details || null
-    };
-  }
-
 
   formatError(error) {
     return {

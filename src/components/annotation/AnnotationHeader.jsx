@@ -76,24 +76,19 @@ const AnnotationHeader = ({
   onOpenGuide,
   onShowTutorial,
   syncStatus,
-  lastSaved,
-  progress
+  lastSaved
 }) => {
   // Calculate the total events for this paper
   const currentPaperTotalEvents = currentPaper?.events?.length || 0;
-  
+
   // Calculate progress
-  const calculatedProgress = fileData?.papers?.length 
+  const progress = fileData?.papers?.length 
     ? Math.max(
         0,
         ((currentPosition.paperIndex * currentPaperTotalEvents + currentPosition.eventIndex + 1) /
-          (fileData.papers.length * currentPaperTotalEvents)) *
-          100
+          (fileData.papers.length * currentPaperTotalEvents)) * 100
       )
     : 0;
-
-  // Use provided progress if available, otherwise use calculated progress
-  const displayProgress = typeof progress === 'number' ? progress : calculatedProgress;
 
   return (
     <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-20">
@@ -129,8 +124,8 @@ const AnnotationHeader = ({
         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
           <div 
             className="h-full bg-blue-600 transition-all duration-300"
-            style={{ width: `${displayProgress}%` }}
-            aria-valuenow={displayProgress}
+            style={{ width: `${progress}%` }}
+            aria-valuenow={progress}
             aria-valuemin={0}
             aria-valuemax={100}
           />

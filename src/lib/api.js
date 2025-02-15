@@ -105,10 +105,13 @@ export const api = {
     delete: (id) => fetchWithAuth(`/api/files/${id}`, {
       method: 'DELETE'
     }),
-    // Add this new method
     updateStatus: (fileId, status) => fetchWithAuth(`/api/files/${fileId}/status`, {
       method: 'PATCH',
       body: JSON.stringify(status)
+    }),
+    updateProgress: (fileId, progress) => fetchWithAuth(`/api/files/${fileId}/progress`, {
+      method: 'PATCH',
+      body: JSON.stringify(progress)
     })
 },
   

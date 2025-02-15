@@ -71,11 +71,13 @@ const FileUploader = ({ onUpload, isUploading = false, userId, existingFiles = [
       const totalEvents = normalizedPapers.reduce((sum, paper) => 
         sum + (paper.events?.length || 0), 0);
 
+      // Include progress field in upload data
       const uploadData = {
         name: file.name,
         papers: normalizedPapers,
         userId,
         status: 'not_started', // Set initial status here
+        progress: { paperIndex: 0, eventIndex: 0 }, // Initialize progress
         metadata: {
           totalPapers: normalizedPapers.length,
           totalEvents

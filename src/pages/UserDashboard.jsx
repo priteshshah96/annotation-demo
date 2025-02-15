@@ -103,6 +103,7 @@ const UserDashboard = () => {
 
   const handleResetAnnotations = async () => {
     try {
+      if (mode === 'view') return; // Do nothing in view mode
       handleNavigate(`/annotate/${selectedFileId}`);
       showToast('Navigating to annotation page...', 'info');
     } catch (error) {

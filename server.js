@@ -386,6 +386,40 @@ app.patch('/api/files/:fileId/status', authenticateAndSync, asyncHandler(async (
   });
 }));
 
+app.patch('/api/files/:fileId/progress', authenticateAndSync, asyncHandler(async (req, res) => {
+  const { fileId } = req.params;
+  const { progress } = req.body; // Expects { paperIndex, eventIndex }
+  const mongoUserId = req.user._id;
+
+  // Validate progress object
+  if (!progress || typeof progress.paperIndex !== 'number' || typeof progress.eventIndex !== 'number') {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid progress data',
+      details: 'Progress must contain paperIndex and eventIndex as numbers',
+    });
+  }
+
+  // Find the file and update its progress
+  const file = await File.findOneAndUpdate(
+    { _id: fileId, userId: mongoUserId },
+    { $set: { progress } },
+    { new: true }
+  );
+
+  if (!file) {
+    return res.status(404).json({
+      success: false,
+      error: 'File not found',
+    });
+  }
+
+  res.json({
+    success: true,
+    file,
+  });
+}));
+
 // ---------- PRODUCTION SETUP ----------
 if (process.env.NODE_ENV === 'production') {
   // Serve static files
