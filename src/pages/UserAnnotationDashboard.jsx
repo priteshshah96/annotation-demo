@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, memo, useRef, useState, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import { useAnnotation } from '../hooks/useAnnotation';
 import { useAnnotationSync } from '../hooks/useAnnotationSync';
@@ -15,22 +15,21 @@ import LoadingView from '../components/common/LoadingView';
 import ErrorView from '../components/common/ErrorView';
 import Toast from '../components/annotation/Toast';
 
-
-
-const UserAnnotationDashboard = ({ mode = 'edit' }) => {
-  console.log('Dashboard initializing with mode:', mode);
-
-  const mountedRef = useRef(true);
+const UserAnnotationDashboard = () => {
+  // Router and Auth hooks
   const navigate = useNavigate();
-
-
   const { fileId } = useParams();
-  console.log('FileId from params:', fileId);
-  
+  const [searchParams] = useSearchParams();
   const { user } = useUser();
   const { isLoaded, isSignedIn } = useAuth();
-  const [toasts, setToasts] = useState([]);
+  const mountedRef = useRef(true);
+
+  // Mode handling
+  const mode = searchParams.get('mode') || 'edit';
+  const isViewMode = mode === 'view';
+
   // State
+  const [toasts, setToasts] = useState([]);
   const [selectedText, setSelectedText] = useState(null);
   const [isAbstractOpen, setIsAbstractOpen] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
@@ -39,32 +38,7 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
   const [lastSaved, setLastSaved] = useState(null);
   const [localFileData, setLocalFileData] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const isViewMode = mode === 'view';
-  const showToast = useCallback((message, type = 'error') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    
-    // Auto remove after 4 seconds
-    setTimeout(() => {
-      setToasts(prev => prev.filter(toast => toast.id !== id));
-    }, 4000);
-  }, []);
-
-
-  const hideToast = useCallback((id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
-  }, []);
-
-
-  console.log('State initialized:', {
-    hasSelectedText: !!selectedText,
-    isAbstractOpen,
-    isCompleting,
-    hasSummaryInput: !!summaryInput,
-    showTutorial,
-    lastSaved,
-    hasLocalFileData: !!localFileData
-  });
+  const [viewModePosition, setViewModePosition] = useState({ paperIndex: 0, eventIndex: 0 });
 
   // Custom Hooks
   const {
@@ -83,16 +57,6 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
     setCurrentPosition
   } = useAnnotation(fileId, navigate, user?.id);
 
-  console.log('useAnnotation hook result:', {
-    currentPosition,
-    hasFileData: !!fileData,
-    loading,
-    error,
-    eventType,
-    isFirstField,
-    isLastField
-  });
-
   const { 
     syncStatus, 
     syncAnnotation, 
@@ -100,23 +64,30 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
     isOnline 
   } = useAnnotationSync(fileId, user?.id, loadFileData);
 
-  console.log('Sync status:', syncStatus);
+  // Toast handling
+  const showToast = useCallback((message, type = 'error') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id));
+    }, 4000);
+  }, []);
+
+  const hideToast = useCallback((id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
+  }, []);
 
   // Event Handlers
   const handleBack = useCallback(() => {
-    console.log('Navigating back to dashboard');
     navigate('/');
   }, [navigate]);
 
   const handleTextSelect = useCallback((selection) => {
-    console.log('Text selection:', selection);
     if (!selection) {
-      console.log('Clearing text selection');
       setSelectedText(null);
       return;
     }
     if (selection.start === undefined || selection.end === undefined) {
-      console.log('Invalid selection bounds');
       return;
     }
     setSelectedText({
@@ -124,64 +95,45 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
       start: selection.start,
       end: selection.end,
     });
-    console.log('Text selection set:', selection);
   }, []);
 
   const validateAnnotation = useCallback((selection, eventText) => {
-    console.log('Validating annotation:', { selection, eventText });
-    if (!selection || !eventText) {
-      console.log('Missing selection or event text');
-      return false;
-    }
+    if (!selection || !eventText) return false;
 
     const textContainerRef = document.createElement('div');
     textContainerRef.textContent = eventText;
     const range = document.createRange();
     const tempTextNode = textContainerRef.firstChild;
     
-    if (!tempTextNode) {
-      console.log('No text node found');
-      return false;
-    }
+    if (!tempTextNode) return false;
 
     try {
       range.setStart(tempTextNode, selection.start);
       range.setEnd(tempTextNode, selection.end);
       const textAtPosition = eventText.substring(selection.start, selection.end);
-      const isValid = textAtPosition === selection.text.trim();
-      console.log('Validation result:', isValid);
-      return isValid;
+      return textAtPosition === selection.text.trim();
     } catch (error) {
       console.error("Validation error:", error);
       return false;
     }
   }, []);
 
-  // In UserAnnotationDashboard.jsx
   const handleAnnotationSelect = useCallback(async (type, selection) => {
-    console.log('Annotation select:', { type, selection });
-    if (!selection || !currentPosition) {
-      console.log('Missing selection or position');
-      return;
-    }
-  
+    if (!selection || !currentPosition || isViewMode) return;
+
     try {
       const currentEvent = getCurrentEvent();
-      console.log('Current event:', currentEvent);
-  
-      // Modified Main Action check to handle empty strings
+      
       if (type === 'Main Action' && currentEvent['Main Action']?.trim?.()) {
-        console.log('Main action already exists');
         showToast(ERROR_MESSAGES.MAIN_ACTION_EXISTS, "error");
         return;
       }
-  
+
       if (!validateAnnotation(selection, currentEvent?.Text)) {
-        console.log('Invalid annotation');
         showToast(ERROR_MESSAGES.INVALID_SELECTION, "error");
         return;
       }
-  
+
       const annotationData = {
         text: selection.text.trim(),
         span: {
@@ -189,36 +141,33 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
           end: selection.end
         }
       };
-  
+
       let fieldPath = type;
       if (type.startsWith('Object.')) {
         fieldPath = `Arguments.Object.${type.slice(7)}`;
       } else if (!type.startsWith('Arguments.') && type !== 'Main Action') {
         fieldPath = `Arguments.${type}`;
       }
-  
-      // First update local state for immediate feedback
+
+      // First update local state
       const updateState = (prev) => {
         if (!prev?.papers) return prev;
         const newData = JSON.parse(JSON.stringify(prev));
         const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
         
-        // Generate a temporary ID for immediate UI update
         const tempId = `temp-${Date.now()}`;
         const spanWithId = { 
           ...annotationData.span,
           annotationId: tempId
         };
-  
+
         if (!currentEvent.Arguments) currentEvent.Arguments = {};
         if (!currentEvent.ArgumentPositions) currentEvent.ArgumentPositions = {};
-  
+
         if (type === 'Main Action') {
-          // Initialize Main Action even if it didn't exist before
           currentEvent['Main Action'] = annotationData.text;
           currentEvent.ArgumentPositions['Main Action'] = [spanWithId];
         } else {
-          // Rest of the code stays the same for other annotations
           if (type.startsWith('Arguments.Object.')) {
             const objectType = type.split('.').pop();
             if (!currentEvent.Arguments.Object) {
@@ -246,24 +195,21 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
             currentEvent.ArgumentPositions[fieldPath].push(spanWithId);
           }
         }
-  
+
         return newData;
       };
-  
-      // Update local state immediately
+
       setLocalFileData(updateState);
-  
-      // Then sync with server
+
       const response = await syncAnnotation({
         fieldPath,
         answer: annotationData,
         paperIndex: currentPosition.paperIndex,
         eventIndex: currentPosition.eventIndex
       });
-  
+
       if (!response.success) throw new Error('Failed to save');
-  
-      // Update the temporary ID with the real one
+
       setLocalFileData(prev => {
         if (!prev?.papers) return prev;
         const newData = JSON.parse(JSON.stringify(prev));
@@ -279,336 +225,349 @@ const UserAnnotationDashboard = ({ mode = 'edit' }) => {
         
         return newData;
       });
-  
+
       setSelectedText(null);
       setLastSaved(new Date());
       showToast(SUCCESS_MESSAGES.ANNOTATION_SAVED, "success");
-  
+
     } catch (error) {
-      console.error("Save error:", error);
       showToast(ERROR_MESSAGES.SAVE_FAILED, "error");
-      
-      // Rollback on error
       if (fileData) {
         setLocalFileData(JSON.parse(JSON.stringify(fileData)));
       }
     }
-  }, [currentPosition, syncAnnotation, showToast, validateAnnotation, getCurrentEvent, fileData]);
+  }, [currentPosition, syncAnnotation, showToast, validateAnnotation, getCurrentEvent, fileData, isViewMode]);
 
-const handleAnnotationDelete = useCallback(async (type, annotationId) => {
-  console.log('Deleting annotation:', { type, annotationId });
-  if (!currentPosition || !annotationId) {
-    console.warn('Missing required data for deletion:', { currentPosition, annotationId });
-    return;
-  }
+  const handleAnnotationDelete = useCallback(async (type, annotationId) => {
+    if (!currentPosition || !annotationId || isViewMode) return;
 
-  try {
-    // Update local state immediately for UI feedback
-    setLocalFileData(prev => {
-      if (!prev?.papers) return prev;
-      
-      const newData = JSON.parse(JSON.stringify(prev));
-      const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
-      
-      if (!currentEvent) return prev;
-
-      if (type === 'Main Action') {
-        // Set to empty instead of deleting for Main Action
-        currentEvent['Main Action'] = '';
-        if (currentEvent.ArgumentPositions) {
-          currentEvent.ArgumentPositions['Main Action'] = [];
-        }
-      } else {
-        // Handle Arguments deletion - keep this part as is
-        const fieldPath = type.startsWith('Object.') ? 
-          `Arguments.Object.${type.slice(7)}` : 
-          type.startsWith('Arguments.') ? type : `Arguments.${type}`;
+    try {
+      setLocalFileData(prev => {
+        if (!prev?.papers) return prev;
         
-        if (currentEvent.ArgumentPositions?.[fieldPath]) {
-          const positions = currentEvent.ArgumentPositions[fieldPath];
-          const posIndex = positions.findIndex(p => p.annotationId === annotationId);
-          
-          if (posIndex !== -1) {
-            positions.splice(posIndex, 1);
-            
-            if (type.startsWith('Object.')) {
-              const objectKey = type.split('.').pop();
-              if (currentEvent.Arguments?.Object?.[objectKey]) {
-                currentEvent.Arguments.Object[objectKey].splice(posIndex, 1);
-                if (currentEvent.Arguments.Object[objectKey].length === 0) {
-                  delete currentEvent.Arguments.Object[objectKey];
-                }
-              }
-            } else {
-              const argType = type.replace('Arguments.', '');
-              if (currentEvent.Arguments?.[argType]) {
-                currentEvent.Arguments[argType].splice(posIndex, 1);
-                if (currentEvent.Arguments[argType].length === 0) {
-                  delete currentEvent.Arguments[argType];
-                }
-              }
-            }
+        const newData = JSON.parse(JSON.stringify(prev));
+        const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
+        
+        if (!currentEvent) return prev;
 
-            // Keep cleanup logic for arguments
-            if (positions.length === 0) {
-              delete currentEvent.ArgumentPositions[fieldPath];
-            }
-            if (Object.keys(currentEvent.ArgumentPositions).length === 0) {
-              delete currentEvent.ArgumentPositions;
-            }
-            if (Object.keys(currentEvent.Arguments?.Object || {}).length === 0) {
-              delete currentEvent.Arguments?.Object;
-            }
-            if (Object.keys(currentEvent.Arguments || {}).length === 0) {
-              delete currentEvent.Arguments;
+        if (type === 'Main Action') {
+          currentEvent['Main Action'] = '';
+          if (currentEvent.ArgumentPositions) {
+            currentEvent.ArgumentPositions['Main Action'] = [];
+          }
+        } else {
+          const fieldPath = type.startsWith('Object.') ? 
+            `Arguments.Object.${type.slice(7)}` : 
+            type.startsWith('Arguments.') ? type : `Arguments.${type}`;
+          
+          if (currentEvent.ArgumentPositions?.[fieldPath]) {
+            const positions = currentEvent.ArgumentPositions[fieldPath];
+            const posIndex = positions.findIndex(p => p.annotationId === annotationId);
+            
+            if (posIndex !== -1) {
+              positions.splice(posIndex, 1);
+              
+              if (type.startsWith('Object.')) {
+                const objectKey = type.split('.').pop();
+                if (currentEvent.Arguments?.Object?.[objectKey]) {
+                  currentEvent.Arguments.Object[objectKey].splice(posIndex, 1);
+                  if (currentEvent.Arguments.Object[objectKey].length === 0) {
+                    delete currentEvent.Arguments.Object[objectKey];
+                  }
+                }
+              } else {
+                const argType = type.replace('Arguments.', '');
+                if (currentEvent.Arguments?.[argType]) {
+                  currentEvent.Arguments[argType].splice(posIndex, 1);
+                  if (currentEvent.Arguments[argType].length === 0) {
+                    delete currentEvent.Arguments[argType];
+                  }
+                }
+              }
+
+              if (positions.length === 0) {
+                delete currentEvent.ArgumentPositions[fieldPath];
+              }
+              if (Object.keys(currentEvent.ArgumentPositions).length === 0) {
+                delete currentEvent.ArgumentPositions;
+              }
+              if (Object.keys(currentEvent.Arguments?.Object || {}).length === 0) {
+                delete currentEvent.Arguments?.Object;
+              }
+              if (Object.keys(currentEvent.Arguments || {}).length === 0) {
+                delete currentEvent.Arguments;
+              }
             }
           }
         }
+
+        return newData;
+      });
+
+      const fieldPath = type.startsWith('Object.') ? 
+        `Arguments.Object.${type.slice(7)}` : 
+        type.startsWith('Arguments.') ? type : type;
+
+      const response = await syncAnnotation({
+        fieldPath,
+        answer: type === 'Main Action' ? { text: '' } : null,
+        isDelete: true,
+        paperIndex: currentPosition.paperIndex,
+        eventIndex: currentPosition.eventIndex,
+        annotationId
+      });
+
+      if (!response.success) throw new Error('Failed to delete annotation');
+
+      setLastSaved(new Date());
+      showToast(SUCCESS_MESSAGES.ANNOTATION_DELETED, "success");
+
+    } catch (error) {
+      showToast(ERROR_MESSAGES.DELETE_FAILED, "error");
+      if (fileData) {
+        setLocalFileData(JSON.parse(JSON.stringify(fileData)));
       }
-
-      return newData;
-    });
-
-    // Sync with server
-    const fieldPath = type.startsWith('Object.') ? 
-      `Arguments.Object.${type.slice(7)}` : 
-      type.startsWith('Arguments.') ? type : type;
-
-    const response = await syncAnnotation({
-      fieldPath,
-      answer: type === 'Main Action' ? { text: '' } : null,  // Empty string for Main Action
-      isDelete: true,
-      paperIndex: currentPosition.paperIndex,
-      eventIndex: currentPosition.eventIndex,
-      annotationId
-    });
-
-    if (!response.success) throw new Error('Failed to delete annotation');
-
-    setLastSaved(new Date());
-    showToast(SUCCESS_MESSAGES.ANNOTATION_DELETED, "success");
-
-  } catch (error) {
-    console.error('Delete error:', error);
-    showToast(ERROR_MESSAGES.DELETE_FAILED, "error");
-    
-    // Rollback on error by reloading from fileData
-    if (fileData) {
-      setLocalFileData(JSON.parse(JSON.stringify(fileData)));
     }
-  }
-}, [currentPosition, syncAnnotation, showToast, fileData]);
+  }, [currentPosition, syncAnnotation, showToast, fileData, isViewMode]);
 
-// In UserAnnotationDashboard.jsx
-const handleSummaryDelete = useCallback(async () => {
-  console.log('Summary delete triggered');
-  if (!eventType || !currentPosition || mode === 'view') return;
+  const handleSummaryDelete = useCallback(async () => {
+    if (!eventType || !currentPosition || isViewMode) return;
 
-  try {
-    const currentEvent = getCurrentEvent();
-    console.log('Current event before deletion:', currentEvent);
-    
-    // Send update request with empty string instead of delete
-    const response = await syncAnnotation({
-      fieldPath: eventType,
-      answer: { text: '' },
-      paperIndex: currentPosition.paperIndex,
-      eventIndex: currentPosition.eventIndex,
-      isDelete: true  // Changed back to true for proper deletion
-    });
+    try {
+      const response = await syncAnnotation({
+        fieldPath: eventType,
+        answer: { text: '' },
+        paperIndex: currentPosition.paperIndex,
+        eventIndex: currentPosition.eventIndex,
+        isDelete: true
+      });
 
-    if (!response.success) throw new Error('Failed to update');
+      if (!response.success) throw new Error('Failed to update');
 
-    setLocalFileData(prev => {
-      if (!prev?.papers) return prev;
-      const newData = JSON.parse(JSON.stringify(prev));
-      const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
-      
-      if (currentEvent) {
-        // Set empty string instead of deleting
-        currentEvent[eventType] = '';
+      setLocalFileData(prev => {
+        if (!prev?.papers) return prev;
+        const newData = JSON.parse(JSON.stringify(prev));
+        const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
         
-        // Clear annotations but maintain the structure
-        if (!currentEvent.ArgumentPositions) {
-          currentEvent.ArgumentPositions = {};
-        }
-        currentEvent.ArgumentPositions[eventType] = [];
-      }
-      
-      return newData;
-    });
-
-    setSummaryInput('');  // Clear the input
-    setLastSaved(new Date());
-    showToast('Summary deleted successfully', 'success');
-    console.log('Summary cleared successfully');
-  } catch (error) {
-    console.error('Error clearing summary:', error);
-    showToast(ERROR_MESSAGES.DELETE_FAILED, "error");
-  }
-}, [eventType, currentPosition, mode, syncAnnotation, showToast, getCurrentEvent]);
-
-const handleSummaryChange = useCallback(async (newValue) => {
-  console.log('Summary change triggered with:', { newValue, eventType, currentPosition });
-  if (!eventType || !currentPosition || mode === 'view') return;
-  
-  try {
-    const trimmedValue = typeof newValue === 'string' ? newValue.trim() : 
-                        Array.isArray(newValue) ? newValue[0]?.trim() : '';
-
-    // Always send an update, even for empty strings
-    const response = await syncAnnotation({
-      fieldPath: eventType,
-      answer: { text: trimmedValue },
-      paperIndex: currentPosition.paperIndex,
-      eventIndex: currentPosition.eventIndex
-    });
-
-    if (!response.success) throw new Error('Failed to save');
-
-    setLocalFileData(prev => {
-      if (!prev?.papers) return prev;
-      const newData = JSON.parse(JSON.stringify(prev));
-      const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
-      
-      if (currentEvent) {
-        currentEvent[eventType] = trimmedValue;
-        
-        if (!currentEvent.ArgumentPositions) {
-          currentEvent.ArgumentPositions = {};
-        }
-        
-        if (trimmedValue) {
-          // If there's a value, set the annotation ID
-          currentEvent.ArgumentPositions[eventType] = [{
-            annotationId: response.data.annotationId
-          }];
-        } else {
-          // If empty, clear annotations but maintain structure
+        if (currentEvent) {
+          currentEvent[eventType] = '';
+          if (!currentEvent.ArgumentPositions) {
+            currentEvent.ArgumentPositions = {};
+          }
           currentEvent.ArgumentPositions[eventType] = [];
         }
+        
+        return newData;
+      });
+
+      setSummaryInput('');
+      setLastSaved(new Date());
+      showToast('Summary deleted successfully', 'success');
+    } catch (error) {
+      showToast(ERROR_MESSAGES.DELETE_FAILED, "error");
+    }
+  }, [eventType, currentPosition, isViewMode, syncAnnotation, showToast]);
+
+  const handleSummaryChange = useCallback(async (newValue) => {
+    if (!eventType || !currentPosition || isViewMode) return;
+    
+    try {
+      const trimmedValue = typeof newValue === 'string' ? newValue.trim() : 
+                          Array.isArray(newValue) ? newValue[0]?.trim() : '';
+
+      const response = await syncAnnotation({
+        fieldPath: eventType,
+        answer: { text: trimmedValue },
+        paperIndex: currentPosition.paperIndex,
+        eventIndex: currentPosition.eventIndex
+      });
+
+      if (!response.success) throw new Error('Failed to save');
+
+      setLocalFileData(prev => {
+        if (!prev?.papers) return prev;
+        const newData = JSON.parse(JSON.stringify(prev));
+        const currentEvent = newData.papers[currentPosition.paperIndex].events[currentPosition.eventIndex];
+        
+        if (currentEvent) {
+          currentEvent[eventType] = trimmedValue;
+          
+          if (!currentEvent.ArgumentPositions) {
+            currentEvent.ArgumentPositions = {};
+          }
+          
+          if (trimmedValue) {
+            currentEvent.ArgumentPositions[eventType] = [{
+              annotationId: response.data.annotationId
+            }];
+          } else {
+            currentEvent.ArgumentPositions[eventType] = [];
+          }
+        }
+        
+        return newData;
+      });
+
+      setLastSaved(new Date());
+      showToast(
+        trimmedValue ? SUCCESS_MESSAGES.SUMMARY_SAVED : SUCCESS_MESSAGES.SUMMARY_DELETED,
+        "success"
+      );
+    } catch (error) {
+      showToast('Failed to save summary', "error");
+    }
+  }, [eventType, currentPosition, isViewMode, syncAnnotation, showToast]);
+
+  const handleCompletion = useCallback(async () => {
+    if (!mountedRef.current || isCompleting || isViewMode) return;
+
+    try {
+      setIsCompleting(true);
+      showToast('Finalizing annotations...', 'info');
+
+      await fileApi.updateFileStatus(fileId, 'completed');
+      const success = await finalizeSync();
+
+      if (success && mountedRef.current) {
+        await fileApi.updateFileProgress(fileId, { paperIndex: 0, eventIndex: 0 });
+        showToast('Annotations completed successfully!', 'success');
+        navigate('/', { replace: true });
+      } else {
+        throw new Error('Sync failed');
       }
-      
-      return newData;
-    });
-
-    setLastSaved(new Date());
-    showToast(
-      trimmedValue ? SUCCESS_MESSAGES.SUMMARY_SAVED : SUCCESS_MESSAGES.SUMMARY_DELETED, 
-      "success"
-    );
-  } catch (error) {
-    console.error('Error saving summary:', error);
-    showToast('Failed to save summary', "error");
-  }
-}, [eventType, currentPosition, mode, syncAnnotation, showToast]);
-  
-
-const handleCompletion = useCallback(async () => {
-  console.log('Starting completion process:', {
-    isMounted: mountedRef.current,
-    isCompleting,
-    isOnline
-  });
-
-  if (!mountedRef.current || isCompleting) {
-    console.log('Early return due to:', {
-      notMounted: !mountedRef.current,
-      isCompleting
-    });
-    return;
-  }
-
-  try {
-    setIsCompleting(true);
-    showToast('Finalizing annotations...', 'info');
-
-    // Update file status to completed
-    await fileApi.updateFileStatus(fileId, 'completed');
-
-    console.log('Calling finalizeSync...');
-    const success = await finalizeSync();
-    console.log('FinalizeSync result:', success);
-
-    if (success && mountedRef.current) {
-      console.log('Success, dispatching update and navigating');
-
-      // Reset progress to { paperIndex: 0, eventIndex: 0 }
-      await fileApi.updateFileProgress(fileId, { paperIndex: 0, eventIndex: 0 });
-
-      showToast('Annotations completed successfully!', 'success');
-      navigate('/', { replace: true });
-    } else {
-      throw new Error('Sync failed');
+    } catch (error) {
+      if (mountedRef.current) {
+        setIsCompleting(false);
+        showToast(ERROR_MESSAGES.SAVE_FAILED, 'error');
+      }
     }
-  } catch (error) {
-    console.error('Completion error:', error);
-    if (mountedRef.current) {
-      setIsCompleting(false);
-      showToast(ERROR_MESSAGES.SAVE_FAILED, 'error');
-    }
-  }
-}, [fileId, finalizeSync, navigate, showToast, isCompleting, isOnline]);
+  }, [fileId, finalizeSync, navigate, showToast, isCompleting, isViewMode]);
 
-
-  // Add these handlers for navigation
   const handleMoveNext = useCallback(async () => {
+    if (isViewMode) {
+      const nextPosition = { ...viewModePosition };
+      const currentPaper = localFileData?.papers?.[viewModePosition.paperIndex];
+      
+      // Check if we've reached the end of current paper's events
+      if (nextPosition.eventIndex + 1 >= (currentPaper?.events?.length || 0)) {
+        // Check if there's another paper
+        if (nextPosition.paperIndex + 1 < (localFileData?.papers?.length || 0)) {
+          // Move to first event of next paper
+          nextPosition.paperIndex += 1;
+          nextPosition.eventIndex = 0;
+        } else {
+          showToast('No more events in this paper', 'info');
+          return;
+        }
+      } else {
+        // Move to next event in current paper
+        nextPosition.eventIndex += 1;
+      }
+  
+      setViewModePosition(nextPosition);
+      setCurrentPosition(nextPosition);
+      return;
+    }
+  
+    // Edit mode
     if (hasUnsavedChanges) {
       showToast('Please save your changes before continuing', 'warning');
       return;
     }
   
-    const nextPosition = { ...currentPosition, eventIndex: currentPosition.eventIndex + 1 };
+    const nextPosition = { ...currentPosition };
+    const currentPaper = fileData?.papers?.[currentPosition.paperIndex];
+  
+    if (nextPosition.eventIndex + 1 >= (currentPaper?.events?.length || 0)) {
+      if (nextPosition.paperIndex + 1 < (fileData?.papers?.length || 0)) {
+        nextPosition.paperIndex += 1;
+        nextPosition.eventIndex = 0;
+      } else {
+        return; // Let the existing isLastField logic handle this case
+      }
+    } else {
+      nextPosition.eventIndex += 1;
+    }
+  
     try {
-      await fileApi.updateFileProgress(fileId, nextPosition); // Ensure this function is implemented
+      await fileApi.updateFileProgress(fileId, nextPosition);
       moveNext();
     } catch (error) {
       console.error('Error updating progress:', error);
       showToast('Failed to update progress', 'error');
     }
-  }, [hasUnsavedChanges, moveNext, showToast, fileId, currentPosition]);
+  }, [hasUnsavedChanges, moveNext, showToast, fileId, currentPosition, isViewMode, viewModePosition, localFileData, fileData, setCurrentPosition]);
   
   const handleMovePrevious = useCallback(async () => {
+    if (isViewMode) {
+      const prevPosition = { ...viewModePosition };
+  
+      // Check if we're at the first event of current paper
+      if (prevPosition.eventIndex <= 0) {
+        // Check if there's a previous paper
+        if (prevPosition.paperIndex > 0) {
+          // Move to last event of previous paper
+          prevPosition.paperIndex -= 1;
+          const previousPaper = localFileData?.papers?.[prevPosition.paperIndex];
+          prevPosition.eventIndex = (previousPaper?.events?.length || 1) - 1;
+        } else {
+          showToast('Already at the first event', 'info');
+          return;
+        }
+      } else {
+        // Move to previous event in current paper
+        prevPosition.eventIndex -= 1;
+      }
+  
+      setViewModePosition(prevPosition);
+      setCurrentPosition(prevPosition);
+      return;
+    }
+  
+    // Edit mode
     if (hasUnsavedChanges) {
       showToast('Please save your changes before continuing', 'warning');
       return;
     }
   
-    const prevPosition = { ...currentPosition, eventIndex: currentPosition.eventIndex - 1 };
+    const prevPosition = { ...currentPosition };
+  
+    if (prevPosition.eventIndex <= 0) {
+      if (prevPosition.paperIndex > 0) {
+        prevPosition.paperIndex -= 1;
+        const previousPaper = fileData?.papers?.[prevPosition.paperIndex];
+        prevPosition.eventIndex = (previousPaper?.events?.length || 1) - 1;
+      } else {
+        return; // Let the existing isFirstField logic handle this case
+      }
+    } else {
+      prevPosition.eventIndex -= 1;
+    }
+  
     try {
-      await fileApi.updateFileProgress(fileId, prevPosition); // Ensure this function is implemented
+      await fileApi.updateFileProgress(fileId, prevPosition);
       movePrevious();
     } catch (error) {
       console.error('Error updating progress:', error);
       showToast('Failed to update progress', 'error');
     }
-  }, [hasUnsavedChanges, movePrevious, showToast, fileId, currentPosition]);
+  }, [hasUnsavedChanges, movePrevious, showToast, fileId, currentPosition, isViewMode, viewModePosition, localFileData, fileData, setCurrentPosition]);
 
   // Process event data for display
   const { cleanedEvent, displayAnnotations } = useMemo(() => {
-    console.log('Processing event data:', {
-      hasLocalFileData: !!localFileData,
-      currentPosition,
-      eventType
-    });
-  
     if (!localFileData?.papers) {
-      console.log('No papers in local file data');
       return { cleanedEvent: null, displayAnnotations: [] };
     }
-  
+
     const currentPaper = localFileData.papers[currentPosition.paperIndex];
     const currentEvent = currentPaper?.events[currentPosition.eventIndex];
-    console.log('Current event:', currentEvent);
-  
+
     if (!currentEvent || !eventType) {
-      console.log('Missing current event or event type');
       return { cleanedEvent: null, displayAnnotations: [] };
     }
-  
+
     const cleaned = {
       Text: currentEvent.Text || '',
-      // Ensure event type field is initialized
       [eventType]: currentEvent[eventType] || '',
       'Main Action': currentEvent['Main Action'] || '',
       Arguments: {
@@ -658,7 +617,6 @@ const handleCompletion = useCallback(async () => {
             if (!objValue) return;
             const values = Array.isArray(objValue) ? objValue : [objValue];
             cleaned.Arguments.Object[objKey] = values;
-            console.log('Processing object argument:', { objKey, values });
 
             const positions = currentEvent.ArgumentPositions?.[`Arguments.Object.${objKey}`] || [];
             values.forEach((v, idx) => {
@@ -678,7 +636,6 @@ const handleCompletion = useCallback(async () => {
         } else {
           const values = Array.isArray(value) ? value : [value];
           cleaned.Arguments[key] = values;
-          //console.log('Processing regular argument:', { key, values });
 
           const positions = currentEvent.ArgumentPositions?.[`Arguments.${key}`] || [];
           values.forEach((v, idx) => {
@@ -698,54 +655,49 @@ const handleCompletion = useCallback(async () => {
       });
     }
 
-    console.log('Finished processing event data:', {
-      cleanedEventSize: Object.keys(cleaned).length,
-      annotationsCount: annotations.length
-    });
-
     return {
       cleanedEvent: cleaned,
       displayAnnotations: annotations.sort((a, b) => a.start - b.start)
     };
-  }, [localFileData, currentPosition, eventType, lastSaved]);
-
-
-  
+  }, [localFileData, currentPosition, eventType]);
 
   // Effects
   useEffect(() => {
-    console.log('fileData effect triggered:', fileData);
+    if (isViewMode) {
+      setViewModePosition({ paperIndex: 0, eventIndex: 0 });
+      setCurrentPosition({ paperIndex: 0, eventIndex: 0 });
+    }
+  }, [isViewMode, setCurrentPosition]);
+
+  useEffect(() => {
     if (fileData) {
-      console.log('Setting localFileData from fileData');
       setLocalFileData(fileData);
     }
   }, [fileData]);
 
   useEffect(() => {
-    const fetchProgress = async () => {
-      try {
-        const file = await fileApi.getFile(fileId);
-        if (file?.progress) {
-          setCurrentPosition(file.progress); // Use setCurrentPosition from useAnnotation
+    if (!isViewMode) {
+      const fetchProgress = async () => {
+        try {
+          const file = await fileApi.getFile(fileId);
+          if (file?.progress) {
+            setCurrentPosition(file.progress);
+          }
+        } catch (error) {
+          console.error('Error fetching progress:', error);
         }
-      } catch (error) {
-        console.error('Error fetching progress:', error);
-      }
-    };
-  
-    fetchProgress();
-  }, [fileId, setCurrentPosition]); // Add setCurrentPosition to dependencies
+      };
+      fetchProgress();
+    }
+  }, [fileId, setCurrentPosition, isViewMode]);
 
   useEffect(() => {
     if (cleanedEvent && eventType) {
-      const currentSummary = cleanedEvent[eventType] || '';
-      console.log('Setting summary input from cleanedEvent:', { eventType, currentSummary });
-      setSummaryInput(currentSummary);
+      setSummaryInput(cleanedEvent[eventType] || '');
     }
   }, [cleanedEvent, eventType]);
 
   useEffect(() => {
-    console.log('Auth state changed:', { isLoaded, isSignedIn });
     if (isLoaded && !isSignedIn) {
       navigate('/sign-in');
     }
@@ -753,62 +705,34 @@ const handleCompletion = useCallback(async () => {
 
   useEffect(() => {
     mountedRef.current = true;
-    console.log('Component mounted, setting mountedRef to true');
-    
     return () => {
-      console.log('Component actually unmounting');
       mountedRef.current = false;
     };
   }, []);
-  
+
   useEffect(() => {
     const updateFileStatus = async () => {
-      try {
-        console.log('Updating file status to started:', fileId);
-        await fileApi.updateFileStatus(fileId, 'started');
-        console.log('Successfully updated status to started');
-      } catch (error) {
-        console.error('Error updating file status:', error);
+      if (fileId && isSignedIn && !isViewMode) {
+        try {
+          await fileApi.updateFileStatus(fileId, 'started');
+        } catch (error) {
+          console.error('Error updating file status:', error);
+        }
       }
     };
-  
-    if (fileId && isSignedIn && !isViewMode) {
-      console.log('Conditions met for updating status:', { fileId, isSignedIn, isViewMode });
-      updateFileStatus();
-    }
+    updateFileStatus();
   }, [fileId, isSignedIn, isViewMode]);
 
   // Early returns
-  if (!isLoaded || !user) {
-    console.log('Early return: Not loaded or no user');
-    return <LoadingView />;
-  }
-  if (!isSignedIn) {
-    console.log('Early return: Not signed in');
-    return null;
-  }
-  if (loading) {
-    console.log('Early return: Loading');
-    return <LoadingView />;
-  }
-  if (error) {
-    console.log('Early return: Error', error);
-    return <ErrorView error={error} onBack={handleBack} />;
-  }
+  if (!isLoaded || !user) return <LoadingView />;
+  if (!isSignedIn) return null;
+  if (loading) return <LoadingView />;
+  if (error) return <ErrorView error={error} onBack={handleBack} />;
   if (!getCurrentEvent() || !getCurrentPaper()) {
-    console.log('Early return: No current event or paper');
     return <ErrorView error={ERROR_MESSAGES.NO_DATA} onBack={handleBack} />;
   }
 
   const currentPaper = getCurrentPaper();
-  
-
-  console.log('Preparing final render:', {
-    hasCurrentPaper: !!currentPaper,
-    isViewMode,
-    hasCleanedEvent: !!cleanedEvent,
-    annotationsCount: displayAnnotations.length
-  });
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -817,19 +741,18 @@ const handleCompletion = useCallback(async () => {
         onClose={() => setShowTutorial(false)} 
       />
       
-      
       <AnnotationHeader
-  currentPaper={currentPaper}
-  currentPosition={currentPosition}
-  fileData={fileData}
-  syncStatus={syncStatus.status}
-  lastSaved={lastSaved}
-  onBack={handleBack}
-  onOpenGuide={() => window.open('/docs/annotation_guide.pdf', '_blank')}
-  onShowTutorial={() => setShowTutorial(true)}
-/>
+        currentPaper={currentPaper}
+        currentPosition={currentPosition}
+        fileData={fileData}
+        syncStatus={syncStatus.status}
+        lastSaved={lastSaved}
+        onBack={handleBack}
+        onOpenGuide={() => window.open('/docs/annotation_guide.pdf', '_blank')}
+        onShowTutorial={() => setShowTutorial(true)}
+      />
 
-<main className="pt-24 pb-20 px-4">
+      <main className="pt-24 pb-20 px-4">
         <div className="max-w-[95%] mx-auto space-y-6">
           <AbstractSection
             abstract={currentPaper?.abstract}
@@ -851,23 +774,23 @@ const handleCompletion = useCallback(async () => {
             fileData={fileData}
             localFileData={localFileData}  
             isViewMode={isViewMode}
-            onHasUnsavedChanges={setHasUnsavedChanges} // Add this line
+            onHasUnsavedChanges={setHasUnsavedChanges}
             showToast={showToast}
           />
         </div>
       </main>
 
-      {/* Modified footer condition to show in both edit and view modes */}
       <AnnotationFooter
-        onPrevious={handleMovePrevious} // Use new handler
+        onPrevious={handleMovePrevious}
         onNext={isViewMode ? 
-          (isLastField ? handleBack : handleMoveNext) : // Use new handler
-          (isLastField ? handleCompletion : handleMoveNext)} // Use new handler
+          (isLastField ? handleBack : handleMoveNext) : 
+          (isLastField ? handleCompletion : handleMoveNext)}
         isFirstField={isFirstField}
         isLastField={isLastField}
         isCompleting={isCompleting}
         isOnline={isOnline}
         hasUnsavedChanges={hasUnsavedChanges}
+        isViewMode={isViewMode}
       />
 
       {toasts.map((toast, index) => (

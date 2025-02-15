@@ -11,18 +11,17 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Box,
   useTheme,
   alpha,
   Divider,
-  CircularProgress
+  CircularProgress,
 } from '@mui/material';
 import {
   DeleteOutline as DeleteIcon,
   DownloadOutlined as DownloadIcon,
   RestartAltOutlined as ResetIcon,
   VisibilityOutlined as ViewIcon,
-  ErrorOutline as WarningIcon
+  ErrorOutline as WarningIcon,
 } from '@mui/icons-material';
 import { useResetAnnotations } from '../../hooks/useResetAnnotations';
 import { annotationApi } from '../../services/annotationApi';
@@ -31,7 +30,7 @@ const EVENT_TYPES = [
   'Background/Introduction',
   'Methods/Approach',
   'Results/Findings',
-  'Conclusions/Implications'
+  'Conclusions/Implications',
 ];
 
 const ConfirmationDialog = ({
@@ -43,10 +42,10 @@ const ConfirmationDialog = ({
   onConfirm,
   onCancel,
   severity = 'error',
-  loading = false
+  loading = false,
 }) => {
   const theme = useTheme();
-  
+
   const getSeverityColor = () => {
     switch (severity) {
       case 'error':
@@ -68,30 +67,30 @@ const ConfirmationDialog = ({
         sx: {
           width: '100%',
           maxWidth: 400,
-          overflow: 'hidden'
-        }
+          overflow: 'hidden',
+        },
       }}
     >
-      <DialogTitle sx={{ 
-        bgcolor: alpha(color.main, 0.1),
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1
-      }}>
+      <DialogTitle
+        sx={{
+          bgcolor: alpha(color.main, 0.1),
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
+      >
         <WarningIcon sx={{ color: color.main }} />
         <Typography variant="h6" component="span" sx={{ color: color.main }}>
           {title}
         </Typography>
       </DialogTitle>
-      
+
       <DialogContent sx={{ mt: 2 }}>
-        <Typography>
-          {message}
-        </Typography>
+        <Typography>{message}</Typography>
       </DialogContent>
-      
+
       <DialogActions sx={{ px: 3, py: 2, bgcolor: 'grey.50' }}>
-        <Button 
+        <Button
           onClick={onCancel}
           variant="outlined"
           disabled={loading}
@@ -104,9 +103,9 @@ const ConfirmationDialog = ({
           variant="contained"
           color={severity}
           disabled={loading}
-          sx={{ 
+          sx={{
             minWidth: 100,
-            position: 'relative'
+            position: 'relative',
           }}
         >
           {loading && (
@@ -117,13 +116,11 @@ const ConfirmationDialog = ({
                 left: '50%',
                 top: '50%',
                 marginLeft: '-12px',
-                marginTop: '-12px'
+                marginTop: '-12px',
               }}
             />
           )}
-          <span style={{ opacity: loading ? 0 : 1 }}>
-            {confirmText}
-          </span>
+          <span style={{ opacity: loading ? 0 : 1 }}>{confirmText}</span>
         </Button>
       </DialogActions>
     </Dialog>
@@ -136,7 +133,7 @@ const FileActionsMenu = ({
   onDelete,
   onNavigate,
   file,
-  disabledActions = []
+  disabledActions = [],
 }) => {
   const { resetAnnotations, isResetting } = useResetAnnotations(file?._id);
   const [confirmDialog, setConfirmDialog] = useState({
@@ -146,14 +143,15 @@ const FileActionsMenu = ({
     message: '',
     confirmText: '',
     cancelText: '',
-    severity: 'error'
+    severity: 'error',
   });
 
   const handleAction = async (action) => {
     switch (action) {
       case 'view':
         if (onNavigate && file?._id) {
-          onNavigate(`/annotate/${file._id}`, { state: { mode: 'view' } }); // Pass mode as 'view'
+          // Navigate to annotation dashboard with view mode query parameter
+          onNavigate(`/annotate/${file._id}?mode=view`);
           onClose();
         }
         break;
@@ -166,34 +164,28 @@ const FileActionsMenu = ({
           message: `Are you sure you want to delete "${file?.name}"? This action cannot be undone.`,
           confirmText: 'Delete',
           cancelText: 'Cancel',
-          severity: 'error'
+          severity: 'error',
         });
         break;
 
       case 'download':
         try {
-          // First get the file with annotations
           const response = await annotationApi.getFileWithAnnotations(file._id);
           if (!response?.file) {
             throw new Error('Failed to get annotations');
           }
-      
-          // Create clean version matching input format exactly
+
           const downloadData = {
-            papers: response.file.papers.map(paper => ({
+            papers: response.file.papers.map((paper) => ({
               paper_code: paper.paper_code || '',
               abstract: paper.abstract || '',
-              events: paper.events.map(event => {
-                // Find active event type by checking if it exists in the event
-                const activeEventType = EVENT_TYPES.find(type => type in event);
-                
-                // Start with event type as first property
+              events: paper.events.map((event) => {
+                const activeEventType = EVENT_TYPES.find((type) => type in event);
                 const baseData = {};
                 if (activeEventType) {
                   baseData[activeEventType] = event[activeEventType] || '';
                 }
-                
-                // Add remaining properties without ArgumentPositions
+
                 Object.assign(baseData, {
                   Text: event.Text || '',
                   'Main Action': event['Main Action'] || '',
@@ -203,7 +195,7 @@ const FileActionsMenu = ({
                       'Primary Object': event.Arguments?.Object?.['Primary Object'] || [],
                       'Primary Modifier': event.Arguments?.Object?.['Primary Modifier'] || [],
                       'Secondary Object': event.Arguments?.Object?.['Secondary Object'] || [],
-                      'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || []
+                      'Secondary Modifier': event.Arguments?.Object?.['Secondary Modifier'] || [],
                     },
                     Context: event.Arguments?.Context || [],
                     Purpose: event.Arguments?.Purpose || [],
@@ -213,25 +205,21 @@ const FileActionsMenu = ({
                     Challenge: event.Arguments?.Challenge || [],
                     Ethical: event.Arguments?.Ethical || [],
                     Implications: event.Arguments?.Implications || [],
-                    Contradictions: event.Arguments?.Contradictions || []
-                  }
+                    Contradictions: event.Arguments?.Contradictions || [],
+                  },
                 });
-      
+
                 return baseData;
-              })
-            }))
+              }),
+            })),
           };
-      
+
           const jsonString = JSON.stringify(downloadData, null, 2);
-          
-          // Create blob and download link
           const blob = new Blob([jsonString], { type: 'application/json' });
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
-          
-          // Use the original file name 
           const outputFilename = file.name.replace(/\.json$/, '') + '_annotated.json';
-          
+
           link.href = url;
           link.download = outputFilename;
           document.body.appendChild(link);
@@ -252,7 +240,7 @@ const FileActionsMenu = ({
           message: `Are you sure you want to reset all annotations for "${file?.name}"? This action cannot be undone.`,
           confirmText: 'Reset',
           cancelText: 'Cancel',
-          severity: 'warning'
+          severity: 'warning',
         });
         break;
 
@@ -269,7 +257,6 @@ const FileActionsMenu = ({
           break;
         case 'reset':
           await resetAnnotations();
-          // Navigate to annotation page after reset
           if (file?._id) {
             onNavigate(`/annotate/${file._id}`);
           }
@@ -297,13 +284,13 @@ const FileActionsMenu = ({
           sx: {
             width: 220,
             '& .MuiList-root': {
-              py: 1
-            }
-          }
+              py: 1,
+            },
+          },
         }}
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-      >
+        >
         <MenuItem
           onClick={() => handleAction('view')}
           disabled={disabledActions.includes('view')}
@@ -333,10 +320,10 @@ const FileActionsMenu = ({
           <ListItemIcon>
             <ResetIcon color="warning" />
           </ListItemIcon>
-          <ListItemText 
+          <ListItemText
             primary="Reset Annotations"
             primaryTypographyProps={{
-              color: 'warning.main'
+              color: 'warning.main',
             }}
           />
         </MenuItem>
@@ -348,10 +335,10 @@ const FileActionsMenu = ({
           <ListItemIcon>
             <DeleteIcon color="error" />
           </ListItemIcon>
-          <ListItemText 
+          <ListItemText
             primary="Delete File"
             primaryTypographyProps={{
-              color: 'error.main'
+              color: 'error.main',
             }}
           />
         </MenuItem>
@@ -382,10 +369,10 @@ FileActionsMenu.propTypes = {
     name: PropTypes.string.isRequired,
     progress: PropTypes.shape({
       paperIndex: PropTypes.number.isRequired,
-      eventIndex: PropTypes.number.isRequired
-    })
+      eventIndex: PropTypes.number.isRequired,
+    }),
   }),
-  disabledActions: PropTypes.arrayOf(PropTypes.string)
+  disabledActions: PropTypes.arrayOf(PropTypes.string),
 };
 
 export default FileActionsMenu;
