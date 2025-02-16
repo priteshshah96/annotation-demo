@@ -662,6 +662,9 @@ const UserAnnotationDashboard = () => {
   }, [localFileData, currentPosition, eventType]);
 
   // Effects
+
+
+  
   useEffect(() => {
     if (isViewMode) {
       setViewModePosition({ paperIndex: 0, eventIndex: 0 });
@@ -702,6 +705,8 @@ const UserAnnotationDashboard = () => {
       navigate('/sign-in');
     }
   }, [isLoaded, isSignedIn, navigate]);
+
+  
 
   useEffect(() => {
     mountedRef.current = true;

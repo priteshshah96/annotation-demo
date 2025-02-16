@@ -1,5 +1,5 @@
 // AnnotationMain.jsx
-import React, { memo, useState, useEffect } from 'react';
+import React, { memo, useState, useEffect, useRef } from 'react';
 import TextAnnotationPanel from './TextAnnotationPanel';
 import JsonViewer from './JsonViewer';
 import SummaryInput from './SummaryInput';
@@ -19,10 +19,11 @@ const AnnotationMain = ({
   localFileData,
   isViewMode,
   onHasUnsavedChanges,
-  showToast // Add this prop
+  showToast
 }) => {
   const [summaryStatus, setSummaryStatus] = useState('idle');
   const shouldDisableDownload = summaryStatus === 'saving' || summaryStatus === 'unsaved';
+  const clearSelectionRef = useRef(null);
 
   // Notify parent component about unsaved changes
   useEffect(() => {
@@ -38,6 +39,10 @@ const AnnotationMain = ({
     } catch (error) {
       console.error('Error in annotation deletion:', error);
     }
+  };
+
+  const handleSummaryInputClick = () => {
+    clearSelectionRef.current?.();
   };
 
   return (
@@ -59,7 +64,8 @@ const AnnotationMain = ({
             onAnnotationDelete={handleAnnotationDelete}
             eventType={eventType}
             readOnly={isViewMode}
-            showToast={showToast} // Pass through to TextAnnotationPanel
+            showToast={showToast}
+            onExternalClear={(clearFn) => clearSelectionRef.current = clearFn}
           />
         </div>
       </div>
@@ -75,6 +81,7 @@ const AnnotationMain = ({
             maxLength={100}
             onStatusChange={setSummaryStatus}
             placeholder="Please summarize the event text in a single sentence..."
+            onClick={handleSummaryInputClick}
           />
         </div>
 

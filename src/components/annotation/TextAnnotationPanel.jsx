@@ -64,7 +64,8 @@ const TextAnnotationPanel = ({
   onAnnotationSelect,
   onAnnotationDelete,
   readOnly = false,
-  showToast
+  showToast,
+  onExternalClear = () => {}
 }) => {
   const textRef = useRef(null);
   const textContainerRef = useRef(null);
@@ -125,7 +126,80 @@ const TextAnnotationPanel = ({
     }
     setLocalSelection(null);
     setIsSelecting(false);
-  }, []);
+    onTextSelect?.(null); // notify parent component
+  }, [onTextSelect]);
+
+  const handleAnnotationClick = useCallback((type) => {
+    if (!localSelection) {
+      showToast('Please select text before adding an annotation.', 'error');
+      return;
+    }
+  
+    if (type !== 'Main Action' && !hasMainAction) {
+      showToast('Please annotate Main Action first', 'error');
+      return;
+    }
+  
+    const fieldPath = type === 'Main Action' ? type :
+      type.startsWith('Object.') ?
+        `Arguments.Object.${type.slice(7)}` :
+        `Arguments.${type}`;
+  
+    onAnnotationSelect(fieldPath, localSelection);
+    clearSelection();
+    showToast(`Added ${type} annotation`, 'success');
+  }, [localSelection, hasMainAction, onAnnotationSelect, clearSelection, showToast]);
+
+  // Handle keyboard events including Ctrl+C
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        clearSelection();
+        return;
+      }
+
+      // Handle Ctrl+C for copying
+      if (e.ctrlKey && e.key === 'c') {
+        if (localSelection) {
+          e.preventDefault();
+          navigator.clipboard.writeText(localSelection.text)
+            .then(() => showToast('Text copied to clipboard', 'success'))
+            .catch(() => showToast('Failed to copy text', 'error'));
+          return;
+        }
+        return;
+      }
+  
+      // Only process annotation shortcuts if not using Ctrl key
+      if (!e.ctrlKey && localSelection) {
+        const key = e.key.toLowerCase();
+        const buttonType = Object.entries(KEYBOARD_SHORTCUTS).find(([_, shortcut]) =>
+          shortcut.toLowerCase() === key
+        )?.[0];
+    
+        if (buttonType) {
+          e.preventDefault();
+          handleAnnotationClick(buttonType);
+        }
+      }
+    };
+  
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [localSelection, clearSelection, handleAnnotationClick, showToast]);
+
+  // Clear selection when text changes (i.e., moving to new event)
+  useEffect(() => {
+    clearSelection();
+  }, [text, clearSelection]);
+
+  // Listen for external clear signals
+  useEffect(() => {
+    onExternalClear(clearSelection);
+  }, [clearSelection, onExternalClear]);
 
   const handleMouseDown = useCallback((e) => {
     // Don't start selection if clicking delete button
@@ -211,47 +285,39 @@ const TextAnnotationPanel = ({
     }
   }, [isSelecting, clearSelection, showToast]);
 
-  const handleAnnotationClick = useCallback((type) => {
-    if (!localSelection) {
-      showToast('Please select text before adding an annotation.', 'error');
-      return;
-    }
-  
-    if (type !== 'Main Action' && !hasMainAction) {
-      showToast('Please annotate Main Action first', 'error');
-      return;
-    }
-  
-    const fieldPath = type === 'Main Action' ? type :
-      type.startsWith('Object.') ?
-        `Arguments.Object.${type.slice(7)}` :
-        `Arguments.${type}`;
-  
-    onAnnotationSelect(fieldPath, localSelection);
-    clearSelection();
-    showToast(`Added ${type} annotation`, 'success');
-  }, [localSelection, hasMainAction, onAnnotationSelect, clearSelection, showToast]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-  
+      
       if (e.key === 'Escape') {
         e.preventDefault();
         clearSelection();
         return;
       }
   
-      if (!localSelection) return;
-  
-      const key = e.key.toLowerCase();
-      const buttonType = Object.entries(KEYBOARD_SHORTCUTS).find(([_, shortcut]) =>
-        shortcut.toLowerCase() === key
-      )?.[0];
-  
-      if (buttonType) {
-        e.preventDefault();
-        handleAnnotationClick(buttonType);
+      // Handle Ctrl+C for copy
+      if (e.ctrlKey && e.key === 'c') {
+        if (localSelection) {
+          e.preventDefault();
+          navigator.clipboard.writeText(localSelection.text)
+            .then(() => showToast('Text copied to clipboard', 'success'))
+            .catch(() => showToast('Failed to copy text', 'error'));
+          return;
+        }
+      }
+      
+      // Only process shortcuts if Ctrl is not pressed
+      if (!e.ctrlKey && localSelection) {
+        const key = e.key.toLowerCase();
+        const buttonType = Object.entries(KEYBOARD_SHORTCUTS).find(([_, shortcut]) =>
+          shortcut.toLowerCase() === key
+        )?.[0];
+    
+        if (buttonType) {
+          e.preventDefault();
+          handleAnnotationClick(buttonType);
+        }
       }
     };
   

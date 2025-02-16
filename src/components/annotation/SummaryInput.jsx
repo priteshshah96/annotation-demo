@@ -18,7 +18,8 @@ const SummaryInput = ({
   disabled = false,
   maxLength = 100,
   onStatusChange,
-  placeholder
+  placeholder,
+  onClick
 }) => {
   const [inputValue, setInputValue] = useState(value || '');
   const [status, setStatus] = useState(STATUS.IDLE);
@@ -189,6 +190,7 @@ const SummaryInput = ({
           rows={3}
           aria-label={`${eventType || 'Event'} summary text`}
           aria-describedby="summary-help-text"
+          onClick={onClick}
         />
         <div className="absolute top-3 right-3">
           <span className="text-xs text-gray-400" aria-hidden="true">
