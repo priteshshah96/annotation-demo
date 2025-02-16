@@ -136,8 +136,6 @@ const SummaryInput = ({
       role="form"
       aria-label={`${eventType || 'Event'} summary input`}
     >
-
-
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">
           {eventType ? `${eventType} Summary` : 'Summary'}
@@ -190,7 +188,7 @@ const SummaryInput = ({
           rows={3}
           aria-label={`${eventType || 'Event'} summary text`}
           aria-describedby="summary-help-text"
-          onClick={onClick}
+          onFocus={onClick}
         />
         <div className="absolute top-3 right-3">
           <span className="text-xs text-gray-400" aria-hidden="true">

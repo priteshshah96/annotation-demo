@@ -42,7 +42,7 @@ const AnnotationMain = ({
   };
 
   const handleSummaryInputClick = () => {
-    clearSelectionRef.current?.();
+    clearSelectionRef.current?.();  // Just call the clear function
   };
 
   return (

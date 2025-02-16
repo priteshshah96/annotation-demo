@@ -202,19 +202,20 @@ const TextAnnotationPanel = ({
   }, [clearSelection, onExternalClear]);
 
   const handleMouseDown = useCallback((e) => {
-    // Don't start selection if clicking delete button
-    if (e.target.closest('button[aria-label="Delete annotation"]')) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
+    // Don't start selection if clicking delete button or if target is textarea
+    if (e.target.closest('button[aria-label="Delete annotation"]') || 
+        e.target.tagName === 'TEXTAREA') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
     }
-  
+    
     if (!textRef.current?.contains(e.target) || readOnly) {
-      clearSelection();
-      return;
+        clearSelection();
+        return;
     }
     setIsSelecting(true);
-  }, [readOnly, clearSelection]);
+}, [readOnly, clearSelection]);
 
   const handleMouseMove = useCallback((e) => {
     if (!isSelecting) return;
@@ -286,45 +287,6 @@ const TextAnnotationPanel = ({
   }, [isSelecting, clearSelection, showToast]);
 
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        clearSelection();
-        return;
-      }
-  
-      // Handle Ctrl+C for copy
-      if (e.ctrlKey && e.key === 'c') {
-        if (localSelection) {
-          e.preventDefault();
-          navigator.clipboard.writeText(localSelection.text)
-            .then(() => showToast('Text copied to clipboard', 'success'))
-            .catch(() => showToast('Failed to copy text', 'error'));
-          return;
-        }
-      }
-      
-      // Only process shortcuts if Ctrl is not pressed
-      if (!e.ctrlKey && localSelection) {
-        const key = e.key.toLowerCase();
-        const buttonType = Object.entries(KEYBOARD_SHORTCUTS).find(([_, shortcut]) =>
-          shortcut.toLowerCase() === key
-        )?.[0];
-    
-        if (buttonType) {
-          e.preventDefault();
-          handleAnnotationClick(buttonType);
-        }
-      }
-    };
-  
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [localSelection, clearSelection, handleAnnotationClick, showToast]);
-
   // Calculate ranges outside renderedText
   const calculateRanges = useMemo(() => {
     if (!text) return [];
@@ -349,20 +311,23 @@ const TextAnnotationPanel = ({
       };
     });
   
+    // Create a unique timestamp for the selection to avoid key conflicts
+    const selectionTimestamp = Date.now();
+    
     const allRanges = localSelection 
-    ? [...annotations, { 
-        start: localSelection.start, 
-        end: localSelection.end, 
-        type: 'current-selection',
-        id: 'selection',
-        annotationId: 'selection'
-      }]
-    : annotations;
+      ? [...annotations, { 
+          start: localSelection.start, 
+          end: localSelection.end, 
+          type: 'current-selection',
+          id: `selection-${selectionTimestamp}`,
+          annotationId: `selection-${selectionTimestamp}`
+        }]
+      : annotations;
   
-  return [...allRanges].sort((a, b) => {
-    if (a.start !== b.start) return a.start - b.start;
-    return a.end - b.end;
-  });
+    return [...allRanges].sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      return a.end - b.end;
+    });
 }, [annotations, localSelection, text]);
 
 
